@@ -34,12 +34,12 @@ export class RequireRole extends Precondition {
       const formattedLevel =
         context.level.charAt(0).toUpperCase() +
         context.level.slice(1).toLowerCase();
-      
+
       await interaction.reply({
         content: `🚫 **Access Denied**: This action is reserved for **${formattedLevel}** rank and above.`,
         ephemeral: true,
       });
-      
+
       return this.error({ message: 'Access Denied' });
     }
   }

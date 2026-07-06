@@ -18,7 +18,7 @@ export class ChatInputError extends Listener {
   ) {
     super(context, {
       ...options,
-      event: 'chatInputError', 
+      event: 'chatInputError',
     });
   }
 
@@ -26,7 +26,6 @@ export class ChatInputError extends Listener {
     error: Error,
     { interaction }: { interaction: ChatInputCommandInteraction },
   ) {
-    
     if (error instanceof UserError) {
       return interaction
         .reply({
@@ -35,7 +34,7 @@ export class ChatInputError extends Listener {
         })
         .catch(() => null);
     }
-    
+
     console.error(error);
     return interaction
       .reply({
