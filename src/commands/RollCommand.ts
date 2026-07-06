@@ -11,7 +11,12 @@ export class RollCommand extends Subcommand {
       builder
         .setName('roll')
         .setDescription('Roll a random number')
-        .addIntegerOption((o) => o.setName('max').setDescription('Max number (default 100)')),
+        .addIntegerOption((o) =>
+          o
+            .setName('max')
+            .setDescription('Max number (default 100)')
+            .setMinValue(1),
+        ),
     );
   }
 
