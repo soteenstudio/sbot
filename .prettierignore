@@ -1,0 +1,9 @@
+node_modules
+tests
+rust
+binaries
+docs
+.github
+.git
+*.md
+*.tgz

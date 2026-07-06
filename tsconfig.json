@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "types": ["node"],
+    "target": "ESNext",
+    "lib": ["es5", "es6", "es7", "es2022", "dom"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "./src",
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "sourceMap": true,
+    "outDir": "./dist",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationDir": "./types",
+    "allowJs": true
+  },
+  "include": ["./src/**/*"],
+  "exclude": ["tests", "./types/**/*"]
+}
