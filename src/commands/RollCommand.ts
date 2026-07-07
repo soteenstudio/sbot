@@ -33,12 +33,15 @@ export class RollCommand extends Subcommand {
     );
   }
 
-  public async chatInputRun(interaction: ChatInputCommandInteraction) {
+  public async chatInputRun(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<void> {
     const max = interaction.options.getInteger('max') || 100;
     const result = Math.floor(Math.random() * max) + 1;
 
-    return interaction.reply({
+    await interaction.reply({
       content: `🎲 **${interaction.user.username}** rolled a **${result}** (1-${max})`,
     });
+    return;
   }
 }

@@ -26,7 +26,7 @@ import { activeLFG } from '../lib/lfg-data.js';
 
 export class RequestHandler extends InteractionHandler {
   public constructor(
-    context: PieceContext,
+    context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,
   ) {
     super(context, {

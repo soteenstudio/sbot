@@ -24,7 +24,7 @@ import { activeLFG } from '../lib/lfg-data.js';
 
 export class JoinButtonHandler extends InteractionHandler {
   public constructor(
-    context: PieceContext,
+    context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,
   ) {
     super(context, {

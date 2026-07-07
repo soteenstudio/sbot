@@ -17,7 +17,7 @@ import { ButtonInteraction } from 'discord.js';
 
 export class EndSessionHandler extends InteractionHandler {
   public constructor(
-    context: PieceContext,
+    context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,
   ) {
     super(context, {

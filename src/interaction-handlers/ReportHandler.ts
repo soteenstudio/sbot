@@ -69,7 +69,6 @@ export class ReportHandler extends InteractionHandler {
     await interaction.editReply({
       content:
         '✅ The report has been marked as resolved, and the reporter has been notified via DM.',
-      flags: MessageFlags.Ephemeral,
     });
   }
 }

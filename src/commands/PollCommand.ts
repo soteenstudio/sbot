@@ -31,7 +31,7 @@ export class PollCommand extends Subcommand {
         {
           name: 'create',
           chatInputRun: 'create',
-          preconditions: ['PollCooldown'],
+          preconditions: ['PollCooldown'] as any,
         },
         { name: 'results', chatInputRun: 'results' },
         { name: 'close', chatInputRun: 'close' },
@@ -69,13 +69,14 @@ export class PollCommand extends Subcommand {
     );
   }
 
-  public async create(interaction: ChatInputCommandInteraction) {
+  public async create(interaction: ChatInputCommandInteraction): Promise<void> {
     if (activePolls.has(interaction.user.id)) {
-      return interaction.reply({
+      await interaction.reply({
         content:
           '❌ You already have an active poll. Please close it using `/poll close` before creating a new one.',
         ephemeral: true,
       });
+      return;
     }
 
     const question = interaction.options.getString('question', true);
@@ -108,16 +109,28 @@ export class PollCommand extends Subcommand {
       messageId: response.id,
       channelId: interaction.channelId,
       votes: new Map<number, number>(),
+      voters: new Set<string>(),
     });
   }
 
-  public async results(interaction: ChatInputCommandInteraction) {
-    const poll = activePolls.get(interaction.user.id);
+  public async results(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<void> {
+    const poll = activePolls.get(interaction.user.id) ?? {
+      question: 'N/A',
+      options: [],
+      messageId: '',
+      channelId: '',
+      votes: new Map<number, number>(),
+      voters: new Set<string>(),
+    };
+
     if (!poll)
-      return interaction.reply({
+      await interaction.reply({
         content: '❌ No active poll found.',
         ephemeral: true,
       });
+    return;
 
     const votes = poll.votes || new Map<number, number>();
 
@@ -136,12 +149,14 @@ export class PollCommand extends Subcommand {
     await interaction.reply({ embeds: [embed], ephemeral: true });
   }
 
-  public async close(interaction: ChatInputCommandInteraction) {
-    if (!activePolls.delete(interaction.user.id))
-      return interaction.reply({
+  public async close(interaction: ChatInputCommandInteraction): Promise<void> {
+    if (!activePolls.delete(interaction.user.id)) {
+      await interaction.reply({
         content: '❌ No active poll.',
         ephemeral: true,
       });
+      return;
+    }
     await interaction.reply({ content: '✅ Poll closed.', ephemeral: true });
   }
 }

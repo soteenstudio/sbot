@@ -55,7 +55,9 @@ export class ReportCommand extends Subcommand {
     );
   }
 
-  public async chatInputRun(interaction: ChatInputCommandInteraction) {
+  public async chatInputRun(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<void> {
     const reason = interaction.options.getString('reason', true);
     const category = interaction.options.getString('category', true);
     const reportChannel = interaction.guild?.channels.cache.get(
@@ -63,10 +65,11 @@ export class ReportCommand extends Subcommand {
     );
 
     if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
-      return interaction.reply({
+      await interaction.reply({
         content: '❌ Report channel not configured.',
         ephemeral: true,
       });
+      return;
     }
 
     const embed = new EmbedBuilder()

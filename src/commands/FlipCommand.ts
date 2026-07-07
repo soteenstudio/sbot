@@ -25,11 +25,14 @@ export class FlipCommand extends Subcommand {
     );
   }
 
-  public async chatInputRun(interaction: ChatInputCommandInteraction) {
+  public async chatInputRun(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<void> {
     const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
 
-    return interaction.reply({
+    await interaction.reply({
       content: `🪙 **${interaction.user.username}** flipped a coin and got **${result}**!`,
     });
+    return;
   }
 }

@@ -78,6 +78,6 @@ export class StatsCommand extends Subcommand {
         .setURL('https://github.com/soteenstudio/sbot'),
     );
 
-    return interaction.reply({ embeds: [embed], components: [row] });
+    await interaction.reply({ embeds: [embed], components: [row] });
   }
 }
