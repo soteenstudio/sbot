@@ -116,22 +116,17 @@ export class PollCommand extends Subcommand {
   public async results(
     interaction: ChatInputCommandInteraction,
   ): Promise<void> {
-    const poll = activePolls.get(interaction.user.id) ?? {
-      question: 'N/A',
-      options: [],
-      messageId: '',
-      channelId: '',
-      votes: new Map<number, number>(),
-      voters: new Set<string>(),
-    };
+    const poll = activePolls.get(interaction.user.id);
 
-    if (!poll)
+    if (!poll) {
       await interaction.reply({
         content: '❌ No active poll found.',
         ephemeral: true,
       });
-    return;
+      return;
+    }
 
+    const votes = poll.votes || new Map<number, number>();
     const votes = poll.votes || new Map<number, number>();
 
     const resultLines = poll.options
