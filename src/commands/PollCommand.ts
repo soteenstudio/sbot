@@ -127,7 +127,6 @@ export class PollCommand extends Subcommand {
     }
 
     const votes = poll.votes || new Map<number, number>();
-    const votes = poll.votes || new Map<number, number>();
 
     const resultLines = poll.options
       .map((option, index) => {
