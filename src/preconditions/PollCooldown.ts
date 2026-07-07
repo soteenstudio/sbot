@@ -16,7 +16,7 @@ const cooldowns = new Map<string, number>();
 
 export class PollCooldown extends Precondition {
   public async chatInputRun(interaction: CommandInteraction) {
-    const member = interaction.member as GuildMember;
+    const member = (interaction.member as GuildMember) ?? 0;
     const now = Date.now();
     const COOLDOWN_TIME = 3600000;
 

@@ -70,6 +70,14 @@ export class PollCommand extends Subcommand {
   }
 
   public async create(interaction: ChatInputCommandInteraction) {
+    if (activePolls.has(interaction.user.id)) {
+      return interaction.reply({
+        content:
+          '❌ You already have an active poll. Please close it using `/poll close` before creating a new one.',
+        ephemeral: true,
+      });
+    }
+
     const question = interaction.options.getString('question', true);
     const options = interaction.options.getString('options', true).split('|');
 

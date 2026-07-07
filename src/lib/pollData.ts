@@ -16,5 +16,7 @@ export const activePolls = new Map<
     messageId: string;
     channelId: string;
     votes: Map<number, number>;
+
+    voters: Set<string>;
   }
 >();

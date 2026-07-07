@@ -56,6 +56,16 @@ export class LFGCommand extends Command {
     const slots = interaction.options.getInteger('slots', true);
     const vcLink = interaction.options.getString('vc_link', true);
 
+    try {
+      new URL(vcLink);
+    } catch {
+      return interaction.reply({
+        content:
+          '❌ Invalid link provided. Please ensure your Voice Channel Link is a valid URL (e.g., https://discord.gg/...).',
+        ephemeral: true,
+      });
+    }
+
     const embed = new EmbedBuilder()
       .setTitle('🎮 LFG Session')
       .setColor(0x5865f2)

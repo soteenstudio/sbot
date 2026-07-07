@@ -94,10 +94,20 @@ export class ReportCommand extends Subcommand {
         .setStyle(ButtonStyle.Success),
     );
 
-    await reportChannel.send({ embeds: [embed], components: [row] });
-    await interaction.reply({
-      content: '✅ Your report has been sent to the staff. Thank you!',
-      ephemeral: true,
-    });
+    try {
+      await reportChannel.send({ embeds: [embed], components: [row] });
+      await interaction.reply({
+        content: '✅ Your report has been sent to the staff. Thank you!',
+        ephemeral: true,
+      });
+    } catch (error) {
+      console.error('Failed to send report to channel:', error);
+
+      await interaction.reply({
+        content:
+          "❌ Sorry, I couldn't deliver your report to the staff channel. Please contact an admin directly.",
+        ephemeral: true,
+      });
+    }
   }
 }

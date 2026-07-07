@@ -35,13 +35,26 @@ export class PollButtonHandler extends InteractionHandler {
     await interaction.deferReply({ ephemeral: true });
 
     const [_, authorId, indexStr] = interaction.customId.split('_');
-    const index = parseInt(indexStr);
+    const index = parseInt(indexStr, 10);
     const poll = activePolls.get(authorId);
 
-    if (poll) {
-      const currentVotes = poll.votes.get(index) || 0;
-      poll.votes.set(index, currentVotes + 1);
+    if (!poll) {
+      return interaction.editReply({
+        content: '❌ This poll is no longer active.',
+      });
     }
+
+    poll.voters ??= new Set<string>();
+
+    if (poll.voters.has(interaction.user.id)) {
+      return interaction.editReply({
+        content: '⚠️ You already voted on this poll.',
+      });
+    }
+
+    poll.voters.add(interaction.user.id);
+    const currentVotes = poll.votes.get(index) || 0;
+    poll.votes.set(index, currentVotes + 1);
 
     await interaction.editReply({ content: `✅ Voted for option ${index}` });
   }
