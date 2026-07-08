@@ -2,3 +2,4 @@
 .env.dev
 /dist/
 /node_modules/
+/.trash/

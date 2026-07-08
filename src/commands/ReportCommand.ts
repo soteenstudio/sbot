@@ -17,6 +17,7 @@ import {
   ButtonStyle,
   ChannelType,
 } from 'discord.js';
+import 'dotenv/config';
 
 export class ReportCommand extends Subcommand {
   public constructor(
@@ -63,7 +64,7 @@ export class ReportCommand extends Subcommand {
     const reason = interaction.options.getString('reason', true);
     const category = interaction.options.getString('category', true);
     const reportChannel = interaction.guild?.channels.cache.get(
-      '1183250305077489766',
+      process.env.REPORT_CHANNEL,
     );
 
     if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
