@@ -145,13 +145,27 @@ export class PollCommand extends Subcommand {
   }
 
   public async close(interaction: ChatInputCommandInteraction): Promise<void> {
-    if (!activePolls.delete(interaction.user.id)) {
+    const poll = activePolls.get(interaction.user.id);
+    if (!poll) {
       await interaction.reply({
         content: '❌ No active poll.',
         ephemeral: true,
       });
       return;
     }
+
+    activePolls.delete(interaction.user.id);
+
+    try {
+      const channel = await interaction.client.channels.fetch(poll.channelId);
+      if (channel?.isTextBased()) {
+        const message = await (channel as any).messages.fetch(poll.messageId);
+        await message.edit({ components: [] });
+      }
+    } catch {
+      // Message may be deleted or inaccessible
+    }
+
     await interaction.reply({ content: '✅ Poll closed.', ephemeral: true });
   }
 }
