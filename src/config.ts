@@ -1,5 +1,9 @@
+import 'dotenv/config';
 export const Roles = {
-    DONATUR: { id: '1105064080756187188', weight: 1 },
-    BILLION: { id: '1105063987361620069', weight: 2 },
-    RICHMAN: { id: '1105063774446161960', weight: 3 }
+    MEMBER: { id: process.env.ROLE_MEMBER, weight: 0 },
+    DONATUR: { id: process.env.ROLE_DONATUR, weight: 1 },
+    BILLION: { id: process.env.ROLE_BILLION, weight: 2 },
+    RICHMAN: { id: process.env.ROLE_RICHMAN, weight: 3 },
+    DEPUTY: { id: process.env.ROLE_DEPUTY, weight: 4 },
+    FOUNDER: { id: process.env.ROLE_FOUNDER, weight: 5 }
 } as const;

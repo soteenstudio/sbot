@@ -33,14 +33,14 @@ export class LFGCommand extends Subcommand {
           name: 'create',
           chatInputRun: 'create',
           preconditions: [
-            { name: 'RequireRole', context: { level: 'BILLION' } },
+            { name: 'RequireRole', context: { level: 'BILLION' } } as any,
           ],
         },
         {
           name: 'close',
           chatInputRun: 'close',
           preconditions: [
-            { name: 'RequireRole', context: { level: 'BILLION' } },
+            { name: 'RequireRole', context: { level: 'BILLION' } } as any,
           ],
         },
         { name: 'list', chatInputRun: 'list' },
@@ -53,6 +53,7 @@ export class LFGCommand extends Subcommand {
       builder
         .setName(this.name)
         .setDescription(this.description)
+        .setDMPermission(false)
         .addSubcommand((sub) =>
           sub
             .setName('create')
@@ -122,6 +123,7 @@ export class LFGCommand extends Subcommand {
       authorId: interaction.user.id,
       channelId: interaction.channelId!,
       messageId: response.id,
+      vcId: '',
     });
   }
 

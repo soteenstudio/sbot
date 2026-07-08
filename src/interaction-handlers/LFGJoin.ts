@@ -24,7 +24,7 @@ import { activeLFG } from '../lib/lfg-data.js';
 
 export class JoinButtonHandler extends InteractionHandler {
   public constructor(
-    context: PieceContext,
+    context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,
   ) {
     super(context, {
@@ -67,11 +67,22 @@ export class JoinButtonHandler extends InteractionHandler {
         .setStyle(ButtonStyle.Danger),
     );
 
+    const notificationEmbed = new EmbedBuilder()
+      .setTitle('🔔 New LFG Request')
+      .setColor(0x0099ff)
+      .setDescription(
+        `**${interaction.user.tag}** wants to join your LFG session!`,
+      )
+      .setThumbnail(interaction.user.displayAvatarURL())
+      .setTimestamp()
+      .setFooter({ text: 'SoTeen Studio LFG System' });
+
     try {
       await host.send({
-        content: `🔔 **${interaction.user.tag}** wants to join your LFG session!`,
+        embeds: [notificationEmbed],
         components: [row],
       });
+
       return interaction.followUp({
         content: `✅ Request sent to host!`,
         ephemeral: true,
