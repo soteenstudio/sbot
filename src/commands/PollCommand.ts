@@ -160,11 +160,19 @@ export class PollCommand extends Subcommand {
       const channel = await interaction.client.channels.fetch(poll.channelId);
       if (channel?.isTextBased()) {
         const message = await (channel as any).messages.fetch(poll.messageId);
-        await message.edit({ components: [] });
+        const disabledRow = new ActionRowBuilder<ButtonBuilder>();
+        poll.options.forEach((_, i) => {
+          disabledRow.addComponents(
+            new ButtonBuilder()
+              .setCustomId(`poll_${interaction.user.id}_${i + 1}`)
+              .setLabel(`${i + 1}`)
+              .setStyle(ButtonStyle.Primary)
+              .setDisabled(true),
+          );
+        });
+        await message.edit({ components: [disabledRow] });
       }
-    } catch {
-      // Message may be deleted or inaccessible
-    }
+    } catch {}
 
     await interaction.reply({ content: '✅ Poll closed.', ephemeral: true });
   }
