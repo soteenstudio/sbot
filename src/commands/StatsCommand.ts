@@ -18,6 +18,7 @@ import {
   version as djsVersion,
 } from 'discord.js';
 import { createRequire } from 'module';
+import { cleanVersion } from '../utils/cleanVersion.js';
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json');
 
@@ -68,7 +69,7 @@ export class StatsCommand extends Subcommand {
         },
         {
           name: 'Bot Stats',
-          value: `**Uptime:** ${days}d ${hours}h ${minutes}m\n**Library:** Discord.js ${djsVersion}\n**Framework:** Sapphire ${pkg.dependencies['@sapphire/framework'].replace(/\v/g, '')}\n**Language:** TypeScript ${pkg.devDependencies['typescript'].replace(/\v/g, '')}\n**Engine:** SBot Engine ${pkg.version}`,
+          value: `**Uptime:** ${days}d ${hours}h ${minutes}m\n**Library:** Discord.js ${djsVersion}\n**Framework:** Sapphire ${cleanVersion(pkg.dependencies['@sapphire/framework'])}\n**Language:** TypeScript ${cleanVersion(pkg.devDependencies['typescript'])}\n**Engine:** SBot Engine ${pkg.version}`,
           inline: true,
         },
       )
