@@ -31,6 +31,7 @@ export class LFGCommand extends Command {
       builder
         .setName(this.name)
         .setDescription(this.description)
+        .setDMPermission(false)
         .addStringOption((o) =>
           o.setName('game').setDescription('Game title').setRequired(true),
         )

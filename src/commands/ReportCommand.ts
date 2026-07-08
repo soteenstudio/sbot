@@ -35,6 +35,7 @@ export class ReportCommand extends Subcommand {
       builder
         .setName(this.name)
         .setDescription(this.description)
+        .setDMPermission(false)
         .addStringOption((o) =>
           o
             .setName('reason')
@@ -51,7 +52,8 @@ export class ReportCommand extends Subcommand {
               { name: 'Bug/Glitch', value: 'bug' },
               { name: 'Other', value: 'other' },
             ),
-        ),
+        )
+        .setDMPermission(false),
     );
   }
 

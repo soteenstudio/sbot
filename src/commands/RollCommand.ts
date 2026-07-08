@@ -24,12 +24,14 @@ export class RollCommand extends Subcommand {
       builder
         .setName('roll')
         .setDescription('Roll a random number')
+        .setDMPermission(false)
         .addIntegerOption((o) =>
           o
             .setName('max')
             .setDescription('Max number (default 100)')
             .setMinValue(1),
-        ),
+        )
+        .setDMPermission(false),
     );
   }
 

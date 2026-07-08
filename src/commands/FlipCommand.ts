@@ -21,7 +21,10 @@ export class FlipCommand extends Subcommand {
 
   public override registerApplicationCommands(registry: Subcommand.Registry) {
     registry.registerChatInputCommand((builder) =>
-      builder.setName('flip').setDescription('Flip a coin'),
+      builder
+        .setName('flip')
+        .setDescription('Flip a coin')
+        .setDMPermission(false),
     );
   }
 

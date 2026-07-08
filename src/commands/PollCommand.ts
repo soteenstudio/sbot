@@ -44,6 +44,7 @@ export class PollCommand extends Subcommand {
       builder
         .setName(this.name)
         .setDescription(this.description)
+        .setDMPermission(false)
         .addSubcommand((sub) =>
           sub
             .setName('create')

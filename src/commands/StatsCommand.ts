@@ -35,7 +35,10 @@ export class StatsCommand extends Subcommand {
 
   public override registerApplicationCommands(registry: Subcommand.Registry) {
     registry.registerChatInputCommand((builder) =>
-      builder.setName(this.name).setDescription(this.description),
+      builder
+        .setName(this.name)
+        .setDescription(this.description)
+        .setDMPermission(false),
     );
   }
 
