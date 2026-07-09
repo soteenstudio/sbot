@@ -62,6 +62,7 @@ export class ReportCommand extends Subcommand {
     interaction: ChatInputCommandInteraction,
   ): Promise<void> {
     const reason = interaction.options.getString('reason', true);
+    const category = interaction.options.getString('category', true);
     const reportChannel = interaction.guild?.channels.cache.get(
       process.env.REPORT_CHANNEL ?? '',
     );

@@ -9,7 +9,12 @@
  */
 
 import { Subcommand } from '@sapphire/plugin-subcommands';
-import { EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
+import {
+  EmbedBuilder,
+  ChatInputCommandInteraction,
+  InteractionResponse,
+  Message,
+} from 'discord.js';
 
 import { RARITY_TIERS } from '../config/rarities.js';
 
