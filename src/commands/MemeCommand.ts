@@ -55,7 +55,7 @@ export class MemeCommand extends Subcommand {
       const url = subreddit
         ? `https://meme-api.com/gimme/${subreddit}`
         : 'https://meme-api.com/gimme';
-      const response = await axios.get(url);
+      const response = await axios.get(url, { timeout: 10000 });
       const { title, url: imageUrl, postLink, author } = response.data;
 
       const embed = new EmbedBuilder()
