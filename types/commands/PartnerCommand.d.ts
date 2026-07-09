@@ -9,9 +9,9 @@
  */
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChatInputCommandInteraction } from 'discord.js';
-import 'dotenv/config';
-export declare class ReportCommand extends Subcommand {
+export declare class PartnerCommand extends Subcommand {
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
-    chatInputRun(interaction: ChatInputCommandInteraction): Promise<void>;
+    fic(interaction: ChatInputCommandInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
+    user(interaction: ChatInputCommandInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
 }
