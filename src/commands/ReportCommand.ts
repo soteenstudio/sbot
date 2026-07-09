@@ -64,7 +64,7 @@ export class ReportCommand extends Subcommand {
     const reason = interaction.options.getString('reason', true);
     const category = interaction.options.getString('category', true);
     const reportChannel = interaction.guild?.channels.cache.get(
-      process.env.REPORT_CHANNEL as string,
+      process.env.REPORT_CHANNEL ?? '',
     );
 
     if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
