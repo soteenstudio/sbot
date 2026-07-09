@@ -13,5 +13,5 @@ export declare class PartnerCommand extends Subcommand {
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
     fic(interaction: ChatInputCommandInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
-    user(interaction: ChatInputCommandInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
+    user(interaction: ChatInputCommandInteraction): Promise<import("discord.js").Message<boolean>>;
 }

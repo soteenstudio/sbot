@@ -9,7 +9,6 @@
  */
 export declare const RARITY_TIERS: {
     tier: string;
-    rate: number;
     weight: number;
     chars: {
         name: string;

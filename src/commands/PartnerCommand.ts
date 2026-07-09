@@ -72,13 +72,14 @@ export class PartnerCommand extends Subcommand {
 
     const selectedChar =
       selectedTier.chars[Math.floor(Math.random() * selectedTier.chars.length)];
+    const rate = ((selectedTier.weight / totalWeight) * 100).toFixed(1);
 
     const embed = new EmbedBuilder()
       .setTitle('🤝 Partner Fiction Registry')
       .setDescription(
         `**Partner:** ${selectedChar.name}\n` +
           `**Rarity:** ${selectedTier.tier.toUpperCase()}\n` +
-          `**Rate:** ${selectedTier.rate}%\n\n` +
+          `**Rate:** ${rate}%\n\n` +
           `> ${selectedChar.desc}`,
       )
       .setColor(0x00ff9d)
