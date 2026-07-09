@@ -54,7 +54,9 @@ export class PartnerCommand extends Subcommand {
     );
   }
 
-  public async fic(interaction: ChatInputCommandInteraction): Promise<InteractionResponse<boolean>> {
+  public async fic(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<InteractionResponse<boolean>> {
     const totalWeight = RARITY_TIERS.reduce(
       (sum, item) => sum + item.weight,
       0,
@@ -88,7 +90,9 @@ export class PartnerCommand extends Subcommand {
     return interaction.reply({ embeds: [embed] });
   }
 
-  public async user(interaction: ChatInputCommandInteraction): Promise<Message<boolean>> {
+  public async user(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<Message<boolean>> {
     await interaction.deferReply();
     try {
       const members = await interaction.guild?.members.fetch();
@@ -98,9 +102,13 @@ export class PartnerCommand extends Subcommand {
         });
       }
 
-      const memberArray = Array.from(members.values()).filter((m) => !m.user.bot);
+      const memberArray = Array.from(members.values()).filter(
+        (m) => !m.user.bot,
+      );
       if (memberArray.length === 0) {
-        return interaction.editReply({ content: '❌ No non-bot members found.' });
+        return interaction.editReply({
+          content: '❌ No non-bot members found.',
+        });
       }
 
       const randomMember =
@@ -116,7 +124,9 @@ export class PartnerCommand extends Subcommand {
 
       return interaction.editReply({ embeds: [embed] });
     } catch (error) {
-      return interaction.editReply({ content: '❌ Failed to select a partner.' });
+      return interaction.editReply({
+        content: '❌ Failed to select a partner.',
+      });
     }
   }
 }
