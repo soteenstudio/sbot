@@ -18,6 +18,7 @@ const client = new SapphireClient({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
   ],
   loadMessageCommandListeners: true,
   baseUserDirectory: join(process.cwd(), 'dist'),

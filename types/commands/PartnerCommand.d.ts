@@ -8,10 +8,10 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import { Subcommand } from '@sapphire/plugin-subcommands';
-import { ChatInputCommandInteraction } from 'discord.js';
-import 'dotenv/config';
-export declare class ReportCommand extends Subcommand {
+import { ChatInputCommandInteraction, InteractionResponse, Message } from 'discord.js';
+export declare class PartnerCommand extends Subcommand {
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
-    chatInputRun(interaction: ChatInputCommandInteraction): Promise<void>;
+    fic(interaction: ChatInputCommandInteraction): Promise<InteractionResponse<boolean>>;
+    user(interaction: ChatInputCommandInteraction): Promise<Message<boolean>>;
 }
