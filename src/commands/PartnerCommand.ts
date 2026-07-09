@@ -54,7 +54,7 @@ export class PartnerCommand extends Subcommand {
     );
   }
 
-  public async fic(interaction: ChatInputCommandInteraction) {
+  public async fic(interaction: ChatInputCommandInteraction): Promise<InteractionResponse<boolean>> {
     const totalWeight = RARITY_TIERS.reduce(
       (sum, item) => sum + item.weight,
       0,
@@ -88,7 +88,7 @@ export class PartnerCommand extends Subcommand {
     return interaction.reply({ embeds: [embed] });
   }
 
-  public async user(interaction: ChatInputCommandInteraction) {
+  public async user(interaction: ChatInputCommandInteraction): Promise<Message<boolean>> {
     await interaction.deferReply();
     try {
       const members = await interaction.guild?.members.fetch();
