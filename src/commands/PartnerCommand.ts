@@ -88,25 +88,34 @@ export class PartnerCommand extends Subcommand {
   }
 
   public async user(interaction: ChatInputCommandInteraction) {
-    const members = await interaction.guild?.members.fetch();
-    if (!members)
-      return interaction.reply({
-        content: '❌ Could not fetch members.',
-        ephemeral: true,
-      });
+    await interaction.deferReply();
+    try {
+      const members = await interaction.guild?.members.fetch();
+      if (!members) {
+        return interaction.editReply({
+          content: '❌ Could not fetch members.',
+        });
+      }
 
-    const memberArray = Array.from(members.values()).filter((m) => !m.user.bot);
-    const randomMember =
-      memberArray[Math.floor(Math.random() * memberArray.length)];
+      const memberArray = Array.from(members.values()).filter((m) => !m.user.bot);
+      if (memberArray.length === 0) {
+        return interaction.editReply({ content: '❌ No non-bot members found.' });
+      }
 
-    const embed = new EmbedBuilder()
-      .setTitle('👤 Partner User Selection')
-      .setDescription(
-        `Today's selected partner for ${interaction.user} is: **${randomMember.user.username}**`,
-      )
-      .setColor(0x00ff9d)
-      .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) });
+      const randomMember =
+        memberArray[Math.floor(Math.random() * memberArray.length)];
 
-    return interaction.reply({ embeds: [embed] });
+      const embed = new EmbedBuilder()
+        .setTitle('👤 Partner User Selection')
+        .setDescription(
+          `Today's selected partner for ${interaction.user} is: **${randomMember.user.username}**`,
+        )
+        .setColor(0x00ff9d)
+        .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) });
+
+      return interaction.editReply({ embeds: [embed] });
+    } catch (error) {
+      return interaction.editReply({ content: '❌ Failed to select a partner.' });
+    }
   }
 }
