@@ -11,16 +11,14 @@
 import { COMMON } from './common.js';
 
 export const RARITY_TIERS = [
-  { tier: 'Common', rate: 50, weight: 5000, chars: COMMON },
+  { tier: 'Common', weight: 5000, chars: COMMON },
   {
     tier: 'Uncommon',
-    rate: 30,
     weight: 3000,
     chars: [{ name: 'Siti', desc: 'Biasa aja.' }],
   },
   {
     tier: 'Rare',
-    rate: 15,
     weight: 1500,
     chars: [{ name: 'Dewi', desc: 'Wow.' }],
   },
