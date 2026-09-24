@@ -14,12 +14,12 @@ const ROLE_LIMITS: Record<string, number> = {
 
 const usageTracker = new Map<string, { count: number; lastReset: number }>();
 
-export class ChatCommand extends Command {
+export class TssCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
     super(context, {
       ...options,
-      name: 'chat',
-      description: 'Chat with AI via OpenRouter powered by SBot Engine',
+      name: 'tss',
+      description: 'Generate AI speech audio via OpenRouter powered by SoTeen Bot (SBot Engine)',
       preconditions: [
         { name: 'RequireRole', context: { level: 'MEMBER' } } as any,
       ],
@@ -34,15 +34,9 @@ export class ChatCommand extends Command {
         .setDMPermission(false)
         .addStringOption((option) =>
           option
-            .setName('message')
-            .setDescription('The message or question for the AI')
+            .setName('text')
+            .setDescription('The text you want to convert into speech')
             .setRequired(true),
-        )
-        .addBooleanOption((option) =>
-          option
-            .setName('tts')
-            .setDescription('Enable Text-to-Speech audio output (Exclusive for high-tier roles)')
-            .setRequired(false),
         ),
     );
   }
@@ -73,16 +67,6 @@ export class ChatCommand extends Command {
       }
     }
 
-    const requestedTts = interaction.options.getBoolean('tts') ?? false;
-
-    const allowedTtsRoles = ['RICHMAN', 'DEPUTY', 'FOUNDER'];
-    if (requestedTts && !allowedTtsRoles.includes(matchedRoleName)) {
-      return interaction.reply({
-        content: `❌ The **TTS** feature is exclusive to high-tier roles (**Richman, Deputy, Founder**). Your current role is **${matchedRoleName}**.`,
-        ephemeral: true,
-      });
-    }
-
     const now = Date.now();
     const twentyFourHours = 24 * 60 * 60 * 1000;
     let userUsage = usageTracker.get(userId);
@@ -94,24 +78,25 @@ export class ChatCommand extends Command {
 
     if (userUsage.count >= userLimit) {
       return interaction.reply({
-        content: `❌ You have reached your daily AI usage limit for the **${matchedRoleName}** role (${userUsage.count}/${userLimit}). Please try again tomorrow!`,
+        content: `❌ You have reached your daily TTS generation limit for the **${matchedRoleName}** role (${userUsage.count}/${userLimit}). Please try again tomorrow!`,
         ephemeral: true,
       });
     }
 
     userUsage.count++;
 
-    const prompt = interaction.options.getString('message', true);
+    const textInput = interaction.options.getString('text', true);
 
     await interaction.deferReply();
 
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      // 1. Cek konten pakai LLM OpenRouter untuk mendeteksi kata jorok/kasar/toksik
+      const moderationResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'HTTP-Referer': 'https://discord.com',
-          'X-Title': 'SBot Engine',
+          'X-Title': 'SoTeen Bot',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -119,13 +104,42 @@ export class ChatCommand extends Command {
           messages: [
             {
               role: 'system',
-              content: 'You are an AI assistant powered by SBot Engine (AI powered by inclusionai/ling-3.0-flash-fin:free).',
+              content: 'You are a strict content moderator. Analyze if the given text contains profanity, slurs, explicit sexual content, or harsh insults (in any language, including Indonesian/slang). Reply with ONLY the word "SAFE" if it is clean, or "UNSAFE" if it contains inappropriate content.',
             },
             {
               role: 'user',
-              content: prompt,
+              content: textInput,
             },
           ],
+        }),
+      });
+
+      if (moderationResponse.ok) {
+        const modData = await moderationResponse.json();
+        const modResult = modData.choices?.[0]?.message?.content?.trim().toUpperCase() || 'SAFE';
+
+        if (modResult.includes('UNSAFE')) {
+          userUsage.count--; // Balikin kuota karena ditolak
+          return interaction.editReply({
+            content: `❌ **Text rejected!** The content you provided contains prohibited, harsh, or inappropriate words. Please keep it clean!`,
+          });
+        }
+      }
+
+      // 2. Kalau aman, lanjut proses ke API Text-to-Speech (Fish Audio)
+      const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://discord.com',
+          'X-Title': 'SoTeen Bot',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'fish-audio/s2.1-pro-free:free',
+          input: textInput,
+          voice: 'b347db033a6549378b48d00acb0d06cd',
+          response_format: 'mp3',
         }),
       });
 
@@ -133,61 +147,29 @@ export class ChatCommand extends Command {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      let replyMessage = data.choices?.[0]?.message?.content || 'Oops, received no response from the AI.';
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-      if (replyMessage.length > 4000) {
-        replyMessage = replyMessage.substring(0, 3997) + '...';
-      }
-
+      const attachment = new AttachmentBuilder(buffer, { name: 'speech.mp3' });
       const remainingLimit = userLimit - userUsage.count;
 
       const embed = new EmbedBuilder()
-        .setTitle('🤖 AI Assistant')
-        .setDescription(replyMessage)
+        .setTitle('🗣️ SoTeen Bot Text-to-Speech')
+        .setDescription(`**Text:** ${textInput}`)
         .setColor(0x00ff9d)
         .addFields(
-          { name: '👤 Prompt by', value: `${interaction.user}`, inline: true },
+          { name: '👤 Requested by', value: `${interaction.user}`, inline: true },
           { name: '🛡️ Role Tier', value: `\`${matchedRoleName}\``, inline: true },
           { name: '⚡ Remaining Limit', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
         )
         .setTimestamp()
-        .setFooter({ text: 'Powered by SBot Engine' });
+        .setFooter({ text: 'Powered by SBot Engine & SoTeen Studio' });
 
-      if (requestedTts) {
-        const ttsResponse = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-            'HTTP-Referer': 'https://discord.com',
-            'X-Title': 'SBot Engine',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'fish-audio/s2.1-pro-free:free',
-            input: replyMessage,
-            voice: 'b347db033a6549378b48d00acb0d06cd',
-            response_format: 'mp3',
-          }),
-        });
-
-        if (ttsResponse.ok) {
-          const arrayBuffer = await ttsResponse.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
-          const attachment = new AttachmentBuilder(buffer, { name: 'speech.mp3' });
-
-          return interaction.editReply({ 
-            embeds: [embed], 
-            files: [attachment] 
-          });
-        }
-      }
-
-      return interaction.editReply({ embeds: [embed] });
+      return interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (error) {
       console.error(error);
       userUsage.count--;
-      return interaction.editReply('An error occurred while connecting to the AI server. Please try again later!');
+      return interaction.editReply('An error occurred while connecting to the TTS server. Please try again later!');
     }
   }
 }
