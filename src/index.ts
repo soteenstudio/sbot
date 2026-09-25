@@ -8,6 +8,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
+// halo
 import { SapphireClient, RegisterBehavior } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
 import 'dotenv/config';
