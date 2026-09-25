@@ -196,6 +196,11 @@ export class ChatCommand extends Command {
             files: [attachment] 
           });
         }
+
+        return interaction.editReply({
+          content: '⚠️ Audio generation failed. Here is your chat reply:',
+          embeds: [embed],
+        });
       }
 
       return interaction.editReply({ embeds: [embed] });

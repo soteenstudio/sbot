@@ -13,6 +13,7 @@ const ROLE_LIMITS: Record<string, number> = {
 };
 
 const usageTracker = new Map<string, { count: number; lastReset: number }>();
+const OPENROUTER_TIMEOUT_MS = 60_000;
 
 export class TssCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -36,6 +37,7 @@ export class TssCommand extends Command {
           option
             .setName('text')
             .setDescription('The text you want to convert into speech')
+            .setMaxLength(4086)
             .setRequired(true),
         ),
     );
@@ -84,6 +86,13 @@ export class TssCommand extends Command {
     }
 
     userUsage.count++;
+    let refunded = false;
+    const refundUsage = () => {
+      if (!refunded) {
+        userUsage.count--;
+        refunded = true;
+      }
+    };
 
     const textInput = interaction.options.getString('text', true);
 
@@ -93,6 +102,7 @@ export class TssCommand extends Command {
       // 1. Cek konten pakai LLM OpenRouter untuk mendeteksi kata jorok/kasar/toksik
       const moderationResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
+        signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'HTTP-Referer': 'https://discord.com',
@@ -114,21 +124,29 @@ export class TssCommand extends Command {
         }),
       });
 
-      if (moderationResponse.ok) {
-        const modData = await moderationResponse.json();
-        const modResult = modData.choices?.[0]?.message?.content?.trim().toUpperCase() || 'SAFE';
+      if (!moderationResponse.ok) {
+        throw new Error(`Moderation HTTP error! status: ${moderationResponse.status}`);
+      }
 
-        if (modResult.includes('UNSAFE')) {
-          userUsage.count--; // Balikin kuota karena ditolak
-          return interaction.editReply({
-            content: `❌ **Text rejected!** The content you provided contains prohibited, harsh, or inappropriate words. Please keep it clean!`,
-          });
-        }
+      const modData = await moderationResponse.json();
+      const modContent = modData.choices?.[0]?.message?.content;
+      const modResult = typeof modContent === 'string' ? modContent.trim().toUpperCase() : '';
+
+      if (modResult === 'UNSAFE') {
+        refundUsage(); // Balikin kuota karena ditolak
+        return await interaction.editReply({
+          content: `❌ **Text rejected!** The content you provided contains prohibited, harsh, or inappropriate words. Please keep it clean!`,
+        });
+      }
+
+      if (modResult !== 'SAFE') {
+        throw new Error(`Unexpected moderation result`);
       }
 
       // 2. Kalau aman, lanjut proses ke API Text-to-Speech (Fish Audio)
       const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
         method: 'POST',
+        signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'HTTP-Referer': 'https://discord.com',
@@ -165,10 +183,10 @@ export class TssCommand extends Command {
         .setTimestamp()
         .setFooter({ text: 'Powered by SBot Engine & SoTeen Studio' });
 
-      return interaction.editReply({ embeds: [embed], files: [attachment] });
+      return await interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (error) {
       console.error(error);
-      userUsage.count--;
+      refundUsage();
       return interaction.editReply('An error occurred while connecting to the TTS server. Please try again later!');
     }
   }
