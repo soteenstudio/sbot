@@ -9,8 +9,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { mkdir, readFile, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 
 export type ChatUsage = { count: number; lastReset: number };
 type UsageRecords = Record<string, ChatUsage>;
@@ -40,23 +40,58 @@ async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): 
   await mkdir(dirname(path), { recursive: true });
 
   const started = Date.now();
-  let lock;
-  while (!lock) {
+  let ownedMarker: string | undefined;
+  while (!ownedMarker) {
+    // Prepare a nonempty directory before publishing it as the lock. This keeps
+    // a newly acquired lock nonempty even when another caller is removing a stale one.
+    const candidatePath = `${lockPath}.${randomUUID()}.tmp`;
+    const markerName = randomUUID();
+    const candidateMarker = join(candidatePath, markerName);
+    await mkdir(candidatePath);
     try {
-      lock = await open(lockPath, 'wx');
+      await writeFile(candidateMarker, '');
+      await rename(candidatePath, lockPath);
+      ownedMarker = join(lockPath, markerName);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      try {
-        if (Date.now() - (await stat(lockPath)).mtimeMs > 30_000) {
-          await unlink(lockPath);
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST' && code !== 'ENOTEMPTY' && code !== 'ENOTDIR') throw error;
+    } finally {
+      await unlink(candidateMarker).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+      await rmdir(candidatePath).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+    }
+    if (ownedMarker) break;
+
+    try {
+      const markers = await readdir(lockPath);
+      if (markers.length === 0) {
+        await rmdir(lockPath);
+        continue;
+      }
+      if (markers.length === 1) {
+        const markerPath = join(lockPath, markers[0]);
+        if (Date.now() - (await stat(markerPath)).mtimeMs > 30_000) {
+          // The marker name identifies the observed owner. A replacement lock
+          // has a different name, so this rename cannot take its marker.
+          const stalePath = `${lockPath}.${randomUUID()}.stale`;
+          await rename(markerPath, stalePath);
+          try {
+            await rmdir(lockPath);
+          } finally {
+            await unlink(stalePath);
+          }
           continue;
         }
-      } catch (statError) {
-        if ((statError as NodeJS.ErrnoException).code !== 'ENOENT') throw statError;
       }
-      if (Date.now() - started > 35_000) throw new Error('Chat usage storage is busy');
-      await new Promise((done) => setTimeout(done, 25));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTEMPTY' && code !== 'EEXIST' && code !== 'ENOTDIR') throw error;
     }
+    if (Date.now() - started > 35_000) throw new Error('Chat usage storage is busy');
+    await new Promise((done) => setTimeout(done, 25));
   }
 
   try {
@@ -75,8 +110,12 @@ async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): 
     }
     return result;
   } finally {
-    await lock.close();
-    await unlink(lockPath);
+    await unlink(ownedMarker).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    await rmdir(lockPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY' && error.code !== 'EEXIST') throw error;
+    });
   }
 }
 

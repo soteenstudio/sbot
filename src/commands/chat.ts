@@ -98,7 +98,16 @@ export class ChatCommand extends Command {
     }
 
     const now = Date.now();
-    const userUsage = await getChatUsage(userId, now);
+    let userUsage: Awaited<ReturnType<typeof getChatUsage>>;
+    try {
+      userUsage = await getChatUsage(userId, now);
+    } catch (error) {
+      console.error(error);
+      return interaction.reply({
+        content: 'An error occurred while checking your AI usage. Please try again later!',
+        ephemeral: true,
+      });
+    }
 
     if (userUsage.count >= userLimit) {
       return interaction.reply({
