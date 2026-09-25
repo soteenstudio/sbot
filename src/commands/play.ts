@@ -4,10 +4,10 @@ import { dirname, resolve } from 'node:path';
 import { Command } from '@sapphire/framework';
 import { ApplicationCommandRegistry } from '@sapphire/framework';
 import { GuildMember, EmbedBuilder } from 'discord.js';
-import { joinVoiceChannel, createAudioPlayer, createAudioResource, entersState, AudioPlayerStatus, VoiceConnectionStatus } from '@discordjs/voice';
-import ytdl from '@distube/ytdl-core';
-import { YouTube } from 'youtube-sr';
+import { joinVoiceChannel, createAudioPlayer, createAudioResource, entersState, AudioPlayerStatus, VoiceConnectionStatus, StreamType } from '@discordjs/voice';
 import { Roles } from '../config.js';
+import { getTrack, MissingAudioToolError, streamTrack } from '../lib/playAudio.js';
+import { consumePlay, refundPlay, type PlayUsage } from '../lib/playUsage.js';
 
 const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
   MEMBER: 10,
@@ -18,7 +18,6 @@ const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
   FOUNDER: 9999,
 };
 
-type PlayUsage = { count: number; lastReset: number };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const VOICE_TIMEOUT_MS = 10_000;
 const usagePath = resolve(process.env.PLAY_USAGE_FILE ?? 'data/play-usage.json');
@@ -139,39 +138,19 @@ export class PlayCommand extends Command {
     const searchQuery = interaction.options.getString('query', true);
     await interaction.deferReply();
 
-    let stream: ReturnType<typeof ytdl> | undefined;
+    let audio: ReturnType<typeof streamTrack> | undefined;
     let failureHandler: ((error: unknown) => Promise<void>) | undefined;
 
     try {
-      let targetUrl = searchQuery;
-
-      // Kalau bukan link, cari video pakai youtube-sr secara akurat
-      if (!searchQuery.startsWith('http://') && !searchQuery.startsWith('https://')) {
-        const searchResult = await YouTube.searchOne(searchQuery).catch(() => null);
-        
-        if (!searchResult || !searchResult.url) {
-          return interaction.editReply('❌ No songs found matching your keywords. Try a different title!');
-        }
-        targetUrl = searchResult.url;
-      }
-
-      if (!ytdl.validateURL(targetUrl)) {
-        return interaction.editReply('❌ Invalid track source URL generated!');
-      }
-
-      const songInfo = await ytdl.getInfo(targetUrl);
-      const songTitle = songInfo.videoDetails.title;
-      const durationSec = Number(songInfo.videoDetails.lengthSeconds);
+      const track = await getTrack(searchQuery);
+      const songTitle = track.title;
+      const targetUrl = track.url;
+      const durationSec = Math.floor(track.duration);
       const songDuration = Math.floor(durationSec / 60) + ':' + (durationSec % 60).toString().padStart(2, '0');
 
-      stream = ytdl(targetUrl, {
-        filter: 'audioonly',
-        quality: 'highestaudio',
-        highWaterMark: 1 << 25,
-      });
-
       const player = createAudioPlayer();
-      const resource = createAudioResource(stream, { inlineVolume: true });
+      audio = streamTrack(targetUrl, (error) => void failPlayback(error));
+      const resource = createAudioResource(audio.stream, { inputType: StreamType.Raw });
       const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: voiceChannel.guild.id,
@@ -192,7 +171,7 @@ export class PlayCommand extends Command {
         if (!ownsConnection) connection.off('error', onConnectionError);
         player.off(AudioPlayerStatus.Idle, onIdle);
         player.stop(true);
-        stream?.destroy();
+        audio?.stop();
         if (ownsConnection && connection.state.status !== VoiceConnectionStatus.Destroyed) {
           connection.destroy();
         }
@@ -204,16 +183,15 @@ export class PlayCommand extends Command {
         finished = true;
         cleanup();
         if (usageConsumed && usageTracker.get(userId) === userUsage) {
-          userUsage.count--;
           try {
-            saveUsage();
+            refundPlay(userUsage, saveUsage);
           } catch (saveError) {
             console.error('Could not refund play usage:', saveError);
           }
         }
         await successReply?.catch(() => {});
         await interaction.editReply({
-          content: '❌ Music playback failed. Please try another title!',
+          content: error instanceof MissingAudioToolError ? `❌ ${error.message}` : '❌ Music playback failed. Please try another title!',
           embeds: [],
         }).catch((replyError) => console.error('Could not update play reply:', replyError));
       };
@@ -224,22 +202,19 @@ export class PlayCommand extends Command {
       const onPlayerError = (error: Error) => {
         if (activePlaybacks.get(guildId) === playback) void failPlayback(error);
       };
-      const onStreamError = (error: Error) => {
-        if (activePlaybacks.get(guildId) === playback) void failPlayback(error);
-      };
-      const onIdle = () => {
+      const onIdle = async () => {
         if (activePlaybacks.get(guildId) !== playback || finished) return;
         if (!playingStarted) {
           void failPlayback(new Error('Audio player stopped before playback started'));
           return;
         }
+        if (!await audio?.completed || finished) return;
         finished = true;
         cleanup();
       };
 
       connection.on('error', onConnectionError);
       player.on('error', onPlayerError);
-      stream.on('error', onStreamError);
       player.on(AudioPlayerStatus.Idle, onIdle);
       playback.stop = () => {
         if (finished) return;
@@ -268,17 +243,10 @@ export class PlayCommand extends Command {
       }
       playingStarted = true;
 
-      if (userUsage.count >= userLimit) {
+      if (!consumePlay(userUsage, userLimit, saveUsage)) {
         throw new Error('Daily music playback limit reached while starting');
       }
-      userUsage.count++;
-      try {
-        saveUsage();
-        usageConsumed = true;
-      } catch (error) {
-        userUsage.count--;
-        throw error;
-      }
+      usageConsumed = true;
 
       const remainingLimit = userLimit - userUsage.count;
 
@@ -302,8 +270,10 @@ export class PlayCommand extends Command {
         return;
       }
       console.error(error);
-      stream?.destroy();
-      return interaction.editReply('An error occurred while streaming the music directly into RAM. Please try another title!');
+      audio?.stop();
+      return interaction.editReply(error instanceof MissingAudioToolError
+        ? `❌ ${error.message}`
+        : '❌ Could not find or extract this track. Please try another title or link!');
     }
   }
 }
