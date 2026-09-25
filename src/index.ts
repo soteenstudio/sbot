@@ -19,6 +19,7 @@ const client = new SapphireClient({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates, // <--- TAMBAHKAN INI DI SINI
   ],
   loadMessageCommandListeners: true,
   baseUserDirectory: join(process.cwd(), 'dist'),

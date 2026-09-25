@@ -11,10 +11,13 @@
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
+    "@distube/ytdl-core": "^4.16.12",
     "@sapphire/framework": "^5.5.0",
     "@sapphire/plugin-subcommands": "^7.0.1",
     "discord.js": "^14.26.4",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "play-dl": "^1.9.7",
+    "youtube-sr": "^4.3.12"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
