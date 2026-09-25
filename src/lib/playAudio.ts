@@ -1,10 +1,8 @@
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { runInNewContext } from 'node:vm';
-import { SabrStream, type SabrStreamConfig } from 'googlevideo/sabr-stream';
-import { EnabledTrackTypes } from 'googlevideo/utils';
-import { Innertube, Platform } from 'youtubei.js';
+
+const API = 'https://api.audius.co/v1';
 
 export class MissingAudioToolError extends Error {
   constructor() {
@@ -14,192 +12,72 @@ export class MissingAudioToolError extends Error {
 
 export class TrackExtractionError extends Error {}
 
-type Extractor = Pick<Innertube, 'search' | 'getBasicInfo'>;
-const SABR_STARTUP_TIMEOUT_MS = 10_000;
-let extractorPromise: Promise<Innertube> | undefined;
+type AudiusTrack = {
+  id?: string;
+  title?: string;
+  duration?: number;
+  permalink?: string;
+  is_streamable?: boolean;
+  access?: { stream?: boolean };
+};
 
-Platform.shim.eval = (data, environment) => runInNewContext(`(() => {\n${data.output}\n})()`, environment, { timeout: 5_000 });
-
-function getExtractor(): Promise<Innertube> {
-  return extractorPromise ??= Innertube.create({ po_token: process.env.PLAY_PO_TOKEN }).catch((error) => {
-    extractorPromise = undefined;
-    throw error;
-  });
+function providerError(status: number): TrackExtractionError {
+  if (status === 429) return new TrackExtractionError('Audius is rate-limiting requests. Please try again later.');
+  return new TrackExtractionError('Audius is unavailable or this track cannot be streamed. Please try another title.');
 }
 
-function videoId(query: string): string {
-  let url: URL;
+export async function getTrack(query: string, request: typeof fetch = fetch) {
+  if (/^(?:\w+:\/\/|(?:www\.)?(?:youtube\.com|youtu\.be)(?:\/|$))/i.test(query.trim())) {
+    throw new TrackExtractionError('Links, including YouTube links, are not supported. Search by song title on Audius instead.');
+  }
+  if (!query.trim()) throw new TrackExtractionError('Enter a song title to search on Audius.');
   try {
-    url = new URL(query);
-  } catch {
-    throw new TrackExtractionError('Only YouTube video links are supported.');
-  }
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new TrackExtractionError('Only HTTP(S) YouTube video links are supported.');
-  }
-  const host = url.hostname.toLowerCase();
-  const id = host === 'youtu.be' ? url.pathname.slice(1) :
-    (host === 'youtube.com' || host.endsWith('.youtube.com')) ?
-      url.pathname === '/watch' ? url.searchParams.get('v') :
-      /^\/(shorts|live|embed)\//.test(url.pathname) ? url.pathname.split('/')[2] : null : null;
-  if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
-    throw new TrackExtractionError('Only YouTube video links are supported.');
-  }
-  return id;
-}
-
-function sabrStartupError(error: unknown, hasToken: boolean): TrackExtractionError {
-  if (error instanceof TrackExtractionError) return error;
-  const message = error instanceof Error ? error.message : '';
-  const tokenHint = hasToken ? 'Check that PLAY_PO_TOKEN is valid for this session.' : 'PLAY_PO_TOKEN is not set; this track may require a session-bound token.';
-  if (/\b(?:401|403)\b|attestation required/i.test(message)) {
-    return new TrackExtractionError(`SABR audio access was denied. ${tokenHint}`);
-  }
-  const httpStatus = /Server returned (\d{3})\b/.exec(message);
-  if (httpStatus) return new TrackExtractionError(`SABR audio server returned HTTP ${httpStatus[1]}. Please try again later.`);
-  if (/No suitable formats found/.test(message)) {
-    return new TrackExtractionError('No suitable SABR audio format is available for this track.');
-  }
-  return new TrackExtractionError('SABR audio could not start. Please try another track or check your connection.');
-}
-
-async function sabrAudio(
-  info: Awaited<ReturnType<Extractor['getBasicInfo']>>,
-  client: Extractor,
-  createStream: (config: SabrStreamConfig) => Pick<SabrStream, 'start' | 'abort'>,
-  startupTimeoutMs: number,
-): Promise<{ source: Readable; abort: () => void }> {
-  const streamingUrl = info.streaming_data?.server_abr_streaming_url;
-  const ustreamerConfig = info.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config;
-  const formats = [...(info.streaming_data?.formats ?? []), ...(info.streaming_data?.adaptive_formats ?? [])]
-    .filter((format) => (format.has_audio || format.has_video) && format.last_modified_ms && format.mime_type && Number.isFinite(format.approx_duration_ms))
-    .map((format) => ({
-      itag: format.itag,
-      lastModified: format.last_modified_ms,
-      xtags: format.xtags,
-      mimeType: format.mime_type,
-      bitrate: format.bitrate,
-      approxDurationMs: format.approx_duration_ms,
-      audioQuality: format.audio_quality,
-      audioTrackId: format.audio_track?.id,
-      isOriginal: format.is_original,
-    }));
-  const session = 'session' in client ? (client as Innertube).session : undefined;
-  const context = session?.context.client;
-  if (!streamingUrl || !ustreamerConfig || context?.clientName !== 'WEB' || !context.clientVersion ||
-    !formats.some((format) => format.mimeType?.startsWith('audio/')) ||
-    !formats.some((format) => format.mimeType?.startsWith('video/'))) {
-    throw new TrackExtractionError('No downloadable audio format is available for this track. Please try another title or YouTube link.');
-  }
-
-  const sabr = createStream({
-    serverAbrStreamingUrl: streamingUrl,
-    videoPlaybackUstreamerConfig: ustreamerConfig,
-    clientInfo: { clientName: 1, clientVersion: context.clientVersion },
-    poToken: session?.po_token,
-    formats,
-    durationMs: (info.basic_info.duration ?? 0) * 1000 || undefined,
-  });
-  let aborted = false;
-  let ended = false;
-  const abort = () => {
-    if (aborted || ended) return;
-    aborted = true;
-    try { sabr.abort(); } catch {}
-  };
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new TrackExtractionError('SABR audio startup stalled before receiving audio. Check your connection and whether PLAY_PO_TOKEN is set and valid.')), startupTimeoutMs);
-    });
-    const { audioStream } = await Promise.race([
-      sabr.start({ enabledTrackTypes: EnabledTrackTypes.AUDIO_ONLY, maxRetries: 0 }),
-      deadline,
-    ]);
-    const reader = audioStream.getReader();
-    let firstChunk: ReadableStreamReadResult<Uint8Array>;
-    do {
-      firstChunk = await Promise.race([reader.read(), deadline]);
-      if (firstChunk.done) throw new TrackExtractionError('SABR returned no audio for this track.');
-    } while (!firstChunk.value?.length);
-    const source = Readable.from((async function* () {
-      try {
-        yield firstChunk.value;
-        for (;;) {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            ended = true;
-            break;
-          }
-          yield chunk.value;
-        }
-      } finally {
-        await reader.cancel().catch(() => {});
-      }
-    })());
-    return { source, abort };
-  } catch (error) {
-    abort();
-    throw sabrStartupError(error, Boolean(session?.po_token));
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export async function getTrack(query: string, extractor?: Extractor) {
-  try {
-    const client = extractor ?? await getExtractor();
-    let id: string | undefined;
-    if (/^https?:\/\//i.test(query)) {
-      id = videoId(query);
-    } else {
-      const results = await client.search(query, { type: 'video' });
-      const video = results.videos.find((result) => 'video_id' in result);
-      id = video && 'video_id' in video ? video.video_id : undefined;
+    const url = new URL(`${API}/tracks/search`);
+    url.searchParams.set('query', query.trim());
+    url.searchParams.set('limit', '10');
+    const response = await request(url, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw providerError(response.status);
+    const result: { data?: AudiusTrack[] } = await response.json();
+    const track = result.data?.find((item) =>
+      item.id && item.title && item.is_streamable && item.access?.stream &&
+      item.permalink?.startsWith('/') && !item.permalink.startsWith('//'),
+    );
+    if (!track?.id || !track.title || !track.permalink) {
+      throw new TrackExtractionError('No streamable track found on Audius. Try another title.');
     }
-    if (!id) throw new TrackExtractionError('No playable track found. Try another title.');
-    const info = await client.getBasicInfo(id);
-    if (!info.basic_info.title) throw new TrackExtractionError('No playable track found. Try another title.');
-    return { title: info.basic_info.title, duration: info.basic_info.duration ?? 0, url: `https://www.youtube.com/watch?v=${id}` };
+    return {
+      id: track.id,
+      title: track.title,
+      duration: track.duration ?? 0,
+      url: `https://audius.co${track.permalink}`,
+    };
   } catch (error) {
     if (error instanceof TrackExtractionError) throw error;
-    throw new TrackExtractionError('Could not extract this track. Please try another title or YouTube link.', { cause: error });
+    throw new TrackExtractionError('Could not search Audius. Please try again later.', { cause: error });
   }
 }
 
 export async function streamTrack(
-  url: string,
+  id: string,
   onFailure: (error: Error) => void,
-  options: { extractor?: Extractor; transcoder?: string; sabrStream?: (config: SabrStreamConfig) => Pick<SabrStream, 'start' | 'abort'>; sabrStartupTimeoutMs?: number } = {},
+  options: { request?: typeof fetch; transcoder?: string } = {},
 ) {
-  const id = videoId(url);
+  if (!/^[a-zA-Z0-9]+$/.test(id)) throw new TrackExtractionError('Invalid Audius track ID.');
+  const controller = new AbortController();
   let source: Readable;
-  let abortSabr: (() => void) | undefined;
   try {
-    const client = options.extractor ?? await getExtractor();
-    const info = await client.getBasicInfo(id);
-    const seenItags = new Set<number>();
-    const formats = [...(info.streaming_data?.formats ?? []), ...(info.streaming_data?.adaptive_formats ?? [])]
-      .filter((format) => {
-        if (seenItags.has(format.itag)) return false;
-        seenItags.add(format.itag);
-        return format.has_audio && (format.url || format.signature_cipher || format.cipher);
-      });
-    const audioOnly = formats.filter((format) => !format.has_video && !format.has_text);
-    const candidates = audioOnly.length ? audioOnly : formats;
-    const original = candidates.filter((format) => format.is_original);
-    const selected = (original.length ? original : candidates).sort((first, second) => second.bitrate - first.bitrate)[0];
-    if (selected) {
-      const webStream = await info.download({ type: 'audio', quality: 'best', itag: selected.itag });
-      source = Readable.fromWeb(webStream as NodeReadableStream<Uint8Array>);
-    } else {
-      const sabr = await sabrAudio(info, client, options.sabrStream ?? ((config) => new SabrStream(config)), options.sabrStartupTimeoutMs ?? SABR_STARTUP_TIMEOUT_MS);
-      source = sabr.source;
-      abortSabr = sabr.abort;
+    const response = await (options.request ?? fetch)(`${API}/tracks/${id}/stream`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) throw providerError(response.status);
+    if (!response.body || !/^(audio\/|application\/octet-stream)/i.test(response.headers.get('content-type') ?? '')) {
+      throw new TrackExtractionError('This Audius track has no playable audio stream. Try another title.');
     }
+    source = Readable.fromWeb(response.body as NodeReadableStream<Uint8Array>);
   } catch (error) {
+    controller.abort();
     if (error instanceof TrackExtractionError) throw error;
-    throw new TrackExtractionError('Could not extract audio from this track. Please try another title or YouTube link.', { cause: error });
+    throw new TrackExtractionError('Could not open this Audius audio stream. Try another title.', { cause: error });
   }
 
   const transcoder = spawn(options.transcoder ?? 'ffmpeg', [
@@ -215,7 +93,7 @@ export async function streamTrack(
   const stop = () => {
     if (stopped) return;
     stopped = true;
-    abortSabr?.();
+    controller.abort();
     source.unpipe(transcoder.stdin);
     source.destroy();
     transcoder.stdin.destroy();
@@ -228,9 +106,9 @@ export async function streamTrack(
     stop();
     onFailure(error);
   };
-  source.on('error', (error) => fail(new TrackExtractionError('Audio extraction failed during playback. Please try another track.', { cause: error })));
+  source.on('error', (error) => fail(new TrackExtractionError('Audius audio stream failed during playback. Please try another track.', { cause: error })));
   source.on('close', () => {
-    if (!source.readableEnded) fail(new TrackExtractionError('Audio extraction ended unexpectedly. Please try another track.'));
+    if (!source.readableEnded) fail(new TrackExtractionError('Audius audio stream ended unexpectedly. Please try another track.'));
   });
   transcoder.stdin.on('error', (error: NodeJS.ErrnoException) => {
     if (error.code !== 'EPIPE') fail(error);

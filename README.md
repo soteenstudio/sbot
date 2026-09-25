@@ -2,7 +2,7 @@
 
 ## Music playback on Termux
 
-The `/play` command uses a Node.js YouTube extractor installed by npm and needs `ffmpeg` for audio conversion. In Termux:
+`/play` searches publicly streamable tracks on [Audius](https://audius.co/) by song title. It streams audio through memory into the Discord voice channel, without saving a file or using Python. Links (including YouTube links) are not supported; Audius does not provide a YouTube video catalog. The bot plays one track per guild at a time: another `/play` replaces it; there is no queue.
 
 ```sh
 pkg update
@@ -11,6 +11,6 @@ npm ci
 npm start
 ```
 
-Check that `ffmpeg -version` works in the same shell that starts the bot. `/play` accepts a song title or an HTTP(S) YouTube video link; audio is streamed through memory without a downloaded file. Set `PLAY_USAGE_FILE` to change the path of the persistent daily usage file (default: `data/play-usage.json`).
+Confirm `ffmpeg -version` works in the bot's shell. `ffmpeg` converts the provider's audio stream for Discord; set `PLAY_USAGE_FILE` to change the persistent daily usage path (default `data/play-usage.json`).
 
-When YouTube provides no directly downloadable audio, playback tries the SABR audio stream instead. Some SABR responses require a session-bound proof-of-origin token; if your deployment has one, pass it as `PLAY_PO_TOKEN` (base64) when starting the bot. Without a valid token or required streaming metadata, playback reports an extraction error rather than charging a play. No challenge code is run to obtain tokens.
+Audius [documents free API access and streaming for third-party applications](https://docs.audius.co/), and its [REST API](https://docs.audius.co/api/) provides track search and stream endpoints. Public searches/streams currently work without credentials; no API key or token is required for this integration. Audius may rate-limit requests (HTTP 429); retry later if that happens. Only tracks whose metadata grants streaming are selected, so results are limited to Audius's catalog and tracks available for streaming. Review Audius's current developer terms and limits before deploying at scale.
