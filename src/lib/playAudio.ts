@@ -15,6 +15,7 @@ export class MissingAudioToolError extends Error {
 export class TrackExtractionError extends Error {}
 
 type Extractor = Pick<Innertube, 'search' | 'getBasicInfo'>;
+const SABR_STARTUP_TIMEOUT_MS = 10_000;
 let extractorPromise: Promise<Innertube> | undefined;
 
 Platform.shim.eval = (data, environment) => runInNewContext(`(() => {\n${data.output}\n})()`, environment, { timeout: 5_000 });
@@ -47,10 +48,26 @@ function videoId(query: string): string {
   return id;
 }
 
+function sabrStartupError(error: unknown, hasToken: boolean): TrackExtractionError {
+  if (error instanceof TrackExtractionError) return error;
+  const message = error instanceof Error ? error.message : '';
+  const tokenHint = hasToken ? 'Check that PLAY_PO_TOKEN is valid for this session.' : 'PLAY_PO_TOKEN is not set; this track may require a session-bound token.';
+  if (/\b(?:401|403)\b|attestation required/i.test(message)) {
+    return new TrackExtractionError(`SABR audio access was denied. ${tokenHint}`);
+  }
+  const httpStatus = /Server returned (\d{3})\b/.exec(message);
+  if (httpStatus) return new TrackExtractionError(`SABR audio server returned HTTP ${httpStatus[1]}. Please try again later.`);
+  if (/No suitable formats found/.test(message)) {
+    return new TrackExtractionError('No suitable SABR audio format is available for this track.');
+  }
+  return new TrackExtractionError('SABR audio could not start. Please try another track or check your connection.');
+}
+
 async function sabrAudio(
   info: Awaited<ReturnType<Extractor['getBasicInfo']>>,
   client: Extractor,
   createStream: (config: SabrStreamConfig) => Pick<SabrStream, 'start' | 'abort'>,
+  startupTimeoutMs: number,
 ): Promise<{ source: Readable; abort: () => void }> {
   const streamingUrl = info.streaming_data?.server_abr_streaming_url;
   const ustreamerConfig = info.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config;
@@ -90,23 +107,21 @@ async function sabrAudio(
     aborted = true;
     try { sabr.abort(); } catch {}
   };
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const { audioStream } = await sabr.start({ enabledTrackTypes: EnabledTrackTypes.AUDIO_ONLY });
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new TrackExtractionError('SABR audio startup stalled before receiving audio. Check your connection and whether PLAY_PO_TOKEN is set and valid.')), startupTimeoutMs);
+    });
+    const { audioStream } = await Promise.race([
+      sabr.start({ enabledTrackTypes: EnabledTrackTypes.AUDIO_ONLY, maxRetries: 0 }),
+      deadline,
+    ]);
     const reader = audioStream.getReader();
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let firstChunk: ReadableStreamReadResult<Uint8Array>;
-    try {
-      firstChunk = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('SABR audio startup timed out')), 10_000); }),
-      ]);
-      if (firstChunk.done || !firstChunk.value?.length) throw new Error('SABR returned no audio');
-    } catch (error) {
-      abort();
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
+    do {
+      firstChunk = await Promise.race([reader.read(), deadline]);
+      if (firstChunk.done) throw new TrackExtractionError('SABR returned no audio for this track.');
+    } while (!firstChunk.value?.length);
     const source = Readable.from((async function* () {
       try {
         yield firstChunk.value;
@@ -125,7 +140,9 @@ async function sabrAudio(
     return { source, abort };
   } catch (error) {
     abort();
-    throw error;
+    throw sabrStartupError(error, Boolean(session?.po_token));
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -153,7 +170,7 @@ export async function getTrack(query: string, extractor?: Extractor) {
 export async function streamTrack(
   url: string,
   onFailure: (error: Error) => void,
-  options: { extractor?: Extractor; transcoder?: string; sabrStream?: (config: SabrStreamConfig) => Pick<SabrStream, 'start' | 'abort'> } = {},
+  options: { extractor?: Extractor; transcoder?: string; sabrStream?: (config: SabrStreamConfig) => Pick<SabrStream, 'start' | 'abort'>; sabrStartupTimeoutMs?: number } = {},
 ) {
   const id = videoId(url);
   let source: Readable;
@@ -176,7 +193,7 @@ export async function streamTrack(
       const webStream = await info.download({ type: 'audio', quality: 'best', itag: selected.itag });
       source = Readable.fromWeb(webStream as NodeReadableStream<Uint8Array>);
     } else {
-      const sabr = await sabrAudio(info, client, options.sabrStream ?? ((config) => new SabrStream(config)));
+      const sabr = await sabrAudio(info, client, options.sabrStream ?? ((config) => new SabrStream(config)), options.sabrStartupTimeoutMs ?? SABR_STARTUP_TIMEOUT_MS);
       source = sabr.source;
       abortSabr = sabr.abort;
     }

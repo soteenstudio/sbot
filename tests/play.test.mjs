@@ -4,6 +4,7 @@ import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { SabrStream } from 'googlevideo/sabr-stream';
 import { getTrack, MissingAudioToolError, streamTrack, TrackExtractionError } from '../dist/lib/playAudio.js';
 import { consumePlay, refundPlay } from '../dist/lib/playUsage.js';
 import { chooseFormat } from '../node_modules/youtubei.js/dist/src/utils/FormatUtils.js';
@@ -43,7 +44,7 @@ function makeSabrExtractor(fields = sabrFields) {
   };
 }
 
-function makeSabrStream({ onAbort = () => {}, startError, streamError, finish = false, onStart = () => {} } = {}) {
+function makeSabrStream({ onAbort = () => {}, startError, streamError, stallStart = false, stallAudio = false, finish = false, onStart = () => {} } = {}) {
   let controller;
   let aborted = false;
   const audioStream = new ReadableStream({ start(value) { controller = value; } });
@@ -62,8 +63,11 @@ function makeSabrStream({ onAbort = () => {}, startError, streamError, finish = 
       },
       async start(options) {
         assert.equal(options.enabledTrackTypes, 1);
+        assert.equal(options.maxRetries, 0);
         onStart();
-        if (startError) throw new Error('SABR startup failed');
+        if (startError) throw new Error(typeof startError === 'string' ? startError : 'SABR startup failed');
+        if (stallStart) return new Promise(() => {});
+        if (stallAudio) return { audioStream };
         queueMicrotask(() => {
           if (aborted) return;
           if (streamError === 'startup') controller.error(new Error('SABR unavailable'));
@@ -263,6 +267,68 @@ test('SABR startup errors and empty audio do not consume plays or start ffmpeg',
     assert.equal(aborted, 1);
     assert.equal(usage.count, 0);
   }
+});
+
+test('stalled SABR setup and first audio chunk abort promptly without charging or starting ffmpeg', async () => {
+  const marker = join(fixtureDirectory, 'stalled-sabr-ffmpeg-started');
+  const unexpectedTranscoder = join(fixtureDirectory, 'stalled-sabr-ffmpeg');
+  writeFileSync(unexpectedTranscoder, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');\n`);
+  chmodSync(unexpectedTranscoder, 0o755);
+  const usage = { count: 0, lastReset: Date.now() };
+  for (const stalled of [{ stallStart: true }, { stallAudio: true }]) {
+    let aborted = 0;
+    await assert.rejects(async () => {
+      const playback = await streamTrack(videoUrl, () => assert.fail('unexpected failure'), {
+        extractor: makeSabrExtractor(),
+        sabrStream: makeSabrStream({ ...stalled, onAbort: () => aborted++ }),
+        sabrStartupTimeoutMs: 25,
+        transcoder: unexpectedTranscoder,
+      });
+      consumePlay(usage, 10, () => {});
+      return playback;
+    }, (error) => error instanceof TrackExtractionError && /SABR audio startup stalled/.test(error.message));
+    assert.equal(aborted, 1);
+    assert.equal(usage.count, 0);
+    assert.equal(existsSync(marker), false);
+  }
+});
+
+test('SABR authorization failure reports token-free guidance instead of timing out', async () => {
+  let aborted = 0;
+  const secret = 'private-session-token';
+  await assert.rejects(streamTrack(videoUrl, () => assert.fail('unexpected failure'), {
+    extractor: makeSabrExtractor(),
+    sabrStream: makeSabrStream({ streamError: 'startup', onAbort: () => aborted++ }),
+    transcoder,
+  }), TrackExtractionError);
+  await assert.rejects(streamTrack(videoUrl, () => assert.fail('unexpected failure'), {
+    extractor: makeSabrExtractor(),
+    sabrStream: makeSabrStream({ startError: `Server returned 403 Forbidden: ${secret}`, onAbort: () => aborted++ }),
+    transcoder,
+  }), (error) => error instanceof TrackExtractionError && /SABR audio access was denied/.test(error.message) &&
+    /PLAY_PO_TOKEN is valid/.test(error.message) && !error.message.includes(secret) && !error.cause);
+  assert.equal(aborted, 2);
+});
+
+test('the SABR client surfaces a server denial without retrying past startup', async () => {
+  let requests = 0;
+  let aborted = 0;
+  await assert.rejects(streamTrack(videoUrl, () => assert.fail('unexpected failure'), {
+    extractor: makeSabrExtractor(),
+    sabrStream: (config) => {
+      const sabr = new SabrStream({ ...config, fetch: async () => {
+        requests++;
+        return { ok: false, status: 403, statusText: 'Forbidden' };
+      } });
+      const originalAbort = sabr.abort.bind(sabr);
+      sabr.abort = () => { aborted++; originalAbort(); };
+      return sabr;
+    },
+    sabrStartupTimeoutMs: 1000,
+    transcoder,
+  }), (error) => error instanceof TrackExtractionError && /SABR audio access was denied/.test(error.message));
+  assert.equal(requests, 1);
+  assert.equal(aborted, 1);
 });
 
 test('stopping SABR audio aborts it once and does not report failure', async () => {
