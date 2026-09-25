@@ -15,7 +15,7 @@ export class TrackExtractionError extends Error {}
 type Extractor = Pick<Innertube, 'search' | 'getBasicInfo'>;
 let extractorPromise: Promise<Innertube> | undefined;
 
-Platform.shim.eval = (data, environment) => runInNewContext(data.output, environment, { timeout: 5_000 });
+Platform.shim.eval = (data, environment) => runInNewContext(`(() => {\n${data.output}\n})()`, environment, { timeout: 5_000 });
 
 function getExtractor(): Promise<Innertube> {
   return extractorPromise ??= Innertube.create().catch((error) => {

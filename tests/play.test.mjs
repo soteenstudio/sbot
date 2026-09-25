@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { getTrack, MissingAudioToolError, streamTrack, TrackExtractionError } from '../dist/lib/playAudio.js';
 import { consumePlay, refundPlay } from '../dist/lib/playUsage.js';
 import { chooseFormat } from '../node_modules/youtubei.js/dist/src/utils/FormatUtils.js';
+import Player from '../node_modules/youtubei.js/dist/src/core/Player.js';
 
 const videoId = 'abcdefghijk';
 const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -71,6 +72,22 @@ function makeExtractor({ failLookup = false, failDownload = false, streamError =
     },
   };
 }
+
+test('n-parameterized URLs are deciphered through the evaluator', async () => {
+  const player = await Player.fromSource('test-player', {
+    signature_timestamp: 0,
+    data: {
+      output: `class NTransformer {
+  constructor(n) { this.n = n; }
+  transform() { this.n = this.n.split('').reverse().join(''); }
+  get(name) { return this[name]; }
+}
+const exportedVars = { nsigFunction: (url) => new NTransformer(url.slice(url.indexOf('n=') + 2)) };`,
+      exported: ['nsigFunction'],
+    },
+  });
+  assert.equal(await player.decipher('https://example.com/audio?n=abc'), 'https://example.com/audio?n=cba');
+});
 
 test('search and YouTube links resolve to metadata without consuming usage on extraction failure', async () => {
   const extractor = makeExtractor();
