@@ -9,7 +9,7 @@
  */
 
 import { Precondition } from '@sapphire/framework';
-import { CommandInteraction, GuildMember } from 'discord.js';
+import { CommandInteraction } from 'discord.js';
 import { Roles } from '../config.js';
 
 export class RequireRole extends Precondition {
@@ -18,13 +18,16 @@ export class RequireRole extends Precondition {
     _command: any,
     context: { level: keyof typeof Roles },
   ) {
-    const member = interaction.member as GuildMember;
+    const member = interaction.member;
     if (!member) return this.error({ message: 'User not found.' });
 
     const targetRole = Roles[context.level];
 
-    const hasSufficientAccess = member.roles.cache.some((role) => {
-      const userRoleConfig = Object.values(Roles).find((r) => r.id === role.id);
+    const memberRoleIds = Array.isArray(member.roles)
+      ? member.roles
+      : [...member.roles.cache.keys()];
+    const hasSufficientAccess = memberRoleIds.some((roleId) => {
+      const userRoleConfig = Object.values(Roles).find((r) => r.id === roleId);
       return userRoleConfig && userRoleConfig.weight >= targetRole.weight;
     });
 
