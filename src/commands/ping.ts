@@ -15,7 +15,7 @@ export class PingCommand extends Command {
     super(context, {
       ...options,
       name: 'ping',
-      description: 'Cek latency bot dan API Discord',
+      description: 'Check bot response time and Discord gateway latency.',
     });
   }
 
@@ -31,13 +31,13 @@ export class PingCommand extends Command {
   public override async chatInputRun(
     interaction: Command.ChatInputCommandInteraction,
   ) {
-    const msg = await interaction.reply({ content: 'Ping?', fetchReply: true });
+    const msg = await interaction.reply({ content: 'Checking latency…', fetchReply: true });
 
     const diff = msg.createdTimestamp - interaction.createdTimestamp;
     const ping = Math.round(this.container.client.ws.ping);
 
     return interaction.editReply(
-      `Pong! 🏓 (Roundtrip: ${diff}ms, Heartbeat: ${ping}ms)`,
+      `🏓 Response time: **${diff} ms**. Discord gateway latency: **${ping} ms**.`,
     );
   }
 }

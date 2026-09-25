@@ -19,7 +19,7 @@ export class RequireRole extends Precondition {
     context: { level: keyof typeof Roles },
   ) {
     const member = interaction.member;
-    if (!member) return this.error({ message: 'User not found.' });
+    if (!member) return this.error({ message: 'Your server membership could not be verified.' });
 
     const targetRole = Roles[context.level];
 
@@ -39,11 +39,11 @@ export class RequireRole extends Precondition {
         context.level.slice(1).toLowerCase();
 
       await interaction.reply({
-        content: `🚫 **Access Denied**: This action is reserved for **${formattedLevel}** rank and above.`,
+        content: `🚫 This command requires the **${formattedLevel}** role or higher.`,
         ephemeral: true,
       });
 
-      return this.error({ message: 'Access Denied' });
+      return this.error({ message: 'You do not have the required role for this command.' });
     }
   }
 }

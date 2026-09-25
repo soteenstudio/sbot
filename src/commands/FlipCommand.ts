@@ -23,7 +23,7 @@ export class FlipCommand extends Subcommand {
     registry.registerChatInputCommand((builder) =>
       builder
         .setName('flip')
-        .setDescription('Flip a coin')
+        .setDescription('Flip a coin and display the result.')
         .setDMPermission(false),
     );
   }
@@ -34,7 +34,7 @@ export class FlipCommand extends Subcommand {
     const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
 
     await interaction.reply({
-      content: `🪙 **${interaction.user.username}** flipped a coin and got **${result}**!`,
+      content: `🪙 ${interaction.user} flipped a coin: **${result}**.`,
     });
     return;
   }

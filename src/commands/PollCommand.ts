@@ -26,7 +26,7 @@ export class PollCommand extends Subcommand {
     super(context, {
       ...options,
       name: 'poll',
-      description: 'Advanced polling suite for SoTeen Studio.',
+      description: 'Create and manage polls.',
       subcommands: [
         {
           name: 'create',
@@ -48,24 +48,29 @@ export class PollCommand extends Subcommand {
         .addSubcommand((sub) =>
           sub
             .setName('create')
-            .setDescription('Create a poll')
+            .setDescription('Create a new poll.')
             .addStringOption((o) =>
-              o.setName('question').setDescription('Topic').setRequired(true),
+              o
+                .setName('question')
+                .setDescription('Question to ask voters')
+                .setMaxLength(200)
+                .setRequired(true),
             )
             .addStringOption((o) =>
               o
                 .setName('options')
-                .setDescription('Separated by |')
+                .setDescription('Answer options separated by |')
+                .setMaxLength(3000)
                 .setRequired(true),
             ),
         )
         .addSubcommand((sub) =>
           sub
             .setName('results')
-            .setDescription('View results of your active poll'),
+            .setDescription('View the results of your active poll.'),
         )
         .addSubcommand((sub) =>
-          sub.setName('close').setDescription('Close your active poll'),
+          sub.setName('close').setDescription('Close your active poll.'),
         ),
     );
   }
@@ -74,7 +79,7 @@ export class PollCommand extends Subcommand {
     if (activePolls.has(interaction.user.id)) {
       await interaction.reply({
         content:
-          '❌ You already have an active poll. Please close it using `/poll close` before creating a new one.',
+          '❌ You already have an active poll. Use `/poll close` before creating another.',
         ephemeral: true,
       });
       return;
@@ -82,10 +87,20 @@ export class PollCommand extends Subcommand {
 
     const question = interaction.options.getString('question', true);
     const options = interaction.options.getString('options', true).split('|');
+    if (options.length > 5) {
+      await interaction.reply({
+        content:
+          '❌ A poll can have at most five answer options. Separate them with `|`.',
+        ephemeral: true,
+      });
+      return;
+    }
 
     const embed = new EmbedBuilder()
-      .setTitle(`📊 ${question}`)
-      .setDescription(options.map((o, i) => `${i + 1}. ${o}`).join('\n'))
+      .setTitle('📊 Poll')
+      .setDescription(
+        `Question:\n${question}\n\n${options.map((option, index) => `${index + 1}. ${option}`).join('\n')}`,
+      )
       .setColor(0x00ff9d);
 
     const row = new ActionRowBuilder<ButtonBuilder>();
@@ -121,7 +136,7 @@ export class PollCommand extends Subcommand {
 
     if (!poll) {
       await interaction.reply({
-        content: '❌ No active poll found.',
+        content: '❌ You do not have an active poll.',
         ephemeral: true,
       });
       return;
@@ -132,13 +147,13 @@ export class PollCommand extends Subcommand {
     const resultLines = poll.options
       .map((option, index) => {
         const count = votes.get(index + 1) || 0;
-        return `**${option}**: ${count} votes`;
+        return `${index + 1}. ${option} — ${count} ${count === 1 ? 'vote' : 'votes'}`;
       })
       .join('\n');
 
     const embed = new EmbedBuilder()
-      .setTitle(`📈 Results for: ${poll.question}`)
-      .setDescription(resultLines)
+      .setTitle('📈 Poll Results')
+      .setDescription(`Question:\n${poll.question}\n\n${resultLines}`)
       .setColor(0x00ff9d);
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
@@ -148,7 +163,7 @@ export class PollCommand extends Subcommand {
     const poll = activePolls.get(interaction.user.id);
     if (!poll) {
       await interaction.reply({
-        content: '❌ No active poll.',
+        content: '❌ You do not have an active poll to close.',
         ephemeral: true,
       });
       return;
@@ -174,6 +189,6 @@ export class PollCommand extends Subcommand {
       }
     } catch {}
 
-    await interaction.reply({ content: '✅ Poll closed.', ephemeral: true });
+    await interaction.reply({ content: '✅ Your poll has been closed.', ephemeral: true });
   }
 }

@@ -27,7 +27,7 @@ export class LFGCommand extends Subcommand {
     super(context, {
       ...options,
       name: 'lfg-pro',
-      description: 'Elite matchmaking system for competitive players.',
+      description: 'Create and manage premium looking-for-group sessions.',
       subcommands: [
         {
           name: 'create',
@@ -57,32 +57,34 @@ export class LFGCommand extends Subcommand {
         .addSubcommand((sub) =>
           sub
             .setName('create')
-            .setDescription('Initialize a premium LFG session')
+            .setDescription('Create a premium looking-for-group session.')
             .addStringOption((o) =>
               o
                 .setName('game')
-                .setDescription('The game title')
+                .setDescription('Name of the game')
+                .setMaxLength(1000)
                 .setRequired(true),
             )
             .addStringOption((o) =>
               o
                 .setName('rank')
-                .setDescription('Your current rank')
+                .setDescription('Rank required to join')
+                .setMaxLength(1000)
                 .setRequired(true),
             )
             .addIntegerOption((o) =>
               o
                 .setName('max_players')
-                .setDescription('Max players allowed')
+                .setDescription('Maximum number of players')
                 .setMinValue(2)
                 .setMaxValue(10),
             ),
         )
         .addSubcommand((sub) =>
-          sub.setName('close').setDescription('Close your active LFG session'),
+          sub.setName('close').setDescription('Close your active session.'),
         )
         .addSubcommand((sub) =>
-          sub.setName('list').setDescription('View all active elite sessions'),
+          sub.setName('list').setDescription('View all active premium sessions.'),
         ),
     );
   }
@@ -95,9 +97,9 @@ export class LFGCommand extends Subcommand {
     const maxPlayers = interaction.options.getInteger('max_players') || 2;
 
     const embed = new EmbedBuilder()
-      .setTitle('🛡️ Elite Matchmaking Session')
+      .setTitle('🎮 Premium Looking-for-Group Session')
       .setDescription(
-        `**Host:** ${interaction.user}\n**Game:** ${game}\n**Requirement:** ${rank}\n**Players:** 1/${maxPlayers}`,
+        `**Host:** ${interaction.user}\n**Game:** ${game}\n**Required rank:** ${rank}\n**Players:** 1/${maxPlayers}`,
       )
       .setColor(0x00ff9d)
       .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) });
@@ -105,7 +107,7 @@ export class LFGCommand extends Subcommand {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`lfg_pro_join_${interaction.user.id}`)
-        .setLabel('Join Session')
+        .setLabel('Request to Join')
         .setStyle(ButtonStyle.Success),
     );
 
@@ -132,7 +134,7 @@ export class LFGCommand extends Subcommand {
 
     if (!session) {
       return interaction.reply({
-        content: "❌ You don't have an active LFG session to close.",
+        content: '❌ You do not have an active session to close.',
         ephemeral: true,
       });
     }
@@ -170,7 +172,7 @@ export class LFGCommand extends Subcommand {
     activeLFG.delete(interaction.user.id);
 
     return interaction.reply({
-      content: '✅ Your LFG session has been closed successfully.',
+      content: '✅ Your session has been closed.',
       ephemeral: true,
     });
   }
@@ -178,16 +180,28 @@ export class LFGCommand extends Subcommand {
   public async list(interaction: ChatInputCommandInteraction) {
     if (activeLFG.size === 0) {
       return interaction.reply({
-        content: '🔍 No active elite sessions found at the moment.',
+        content: 'No premium sessions are currently active.',
         ephemeral: true,
       });
     }
 
-    const list = Array.from(activeLFG.values())
-      .map((l) => `• **${l.game}** | Rank: ${l.rank} | Host: ${l.author}`)
-      .join('\n');
+    const lines = Array.from(activeLFG.values()).map(
+      (session) =>
+        `• ${session.game} | Required rank: ${session.rank} | Host: ${session.author}`,
+    );
+    const visibleLines: string[] = [];
+    for (const line of lines) {
+      if (visibleLines.join('\n').length + line.length + 1 > 4000) break;
+      visibleLines.push(line);
+    }
+    const omitted = lines.length - visibleLines.length;
+    const list =
+      visibleLines.join('\n') +
+      (omitted
+        ? `\n${omitted} more ${omitted === 1 ? 'session' : 'sessions'} not shown.`
+        : '');
     const embed = new EmbedBuilder()
-      .setTitle('Active Elite Sessions')
+      .setTitle('Active Premium Sessions')
       .setDescription(list)
       .setColor(0x2f3136);
 
