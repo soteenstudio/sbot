@@ -15,7 +15,8 @@
     "@sapphire/framework": "^5.5.0",
     "@sapphire/plugin-subcommands": "^7.0.1",
     "discord.js": "^14.26.4",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "youtubei.js": "^18.1.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
