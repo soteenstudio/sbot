@@ -25,6 +25,59 @@ chmodSync(failingTranscoder, 0o755);
 test.after(() => rmSync(fixtureDirectory, { recursive: true, force: true }));
 
 const defaultFormats = [{ itag: 140, url: 'https://example.com/audio', bitrate: 128000, mime_type: 'audio/mp4', has_audio: true, has_video: false, has_text: false, is_original: true }];
+const sabrFormats = [
+  { ...defaultFormats[0], url: undefined, last_modified_ms: '123', approx_duration_ms: 125000, audio_quality: 'AUDIO_QUALITY_MEDIUM' },
+  { itag: 137, bitrate: 1000000, mime_type: 'video/mp4', has_audio: false, has_video: true, last_modified_ms: '124', approx_duration_ms: 125000 },
+];
+const sabrFields = {
+  streaming_data: { adaptive_formats: sabrFormats, server_abr_streaming_url: 'https://example.com/sabr' },
+  player_config: { media_common_config: { media_ustreamer_request_config: { video_playback_ustreamer_config: 'dGVzdA==' } } },
+};
+
+function makeSabrExtractor(fields = sabrFields) {
+  const extractor = makeExtractor({ formats: sabrFormats });
+  return {
+    ...extractor,
+    session: { context: { client: { clientName: 'WEB', clientVersion: '1.0' } }, po_token: 'dG9rZW4=' },
+    async getBasicInfo(id) { return { ...await extractor.getBasicInfo(id), ...fields }; },
+  };
+}
+
+function makeSabrStream({ onAbort = () => {}, startError, streamError, finish = false, onStart = () => {} } = {}) {
+  let controller;
+  let aborted = false;
+  const audioStream = new ReadableStream({ start(value) { controller = value; } });
+  return (config) => {
+    assert.equal(config.serverAbrStreamingUrl, 'https://example.com/sabr');
+    assert.equal(config.videoPlaybackUstreamerConfig, 'dGVzdA==');
+    assert.equal(config.poToken, 'dG9rZW4=');
+    assert.deepEqual(config.clientInfo, { clientName: 1, clientVersion: '1.0' });
+    assert.equal(config.formats.length, 2);
+    return {
+      abort() {
+        if (aborted) return;
+        aborted = true;
+        onAbort();
+        try { controller.error(new Error('aborted')); } catch {}
+      },
+      async start(options) {
+        assert.equal(options.enabledTrackTypes, 1);
+        onStart();
+        if (startError) throw new Error('SABR startup failed');
+        queueMicrotask(() => {
+          if (aborted) return;
+          if (streamError === 'startup') controller.error(new Error('SABR unavailable'));
+          else {
+            controller.enqueue(new Uint8Array(3840));
+            if (finish) controller.close();
+            if (streamError === 'late') setTimeout(() => controller.error(new Error('SABR interrupted')), 40);
+          }
+        });
+        return { audioStream };
+      },
+    };
+  };
+}
 
 function makeExtractor({ failLookup = false, failDownload = false, streamError = false, maxChunks = Infinity, onCancel = () => {}, onDownload = () => {}, formats = defaultFormats } = {}) {
   return {
@@ -157,6 +210,117 @@ test('URL-less audio fails clearly before spawning ffmpeg or consuming a play', 
   assert.deepEqual(saved, []);
 });
 
+test('SABR audio feeds ffmpeg without invoking the downloadable path', async () => {
+  let downloads = 0;
+  const extractor = makeSabrExtractor();
+  const playback = await streamTrack(videoUrl, (error) => assert.fail(error.message), {
+    extractor: { ...extractor, async getBasicInfo(id) {
+      const info = await extractor.getBasicInfo(id);
+      return { ...info, download() { downloads++; throw new Error('unexpected download'); } };
+    } },
+    sabrStream: makeSabrStream({ finish: true }), transcoder,
+  });
+  playback.stream.resume();
+  assert.equal(await playback.completed, true);
+  assert.equal(downloads, 0);
+});
+
+test('missing SABR URL, configuration, video format, or client info fails before ffmpeg starts', async () => {
+  const marker = join(fixtureDirectory, 'sabr-unexpected-start');
+  const unexpectedTranscoder = join(fixtureDirectory, 'sabr-unexpected-ffmpeg');
+  writeFileSync(unexpectedTranscoder, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');\n`);
+  chmodSync(unexpectedTranscoder, 0o755);
+  const incomplete = [
+    { ...sabrFields, streaming_data: { adaptive_formats: sabrFormats } },
+    { ...sabrFields, player_config: undefined },
+    { ...sabrFields, streaming_data: { ...sabrFields.streaming_data, adaptive_formats: sabrFormats.slice(0, 1) } },
+  ];
+  for (const fields of incomplete) {
+    await assert.rejects(streamTrack(videoUrl, () => assert.fail('unexpected failure'), {
+      extractor: makeSabrExtractor(fields),
+      sabrStream: () => assert.fail('SABR should not start'), transcoder: unexpectedTranscoder,
+    }), /No downloadable audio format/);
+  }
+  await assert.rejects(streamTrack(videoUrl, () => assert.fail('unexpected failure'), {
+    extractor: makeExtractor({ formats: sabrFormats }), sabrStream: () => assert.fail('SABR should not start'), transcoder: unexpectedTranscoder,
+  }), /No downloadable audio format/);
+  assert.equal(existsSync(marker), false);
+});
+
+test('SABR startup errors and empty audio do not consume plays or start ffmpeg', async () => {
+  const usage = { count: 0, lastReset: Date.now() };
+  for (const failure of [{ startError: true }, { streamError: 'startup' }]) {
+    let aborted = 0;
+    await assert.rejects(async () => {
+      const playback = await streamTrack(videoUrl, () => assert.fail('unexpected failure'), {
+        extractor: makeSabrExtractor(),
+        sabrStream: makeSabrStream({ ...failure, onAbort: () => aborted++ }),
+        transcoder,
+      });
+      consumePlay(usage, 10, () => {});
+      return playback;
+    }, TrackExtractionError);
+    assert.equal(aborted, 1);
+    assert.equal(usage.count, 0);
+  }
+});
+
+test('stopping SABR audio aborts it once and does not report failure', async () => {
+  let aborted = 0;
+  const failures = [];
+  const playback = await streamTrack(videoUrl, (error) => failures.push(error), {
+    extractor: makeSabrExtractor(), sabrStream: makeSabrStream({ onAbort: () => aborted++ }), transcoder,
+  });
+  await new Promise((resolve) => playback.stream.once('data', resolve));
+  playback.stop();
+  playback.stop();
+  assert.equal(await playback.completed, false);
+  assert.equal(aborted, 1);
+  assert.deepEqual(failures, []);
+});
+
+test('SABR stream failure aborts playback and refunds a consumed play', async () => {
+  const usage = { count: 0, lastReset: Date.now() };
+  const saved = [];
+  let aborted = 0;
+  let failure;
+  const failed = new Promise((resolve) => { failure = resolve; });
+  const playback = await streamTrack(videoUrl, (error) => {
+    refundPlay(usage, () => saved.push(usage.count));
+    failure(error);
+  }, {
+    extractor: makeSabrExtractor(),
+    sabrStream: makeSabrStream({ streamError: 'late', onAbort: () => aborted++ }), transcoder,
+  });
+  playback.stream.resume();
+  assert.equal(consumePlay(usage, 10, () => saved.push(usage.count)), true);
+  assert.ok(await failed instanceof TrackExtractionError);
+  assert.equal(await playback.completed, false);
+  assert.equal(aborted, 1);
+  assert.deepEqual(saved, [1, 0]);
+});
+
+test('ffmpeg failure on SABR aborts the source and refunds a consumed play', async () => {
+  const usage = { count: 0, lastReset: Date.now() };
+  const saved = [];
+  let aborted = 0;
+  let failure;
+  const failed = new Promise((resolve) => { failure = resolve; });
+  const playback = await streamTrack(videoUrl, (error) => {
+    refundPlay(usage, () => saved.push(usage.count));
+    failure(error);
+  }, {
+    extractor: makeSabrExtractor(),
+    sabrStream: makeSabrStream({ onAbort: () => aborted++ }), transcoder: failingTranscoder,
+  });
+  playback.stream.resume();
+  assert.equal(consumePlay(usage, 1, () => saved.push(usage.count)), true);
+  assert.match((await failed).message, /ffmpeg failed/);
+  assert.equal(await playback.completed, false);
+  assert.equal(aborted, 1);
+  assert.deepEqual(saved, [1, 0]);
+});
+
 test('the play command releases its voice connection and keeps usage unchanged on extraction failure', async (context) => {
   const usageFile = join(fixtureDirectory, 'command-usage.json');
   const previousUsageFile = process.env.PLAY_USAGE_FILE;
@@ -165,22 +329,32 @@ test('the play command releases its voice connection and keeps usage unchanged o
     export class TrackExtractionError extends Error {}
     export class MissingAudioToolError extends Error {}
     export async function getTrack() { return { title: 'Test song', duration: 125, url: 'https://www.youtube.com/watch?v=abcdefghijk' }; }
-    export async function streamTrack() { throw new TrackExtractionError('No downloadable audio format is available for this track.'); }
+    export async function streamTrack(url, onFailure) {
+      if (!globalThis.playTestStartPlayback) throw new TrackExtractionError('No downloadable audio format is available for this track.');
+      globalThis.playTestFail = onFailure;
+      return { stream: {}, completed: new Promise(() => {}), stop() { globalThis.playTestStops++; } };
+    }
   `;
   const voiceModule = `
     import { EventEmitter } from 'node:events';
     export const VoiceConnectionStatus = { Ready: 'ready', Destroyed: 'destroyed' };
-    export const AudioPlayerStatus = { Idle: 'idle' };
+    export const AudioPlayerStatus = { Idle: 'idle', Playing: 'playing' };
     export const StreamType = { Raw: 'raw' };
     export function joinVoiceChannel() {
       const connection = new EventEmitter();
       connection.state = { status: VoiceConnectionStatus.Ready };
       connection.destroy = () => { connection.state.status = VoiceConnectionStatus.Destroyed; };
+      connection.subscribe = () => true;
       globalThis.playTestConnection = connection;
       return connection;
     }
-    export function createAudioPlayer() { const player = new EventEmitter(); player.stop = () => {}; return player; }
-    export function createAudioResource() { throw new Error('Audio resource should not be created'); }
+    export function createAudioPlayer() {
+      const player = new EventEmitter();
+      player.stop = () => {};
+      player.play = () => { player.state = { status: AudioPlayerStatus.Playing }; };
+      return player;
+    }
+    export function createAudioResource() { return {}; }
     export async function entersState() {}
   `;
   const hooks = registerHooks({
@@ -196,6 +370,7 @@ test('the play command releases its voice connection and keeps usage unchanged o
   });
   try {
     context.mock.method(console, 'error', () => {});
+    globalThis.playTestStops = 0;
     const { PlayCommand } = await import('../dist/commands/play.js');
     const replies = [];
     const voiceChannel = { id: 'channel', guild: { id: 'guild', voiceAdapterCreator: () => {} } };
@@ -212,9 +387,23 @@ test('the play command releases its voice connection and keeps usage unchanged o
     const savedUsage = JSON.parse(readFileSync(usageFile, 'utf8'));
     assert.deepEqual(Object.keys(savedUsage), ['user']);
     assert.equal(savedUsage.user.count, 0);
+    globalThis.playTestStartPlayback = true;
+    replies.length = 0;
+    await PlayCommand.prototype.chatInputRun.call({}, interaction);
+    assert.equal(JSON.parse(readFileSync(usageFile, 'utf8')).user.count, 1);
+    assert.equal(globalThis.playTestConnection.state.status, 'ready');
+    await globalThis.playTestFail(new TrackExtractionError('SABR audio stream interrupted'));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(globalThis.playTestConnection.state.status, 'destroyed');
+    assert.equal(globalThis.playTestStops, 1);
+    assert.equal(JSON.parse(readFileSync(usageFile, 'utf8')).user.count, 0);
+    assert.match(replies.at(-1).content, /Music playback failed/);
   } finally {
     hooks.deregister();
     delete globalThis.playTestConnection;
+    delete globalThis.playTestStartPlayback;
+    delete globalThis.playTestFail;
+    delete globalThis.playTestStops;
     if (previousUsageFile === undefined) delete process.env.PLAY_USAGE_FILE;
     else process.env.PLAY_USAGE_FILE = previousUsageFile;
   }

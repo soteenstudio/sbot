@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { runInNewContext } from 'node:vm';
+import { SabrStream, type SabrStreamConfig } from 'googlevideo/sabr-stream';
+import { EnabledTrackTypes } from 'googlevideo/utils';
 import { Innertube, Platform } from 'youtubei.js';
 
 export class MissingAudioToolError extends Error {
@@ -18,7 +20,7 @@ let extractorPromise: Promise<Innertube> | undefined;
 Platform.shim.eval = (data, environment) => runInNewContext(`(() => {\n${data.output}\n})()`, environment, { timeout: 5_000 });
 
 function getExtractor(): Promise<Innertube> {
-  return extractorPromise ??= Innertube.create().catch((error) => {
+  return extractorPromise ??= Innertube.create({ po_token: process.env.PLAY_PO_TOKEN }).catch((error) => {
     extractorPromise = undefined;
     throw error;
   });
@@ -45,6 +47,88 @@ function videoId(query: string): string {
   return id;
 }
 
+async function sabrAudio(
+  info: Awaited<ReturnType<Extractor['getBasicInfo']>>,
+  client: Extractor,
+  createStream: (config: SabrStreamConfig) => Pick<SabrStream, 'start' | 'abort'>,
+): Promise<{ source: Readable; abort: () => void }> {
+  const streamingUrl = info.streaming_data?.server_abr_streaming_url;
+  const ustreamerConfig = info.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config;
+  const formats = [...(info.streaming_data?.formats ?? []), ...(info.streaming_data?.adaptive_formats ?? [])]
+    .filter((format) => (format.has_audio || format.has_video) && format.last_modified_ms && format.mime_type && Number.isFinite(format.approx_duration_ms))
+    .map((format) => ({
+      itag: format.itag,
+      lastModified: format.last_modified_ms,
+      xtags: format.xtags,
+      mimeType: format.mime_type,
+      bitrate: format.bitrate,
+      approxDurationMs: format.approx_duration_ms,
+      audioQuality: format.audio_quality,
+      audioTrackId: format.audio_track?.id,
+      isOriginal: format.is_original,
+    }));
+  const session = 'session' in client ? (client as Innertube).session : undefined;
+  const context = session?.context.client;
+  if (!streamingUrl || !ustreamerConfig || context?.clientName !== 'WEB' || !context.clientVersion ||
+    !formats.some((format) => format.mimeType?.startsWith('audio/')) ||
+    !formats.some((format) => format.mimeType?.startsWith('video/'))) {
+    throw new TrackExtractionError('No downloadable audio format is available for this track. Please try another title or YouTube link.');
+  }
+
+  const sabr = createStream({
+    serverAbrStreamingUrl: streamingUrl,
+    videoPlaybackUstreamerConfig: ustreamerConfig,
+    clientInfo: { clientName: 1, clientVersion: context.clientVersion },
+    poToken: session?.po_token,
+    formats,
+    durationMs: (info.basic_info.duration ?? 0) * 1000 || undefined,
+  });
+  let aborted = false;
+  let ended = false;
+  const abort = () => {
+    if (aborted || ended) return;
+    aborted = true;
+    try { sabr.abort(); } catch {}
+  };
+  try {
+    const { audioStream } = await sabr.start({ enabledTrackTypes: EnabledTrackTypes.AUDIO_ONLY });
+    const reader = audioStream.getReader();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let firstChunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      firstChunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('SABR audio startup timed out')), 10_000); }),
+      ]);
+      if (firstChunk.done || !firstChunk.value?.length) throw new Error('SABR returned no audio');
+    } catch (error) {
+      abort();
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+    const source = Readable.from((async function* () {
+      try {
+        yield firstChunk.value;
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            ended = true;
+            break;
+          }
+          yield chunk.value;
+        }
+      } finally {
+        await reader.cancel().catch(() => {});
+      }
+    })());
+    return { source, abort };
+  } catch (error) {
+    abort();
+    throw error;
+  }
+}
+
 export async function getTrack(query: string, extractor?: Extractor) {
   try {
     const client = extractor ?? await getExtractor();
@@ -69,10 +153,11 @@ export async function getTrack(query: string, extractor?: Extractor) {
 export async function streamTrack(
   url: string,
   onFailure: (error: Error) => void,
-  options: { extractor?: Extractor; transcoder?: string } = {},
+  options: { extractor?: Extractor; transcoder?: string; sabrStream?: (config: SabrStreamConfig) => Pick<SabrStream, 'start' | 'abort'> } = {},
 ) {
   const id = videoId(url);
   let source: Readable;
+  let abortSabr: (() => void) | undefined;
   try {
     const client = options.extractor ?? await getExtractor();
     const info = await client.getBasicInfo(id);
@@ -87,9 +172,14 @@ export async function streamTrack(
     const candidates = audioOnly.length ? audioOnly : formats;
     const original = candidates.filter((format) => format.is_original);
     const selected = (original.length ? original : candidates).sort((first, second) => second.bitrate - first.bitrate)[0];
-    if (!selected) throw new TrackExtractionError('No downloadable audio format is available for this track. Please try another title or YouTube link.');
-    const webStream = await info.download({ type: 'audio', quality: 'best', itag: selected.itag });
-    source = Readable.fromWeb(webStream as NodeReadableStream<Uint8Array>);
+    if (selected) {
+      const webStream = await info.download({ type: 'audio', quality: 'best', itag: selected.itag });
+      source = Readable.fromWeb(webStream as NodeReadableStream<Uint8Array>);
+    } else {
+      const sabr = await sabrAudio(info, client, options.sabrStream ?? ((config) => new SabrStream(config)));
+      source = sabr.source;
+      abortSabr = sabr.abort;
+    }
   } catch (error) {
     if (error instanceof TrackExtractionError) throw error;
     throw new TrackExtractionError('Could not extract audio from this track. Please try another title or YouTube link.', { cause: error });
@@ -108,6 +198,7 @@ export async function streamTrack(
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    abortSabr?.();
     source.unpipe(transcoder.stdin);
     source.destroy();
     transcoder.stdin.destroy();
