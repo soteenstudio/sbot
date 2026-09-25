@@ -1,18 +1,29 @@
+/**
+ * Copyright 2026 SoTeen Studio
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+
 import { Command } from '@sapphire/framework';
 import { ApplicationCommandRegistry } from '@sapphire/framework';
-import { GuildMember, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { Roles } from '../config.js';
+import { consumeChatUsage, getChatUsage, refundChatUsage } from '../lib/chatUsage.js';
 
-const ROLE_LIMITS: Record<string, number> = {
-  [Roles.MEMBER.id]: 4,
-  [Roles.DONATUR.id]: 8,
-  [Roles.BILLION.id]: 15,
-  [Roles.RICHMAN.id]: 30,
-  [Roles.DEPUTY.id]: 50,
-  [Roles.FOUNDER.id]: 9999,
+const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
+  MEMBER: 4,
+  DONATUR: 8,
+  BILLION: 15,
+  RICHMAN: 30,
+  DEPUTY: 50,
+  FOUNDER: 9999,
 };
 
-const usageTracker = new Map<string, { count: number; lastReset: number }>();
+const OPENROUTER_TIMEOUT_MS = 60_000;
 
 export class ChatCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -50,10 +61,13 @@ export class ChatCommand extends Command {
   public override async chatInputRun(
     interaction: Command.ChatInputCommandInteraction,
   ) {
-    const member = interaction.member as GuildMember;
+    const member = interaction.member;
+    const memberRoleIds = member
+      ? Array.isArray(member.roles) ? member.roles : [...member.roles.cache.keys()]
+      : [];
     const userId = interaction.user.id;
 
-    let userLimit = ROLE_LIMITS[Roles.MEMBER.id];
+    let userLimit = ROLE_LIMITS.MEMBER;
     let matchedRoleName = 'MEMBER';
 
     const sortedRoles = [
@@ -63,11 +77,11 @@ export class ChatCommand extends Command {
       { key: 'BILLION', data: Roles.BILLION },
       { key: 'DONATUR', data: Roles.DONATUR },
       { key: 'MEMBER', data: Roles.MEMBER },
-    ];
+    ] as const;
 
     for (const r of sortedRoles) {
-      if (r.data.id && member.roles.cache.has(r.data.id)) {
-        userLimit = ROLE_LIMITS[r.data.id] ?? userLimit;
+      if (r.data.id && memberRoleIds.includes(r.data.id)) {
+        userLimit = ROLE_LIMITS[r.key];
         matchedRoleName = r.key;
         break;
       }
@@ -84,13 +98,7 @@ export class ChatCommand extends Command {
     }
 
     const now = Date.now();
-    const twentyFourHours = 24 * 60 * 60 * 1000;
-    let userUsage = usageTracker.get(userId);
-
-    if (!userUsage || now - userUsage.lastReset > twentyFourHours) {
-      userUsage = { count: 0, lastReset: now };
-      usageTracker.set(userId, userUsage);
-    }
+    const userUsage = await getChatUsage(userId, now);
 
     if (userUsage.count >= userLimit) {
       return interaction.reply({
@@ -99,15 +107,21 @@ export class ChatCommand extends Command {
       });
     }
 
-    userUsage.count++;
-
     const prompt = interaction.options.getString('message', true);
 
     await interaction.deferReply();
 
+    let consumedUsage: typeof userUsage | undefined;
     try {
+      const result = await consumeChatUsage(userId, now, userLimit);
+      if (!result.consumed) {
+        return interaction.editReply(`❌ You have reached your daily AI usage limit for the **${matchedRoleName}** role (${result.usage.count}/${userLimit}). Please try again tomorrow!`);
+      }
+      consumedUsage = result.usage;
+
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
+        signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'HTTP-Referer': 'https://discord.com',
@@ -140,7 +154,7 @@ export class ChatCommand extends Command {
         replyMessage = replyMessage.substring(0, 3997) + '...';
       }
 
-      const remainingLimit = userLimit - userUsage.count;
+      const remainingLimit = userLimit - consumedUsage.count;
 
       const embed = new EmbedBuilder()
         .setTitle('🤖 AI Assistant')
@@ -157,6 +171,7 @@ export class ChatCommand extends Command {
       if (requestedTts) {
         const ttsResponse = await fetch('https://openrouter.ai/api/v1/audio/speech', {
           method: 'POST',
+          signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
           headers: {
             'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
             'HTTP-Referer': 'https://discord.com',
@@ -186,7 +201,13 @@ export class ChatCommand extends Command {
       return interaction.editReply({ embeds: [embed] });
     } catch (error) {
       console.error(error);
-      userUsage.count--;
+      if (consumedUsage) {
+        try {
+          await refundChatUsage(userId, consumedUsage.lastReset);
+        } catch (refundError) {
+          console.error(refundError);
+        }
+      }
       return interaction.editReply('An error occurred while connecting to the AI server. Please try again later!');
     }
   }
