@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { Innertube } from 'youtubei.js';
+import { runInNewContext } from 'node:vm';
+import { Innertube, Platform } from 'youtubei.js';
 
 export class MissingAudioToolError extends Error {
   constructor() {
@@ -13,6 +14,8 @@ export class TrackExtractionError extends Error {}
 
 type Extractor = Pick<Innertube, 'search' | 'getBasicInfo'>;
 let extractorPromise: Promise<Innertube> | undefined;
+
+Platform.shim.eval = (data, environment) => runInNewContext(data.output, environment, { timeout: 5_000 });
 
 function getExtractor(): Promise<Innertube> {
   return extractorPromise ??= Innertube.create().catch((error) => {
