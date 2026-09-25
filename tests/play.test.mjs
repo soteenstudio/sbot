@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { getTrack, MissingAudioToolError, streamTrack, TrackExtractionError } from '../dist/lib/playAudio.js';
 import { consumePlay, refundPlay } from '../dist/lib/playUsage.js';
+import { chooseFormat } from '../node_modules/youtubei.js/dist/src/utils/FormatUtils.js';
 
 const videoId = 'abcdefghijk';
 const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -21,7 +23,9 @@ chmodSync(transcoder, 0o755);
 chmodSync(failingTranscoder, 0o755);
 test.after(() => rmSync(fixtureDirectory, { recursive: true, force: true }));
 
-function makeExtractor({ failLookup = false, failDownload = false, streamError = false, maxChunks = Infinity, onCancel = () => {} } = {}) {
+const defaultFormats = [{ itag: 140, url: 'https://example.com/audio', bitrate: 128000, mime_type: 'audio/mp4', has_audio: true, has_video: false, has_text: false, is_original: true }];
+
+function makeExtractor({ failLookup = false, failDownload = false, streamError = false, maxChunks = Infinity, onCancel = () => {}, onDownload = () => {}, formats = defaultFormats } = {}) {
   return {
     async search(query, filters) {
       assert.deepEqual(filters, { type: 'video' });
@@ -32,8 +36,13 @@ function makeExtractor({ failLookup = false, failDownload = false, streamError =
       if (failLookup) throw new Error('lookup failed');
       return {
         basic_info: { title: 'Test song', duration: 125 },
+        streaming_data: { adaptive_formats: formats },
         async download(options) {
-          assert.deepEqual(options, { type: 'audio', quality: 'best' });
+          onDownload(options);
+          assert.equal(options.type, 'audio');
+          assert.equal(options.quality, 'best');
+          const selected = chooseFormat(options, this.streaming_data);
+          if (!selected.url && !selected.signature_cipher && !selected.cipher) throw new Error('No valid URL to decipher');
           if (failDownload) throw new Error('audio unavailable');
           let timer;
           let emitted = 0;
@@ -82,6 +91,116 @@ test('audio extraction fails before playback and no play is consumed', async () 
     extractor: makeExtractor({ failDownload: true }), transcoder,
   }), TrackExtractionError);
   assert.equal(usage.count, 0);
+});
+
+test('falls back from a higher-bitrate URL-less format to downloadable audio', async () => {
+  const formats = [
+    { ...defaultFormats[0], itag: 141, url: undefined, bitrate: 256000 },
+    { ...defaultFormats[0], itag: 140, bitrate: 128000 },
+  ];
+  assert.equal(chooseFormat({ type: 'audio', quality: 'best' }, { adaptive_formats: formats }).itag, 141);
+  const extractor = makeExtractor({ formats, maxChunks: 2 });
+  await assert.rejects((await extractor.getBasicInfo(videoId)).download({ type: 'audio', quality: 'best' }), /No valid URL to decipher/);
+  const downloadOptions = [];
+  const failures = [];
+  const playback = await streamTrack(videoUrl, (error) => failures.push(error), {
+    extractor: makeExtractor({ formats, onDownload: (options) => downloadOptions.push(options), maxChunks: 2 }), transcoder,
+  });
+  playback.stream.resume();
+  assert.equal(await playback.completed, true);
+  assert.deepEqual(downloadOptions, [{ type: 'audio', quality: 'best', itag: 140 }]);
+  assert.deepEqual(failures, []);
+});
+
+test('URL-less audio fails clearly before spawning ffmpeg or consuming a play', async () => {
+  const usage = { count: 0, lastReset: Date.now() };
+  const saved = [];
+  let downloads = 0;
+  let failures = 0;
+  const marker = join(fixtureDirectory, 'unexpected-start');
+  const unexpectedTranscoder = join(fixtureDirectory, 'unexpected-ffmpeg');
+  writeFileSync(unexpectedTranscoder, `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');\n`);
+  chmodSync(unexpectedTranscoder, 0o755);
+  const formats = [
+    { ...defaultFormats[0], url: undefined },
+    { ...defaultFormats[0], itag: 141, url: undefined, bitrate: 256000 },
+  ];
+  const startPlayback = async () => {
+    const playback = await streamTrack(videoUrl, () => { failures++; }, {
+      extractor: makeExtractor({ formats, onDownload: () => { downloads++; } }), transcoder: unexpectedTranscoder,
+    });
+    consumePlay(usage, 1, () => saved.push(usage.count));
+    return playback;
+  };
+  await assert.rejects(startPlayback(), (error) => error instanceof TrackExtractionError && /No downloadable audio format/.test(error.message));
+  assert.equal(downloads, 0);
+  assert.equal(failures, 0);
+  assert.equal(existsSync(marker), false);
+  assert.equal(usage.count, 0);
+  assert.deepEqual(saved, []);
+});
+
+test('the play command releases its voice connection and keeps usage unchanged on extraction failure', async (context) => {
+  const usageFile = join(fixtureDirectory, 'command-usage.json');
+  const previousUsageFile = process.env.PLAY_USAGE_FILE;
+  process.env.PLAY_USAGE_FILE = usageFile;
+  const audioModule = `
+    export class TrackExtractionError extends Error {}
+    export class MissingAudioToolError extends Error {}
+    export async function getTrack() { return { title: 'Test song', duration: 125, url: 'https://www.youtube.com/watch?v=abcdefghijk' }; }
+    export async function streamTrack() { throw new TrackExtractionError('No downloadable audio format is available for this track.'); }
+  `;
+  const voiceModule = `
+    import { EventEmitter } from 'node:events';
+    export const VoiceConnectionStatus = { Ready: 'ready', Destroyed: 'destroyed' };
+    export const AudioPlayerStatus = { Idle: 'idle' };
+    export const StreamType = { Raw: 'raw' };
+    export function joinVoiceChannel() {
+      const connection = new EventEmitter();
+      connection.state = { status: VoiceConnectionStatus.Ready };
+      connection.destroy = () => { connection.state.status = VoiceConnectionStatus.Destroyed; };
+      globalThis.playTestConnection = connection;
+      return connection;
+    }
+    export function createAudioPlayer() { const player = new EventEmitter(); player.stop = () => {}; return player; }
+    export function createAudioResource() { throw new Error('Audio resource should not be created'); }
+    export async function entersState() {}
+  `;
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (context.parentURL && new URL(context.parentURL).pathname.endsWith('/dist/commands/play.js')) {
+        if (specifier === '../lib/playAudio.js' || specifier === '@discordjs/voice') {
+          const source = specifier === '@discordjs/voice' ? voiceModule : audioModule;
+          return { url: `data:text/javascript,${encodeURIComponent(source)}`, shortCircuit: true };
+        }
+      }
+      return nextResolve(specifier, context);
+    },
+  });
+  try {
+    context.mock.method(console, 'error', () => {});
+    const { PlayCommand } = await import('../dist/commands/play.js');
+    const replies = [];
+    const voiceChannel = { id: 'channel', guild: { id: 'guild', voiceAdapterCreator: () => {} } };
+    const interaction = {
+      user: { id: 'user' },
+      guild: { members: { fetch: async () => ({ voice: { channel: voiceChannel }, roles: { cache: new Map() } }) } },
+      options: { getString: () => videoUrl },
+      deferReply: async () => {},
+      editReply: async (reply) => { replies.push(reply); },
+    };
+    await PlayCommand.prototype.chatInputRun.call({}, interaction);
+    assert.equal(globalThis.playTestConnection.state.status, 'destroyed');
+    assert.match(replies[0].content, /No downloadable audio format/);
+    const savedUsage = JSON.parse(readFileSync(usageFile, 'utf8'));
+    assert.deepEqual(Object.keys(savedUsage), ['user']);
+    assert.equal(savedUsage.user.count, 0);
+  } finally {
+    hooks.deregister();
+    delete globalThis.playTestConnection;
+    if (previousUsageFile === undefined) delete process.env.PLAY_USAGE_FILE;
+    else process.env.PLAY_USAGE_FILE = previousUsageFile;
+  }
 });
 
 test('missing ffmpeg reports Termux guidance and cancels the Node stream', async () => {
