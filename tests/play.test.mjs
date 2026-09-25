@@ -1,89 +1,157 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { getTrack, MissingAudioToolError, streamTrack } from '../dist/lib/playAudio.js';
+import { getTrack, MissingAudioToolError, streamTrack, TrackExtractionError } from '../dist/lib/playAudio.js';
 import { consumePlay, refundPlay } from '../dist/lib/playUsage.js';
 
+const videoId = 'abcdefghijk';
+const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 const fixtureDirectory = mkdtempSync(join(tmpdir(), 'play-test-'));
-const downloader = join(fixtureDirectory, 'yt-dlp');
 const transcoder = join(fixtureDirectory, 'ffmpeg');
-writeFileSync(downloader, `#!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
-if (process.argv.includes('--dump-single-json')) {
-  if (process.argv.at(-1).includes('broken')) process.exit(1);
-  const track = { title: 'Test song', duration: 125, webpage_url: 'https://example.com/song' };
-  console.log(JSON.stringify(process.argv.at(-1).startsWith('ytsearch1:') ? { entries: [track] } : track));
-} else {
-  process.on('SIGTERM', () => { writeFileSync(process.env.PLAY_TEST_MARKER, 'stopped'); process.exit(0); });
-  if (process.argv.at(-1).includes('broken')) {
-    process.stdout.write(Buffer.alloc(3840));
-    setTimeout(() => process.exit(2), 50);
-  } else {
-    setInterval(() => process.stdout.write(Buffer.alloc(3840)), 20);
-  }
-}
-`);
+const failingTranscoder = join(fixtureDirectory, 'failing-ffmpeg');
 writeFileSync(transcoder, `#!/usr/bin/env node
 process.stdin.pipe(process.stdout);
 `);
-chmodSync(downloader, 0o755);
+writeFileSync(failingTranscoder, `#!/usr/bin/env node
+process.stdin.once('data', () => process.exit(2));
+`);
 chmodSync(transcoder, 0o755);
+chmodSync(failingTranscoder, 0o755);
 test.after(() => rmSync(fixtureDirectory, { recursive: true, force: true }));
 
-test('metadata extracts a search result, and extraction failure never consumes usage', async () => {
-  assert.deepEqual(await getTrack('test song', downloader), {
-    title: 'Test song', duration: 125, url: 'https://example.com/song',
+function makeExtractor({ failLookup = false, failDownload = false, streamError = false, maxChunks = Infinity, onCancel = () => {} } = {}) {
+  return {
+    async search(query, filters) {
+      assert.deepEqual(filters, { type: 'video' });
+      return { videos: query === 'missing' ? [] : [{ video_id: videoId }] };
+    },
+    async getBasicInfo(id) {
+      assert.equal(id, videoId);
+      if (failLookup) throw new Error('lookup failed');
+      return {
+        basic_info: { title: 'Test song', duration: 125 },
+        async download(options) {
+          assert.deepEqual(options, { type: 'audio', quality: 'best' });
+          if (failDownload) throw new Error('audio unavailable');
+          let timer;
+          let emitted = 0;
+          return new ReadableStream({
+            start(controller) {
+              timer = setInterval(() => {
+                if (streamError) {
+                  clearInterval(timer);
+                  controller.error(new Error('download interrupted'));
+                } else {
+                  controller.enqueue(new Uint8Array(3840));
+                  if (++emitted === maxChunks) {
+                    clearInterval(timer);
+                    controller.close();
+                  }
+                }
+              }, 40);
+            },
+            cancel() {
+              clearInterval(timer);
+              onCancel();
+            },
+          });
+        },
+      };
+    },
+  };
+}
+
+test('search and YouTube links resolve to metadata without consuming usage on extraction failure', async () => {
+  const extractor = makeExtractor();
+  assert.deepEqual(await getTrack('test song', extractor), {
+    title: 'Test song', duration: 125, url: videoUrl,
   });
-  assert.equal((await getTrack('https://example.com/song', downloader)).url, 'https://example.com/song');
+  assert.equal((await getTrack(`https://youtu.be/${videoId}`, extractor)).url, videoUrl);
   const usage = { count: 2, lastReset: Date.now() };
-  await assert.rejects(getTrack('broken song', downloader));
+  await assert.rejects(getTrack('missing', extractor), TrackExtractionError);
+  await assert.rejects(getTrack('test song', makeExtractor({ failLookup: true })), TrackExtractionError);
+  await assert.rejects(getTrack('https://example.com/song', extractor), /Only YouTube video links/);
   assert.equal(usage.count, 2);
-  await assert.rejects(getTrack('song', join(fixtureDirectory, 'missing')), MissingAudioToolError);
 });
 
-test('missing ffmpeg reports setup guidance and stops yt-dlp', async () => {
-  const marker = join(fixtureDirectory, 'missing-ffmpeg-stopped');
-  process.env.PLAY_TEST_MARKER = marker;
-  let playback;
-  const failure = new Promise((resolve) => {
-    playback = streamTrack('https://example.com/song', (error) => {
-      playback.stop();
-      resolve(error);
-    }, { downloader, transcoder: join(fixtureDirectory, 'missing-ffmpeg') });
-  });
-  assert.match((await failure).message, /Missing ffmpeg.*pkg install python ffmpeg/);
-  assert.equal(await playback.completed, false);
+test('audio extraction fails before playback and no play is consumed', async () => {
+  const usage = { count: 0, lastReset: Date.now() };
+  await assert.rejects(streamTrack(videoUrl, () => assert.fail('unexpected stream failure'), {
+    extractor: makeExtractor({ failDownload: true }), transcoder,
+  }), TrackExtractionError);
+  assert.equal(usage.count, 0);
 });
 
-test('subprocesses stop when playback is cancelled', async () => {
-  const marker = join(fixtureDirectory, 'stopped');
-  process.env.PLAY_TEST_MARKER = marker;
+test('missing ffmpeg reports Termux guidance and cancels the Node stream', async () => {
+  let cancelled = 0;
   const failures = [];
-  const playback = streamTrack('https://example.com/song', (error) => failures.push(error), { downloader, transcoder });
+  const playback = await streamTrack(videoUrl, (error) => failures.push(error), {
+    extractor: makeExtractor({ onCancel: () => cancelled++ }),
+    transcoder: join(fixtureDirectory, 'missing-ffmpeg'),
+  });
+  assert.equal(await playback.completed, false);
+  assert.equal(cancelled, 1);
+  assert.equal(failures.length, 1);
+  assert.ok(failures[0] instanceof MissingAudioToolError);
+  assert.match(failures[0].message, /pkg install ffmpeg/);
+});
+
+test('stopping playback cancels the source and ffmpeg without reporting failure', async () => {
+  let cancelled = 0;
+  const failures = [];
+  const playback = await streamTrack(videoUrl, (error) => failures.push(error), {
+    extractor: makeExtractor({ onCancel: () => cancelled++ }), transcoder,
+  });
   await new Promise((resolve) => playback.stream.once('data', resolve));
   playback.stop();
   assert.equal(await playback.completed, false);
-  assert.equal(readFileSync(marker, 'utf8'), 'stopped');
+  assert.equal(cancelled, 1);
   assert.deepEqual(failures, []);
 });
 
-test('download failure stops playback and refunds the consumed play', async () => {
+test('a completed audio stream exits cleanly', async () => {
+  const failures = [];
+  const playback = await streamTrack(videoUrl, (error) => failures.push(error), {
+    extractor: makeExtractor({ maxChunks: 2 }), transcoder,
+  });
+  playback.stream.resume();
+  assert.equal(await playback.completed, true);
+  assert.deepEqual(failures, []);
+});
+
+test('ffmpeg failure cancels the source and refunds the consumed play', async () => {
+  const usage = { count: 0, lastReset: Date.now() };
+  const saved = [];
+  const save = () => saved.push(usage.count);
+  let cancelled = 0;
+  assert.equal(consumePlay(usage, 1, save), true);
+  let failure;
+  const failed = new Promise((resolve) => { failure = resolve; });
+  const playback = await streamTrack(videoUrl, (error) => {
+    refundPlay(usage, save);
+    failure(error);
+  }, { extractor: makeExtractor({ onCancel: () => cancelled++ }), transcoder: failingTranscoder });
+  assert.match((await failed).message, /ffmpeg failed/);
+  assert.equal(await playback.completed, false);
+  assert.equal(cancelled, 1);
+  assert.deepEqual(saved, [1, 0]);
+});
+
+test('stream failure cancels playback and refunds exactly one consumed play', async () => {
   const usage = { count: 0, lastReset: Date.now() };
   const saved = [];
   const save = () => saved.push(usage.count);
   assert.equal(consumePlay(usage, 1, save), true);
   assert.equal(consumePlay(usage, 1, save), false);
-  let playback;
-  const failure = new Promise((resolve) => {
-    playback = streamTrack('https://example.com/broken', (error) => {
-      refundPlay(usage, save);
-      playback.stop();
-      resolve(error);
-    }, { downloader, transcoder });
-  });
-  assert.match((await failure).message, /yt-dlp failed/);
+  let failure;
+  const failed = new Promise((resolve) => { failure = resolve; });
+  const playback = await streamTrack(videoUrl, (error) => {
+    refundPlay(usage, save);
+    failure(error);
+  }, { extractor: makeExtractor({ streamError: true }), transcoder });
+  assert.ok(await failed instanceof TrackExtractionError);
   assert.equal(await playback.completed, false);
   assert.deepEqual(saved, [1, 0]);
   assert.equal(usage.count, 0);

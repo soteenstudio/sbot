@@ -6,7 +6,7 @@ import { ApplicationCommandRegistry } from '@sapphire/framework';
 import { GuildMember, EmbedBuilder } from 'discord.js';
 import { joinVoiceChannel, createAudioPlayer, createAudioResource, entersState, AudioPlayerStatus, VoiceConnectionStatus, StreamType } from '@discordjs/voice';
 import { Roles } from '../config.js';
-import { getTrack, MissingAudioToolError, streamTrack } from '../lib/playAudio.js';
+import { getTrack, MissingAudioToolError, streamTrack, TrackExtractionError } from '../lib/playAudio.js';
 import { consumePlay, refundPlay, type PlayUsage } from '../lib/playUsage.js';
 
 const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
@@ -138,7 +138,7 @@ export class PlayCommand extends Command {
     const searchQuery = interaction.options.getString('query', true);
     await interaction.deferReply();
 
-    let audio: ReturnType<typeof streamTrack> | undefined;
+    let audio: Awaited<ReturnType<typeof streamTrack>> | undefined;
     let failureHandler: ((error: unknown) => Promise<void>) | undefined;
 
     try {
@@ -149,8 +149,6 @@ export class PlayCommand extends Command {
       const songDuration = Math.floor(durationSec / 60) + ':' + (durationSec % 60).toString().padStart(2, '0');
 
       const player = createAudioPlayer();
-      audio = streamTrack(targetUrl, (error) => void failPlayback(error));
-      const resource = createAudioResource(audio.stream, { inputType: StreamType.Raw });
       const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: voiceChannel.guild.id,
@@ -169,6 +167,7 @@ export class PlayCommand extends Command {
         if (ownsConnection) activePlaybacks.delete(guildId);
         abortController.abort();
         if (!ownsConnection) connection.off('error', onConnectionError);
+        player.off('error', onPlayerError);
         player.off(AudioPlayerStatus.Idle, onIdle);
         player.stop(true);
         audio?.stop();
@@ -191,7 +190,7 @@ export class PlayCommand extends Command {
         }
         await successReply?.catch(() => {});
         await interaction.editReply({
-          content: error instanceof MissingAudioToolError ? `❌ ${error.message}` : '❌ Music playback failed. Please try another title!',
+          content: error instanceof MissingAudioToolError || error instanceof TrackExtractionError ? `❌ ${error.message}` : '❌ Music playback failed. Please try another title!',
           embeds: [],
         }).catch((replyError) => console.error('Could not update play reply:', replyError));
       };
@@ -208,7 +207,10 @@ export class PlayCommand extends Command {
           void failPlayback(new Error('Audio player stopped before playback started'));
           return;
         }
-        if (!await audio?.completed || finished) return;
+        if (!await audio?.completed || finished) {
+          if (!finished) void failPlayback(new Error('Audio stream ended before extraction completed'));
+          return;
+        }
         finished = true;
         cleanup();
       };
@@ -234,6 +236,12 @@ export class PlayCommand extends Command {
       if (finished || connection.state.status !== VoiceConnectionStatus.Ready) {
         throw new Error('Voice connection did not become ready');
       }
+      audio = await streamTrack(targetUrl, (error) => void failPlayback(error));
+      if (finished) {
+        audio.stop();
+        throw new Error('Playback stopped during audio extraction');
+      }
+      const resource = createAudioResource(audio.stream, { inputType: StreamType.Raw });
       if (!connection.subscribe(player)) throw new Error('Could not subscribe to voice connection');
       player.play(resource);
       const playingSignal = AbortSignal.any([AbortSignal.timeout(VOICE_TIMEOUT_MS), abortController.signal]);
@@ -271,7 +279,7 @@ export class PlayCommand extends Command {
       }
       console.error(error);
       audio?.stop();
-      return interaction.editReply(error instanceof MissingAudioToolError
+      return interaction.editReply(error instanceof MissingAudioToolError || error instanceof TrackExtractionError
         ? `❌ ${error.message}`
         : '❌ Could not find or extract this track. Please try another title or link!');
     }
