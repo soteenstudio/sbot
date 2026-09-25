@@ -54,7 +54,7 @@ export class RequestHandler extends InteractionHandler {
 
     if (action === 'decline') {
       return interaction.followUp({
-        content: '🚫 Request declined.',
+        content: 'Your join request has been declined.',
         ephemeral: true,
       });
     }
@@ -66,7 +66,7 @@ export class RequestHandler extends InteractionHandler {
     const session = activeLFG.get(hostId);
     if (!session)
       return interaction.followUp({
-        content: '❌ Session not found.',
+        content: '❌ This session is no longer active.',
         ephemeral: true,
       });
 
@@ -77,7 +77,7 @@ export class RequestHandler extends InteractionHandler {
 
     if (!guild) {
       return interaction.followUp({
-        content: '❌ Gagal akses server asal.',
+        content: '❌ The original server could not be accessed.',
         ephemeral: true,
       });
     }
@@ -85,7 +85,7 @@ export class RequestHandler extends InteractionHandler {
     const host = await interaction.client.users.fetch(hostId).catch(() => null);
     if (!host)
       return interaction.followUp({
-        content: '❌ Host tidak ditemukan.',
+        content: '❌ The session host could not be found.',
         ephemeral: true,
       });
     const vc = await guild.channels.create({
@@ -162,11 +162,11 @@ export class RequestHandler extends InteractionHandler {
     );
 
     await vc.send({
-      content: `✅ Match created! <@${host.id}> & <@${joinerId}>.`,
+      content: `✅ A voice channel is ready for <@${host.id}> and <@${joinerId}>.`,
       components: [endRow],
     });
     return interaction.followUp({
-      content: `✅ Match accepted! Join here: ${vc.toString()}`,
+      content: `✅ Join request accepted. Your voice channel is ${vc.toString()}.`,
       ephemeral: true,
     });
   }

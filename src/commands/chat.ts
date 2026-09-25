@@ -30,7 +30,7 @@ export class ChatCommand extends Command {
     super(context, {
       ...options,
       name: 'chat',
-      description: 'Chat with AI via OpenRouter powered by SBot Engine',
+      description: 'Ask the AI assistant a question.',
       preconditions: [
         { name: 'RequireRole', context: { level: 'MEMBER' } } as any,
       ],
@@ -46,13 +46,13 @@ export class ChatCommand extends Command {
         .addStringOption((option) =>
           option
             .setName('message')
-            .setDescription('The message or question for the AI')
+            .setDescription('Your message or question for the AI assistant')
             .setRequired(true),
         )
         .addBooleanOption((option) =>
           option
             .setName('tts')
-            .setDescription('Enable Text-to-Speech audio output (Exclusive for high-tier roles)')
+            .setDescription('Include spoken audio (Richman, Deputy, or Founder roles)')
             .setRequired(false),
         ),
     );
@@ -92,7 +92,7 @@ export class ChatCommand extends Command {
     const allowedTtsRoles = ['RICHMAN', 'DEPUTY', 'FOUNDER'];
     if (requestedTts && !allowedTtsRoles.includes(matchedRoleName)) {
       return interaction.reply({
-        content: `❌ The **TTS** feature is exclusive to high-tier roles (**Richman, Deputy, Founder**). Your current role is **${matchedRoleName}**.`,
+        content: `❌ Audio replies require the Richman, Deputy, or Founder role. Your current role is **${matchedRoleName}**.`,
         ephemeral: true,
       });
     }
@@ -104,14 +104,14 @@ export class ChatCommand extends Command {
     } catch (error) {
       console.error(error);
       return interaction.reply({
-        content: 'An error occurred while checking your AI usage. Please try again later!',
+        content: '❌ Your AI usage could not be checked. Please try again later.',
         ephemeral: true,
       });
     }
 
     if (userUsage.count >= userLimit) {
       return interaction.reply({
-        content: `❌ You have reached your daily AI usage limit for the **${matchedRoleName}** role (${userUsage.count}/${userLimit}). Please try again tomorrow!`,
+        content: `❌ You have reached the daily AI request limit for the **${matchedRoleName}** role (${userUsage.count}/${userLimit}). Please try again after your limit resets.`,
         ephemeral: true,
       });
     }
@@ -124,7 +124,7 @@ export class ChatCommand extends Command {
     try {
       const result = await consumeChatUsage(userId, now, userLimit);
       if (!result.consumed) {
-        return interaction.editReply(`❌ You have reached your daily AI usage limit for the **${matchedRoleName}** role (${result.usage.count}/${userLimit}). Please try again tomorrow!`);
+        return interaction.editReply(`❌ You have reached the daily AI request limit for the **${matchedRoleName}** role (${result.usage.count}/${userLimit}). Please try again after your limit resets.`);
       }
       consumedUsage = result.usage;
 
@@ -157,7 +157,7 @@ export class ChatCommand extends Command {
       }
 
       const data = await response.json();
-      let replyMessage = data.choices?.[0]?.message?.content || 'Oops, received no response from the AI.';
+      let replyMessage = data.choices?.[0]?.message?.content || 'The AI assistant did not return a response. Please try again.';
 
       if (replyMessage.length > 4000) {
         replyMessage = replyMessage.substring(0, 3997) + '...';
@@ -166,13 +166,13 @@ export class ChatCommand extends Command {
       const remainingLimit = userLimit - consumedUsage.count;
 
       const embed = new EmbedBuilder()
-        .setTitle('🤖 AI Assistant')
+        .setTitle('🤖 AI Response')
         .setDescription(replyMessage)
         .setColor(0x00ff9d)
         .addFields(
-          { name: '👤 Prompt by', value: `${interaction.user}`, inline: true },
-          { name: '🛡️ Role Tier', value: `\`${matchedRoleName}\``, inline: true },
-          { name: '⚡ Remaining Limit', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
+          { name: 'Requested by', value: `${interaction.user}`, inline: true },
+          { name: 'Role', value: `\`${matchedRoleName}\``, inline: true },
+          { name: 'Requests remaining today', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
         )
         .setTimestamp()
         .setFooter({ text: 'Powered by SBot Engine' });
@@ -207,7 +207,7 @@ export class ChatCommand extends Command {
         }
 
         return interaction.editReply({
-          content: '⚠️ Audio generation failed. Here is your chat reply:',
+          content: '⚠️ Audio generation was unavailable. Your AI response is shown below.',
           embeds: [embed],
         });
       }
@@ -222,7 +222,7 @@ export class ChatCommand extends Command {
           console.error(refundError);
         }
       }
-      return interaction.editReply('An error occurred while connecting to the AI server. Please try again later!');
+      return interaction.editReply('❌ The AI service is unavailable. Please try again later.');
     }
   }
 }

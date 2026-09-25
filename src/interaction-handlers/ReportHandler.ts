@@ -44,20 +44,20 @@ export class ReportHandler extends InteractionHandler {
     await interaction.message.edit({ embeds: [resolvedEmbed], components: [] });
 
     const dmEmbed = new EmbedBuilder()
-      .setTitle('✅ Report Resolved')
+      .setTitle('✅ Your Report Has Been Resolved')
       .setColor(0x00ff00)
       .setDescription(
-        `Your report regarding: **${originalEmbed.title}** has been successfully resolved by our staff.`,
+        `The server staff have resolved your report (${originalEmbed.title}).`,
       )
       .addFields(
-        { name: 'Resolution Status', value: 'Complete', inline: true },
+        { name: 'Status', value: 'Resolved', inline: true },
         {
-          name: 'Timestamp',
+          name: 'Resolved',
           value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
           inline: true,
         },
       )
-      .setFooter({ text: 'Thank you for helping keep our community safe!' });
+      .setFooter({ text: 'Thank you for helping keep our community safe.' });
 
     try {
       const reporter = await interaction.client.users.fetch(reporterId);
@@ -68,7 +68,7 @@ export class ReportHandler extends InteractionHandler {
 
     await interaction.editReply({
       content:
-        '✅ The report has been marked as resolved, and the reporter has been notified via DM.',
+        '✅ The report has been marked as resolved. A notification was sent to the reporter if direct messages were available.',
     });
   }
 }

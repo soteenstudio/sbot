@@ -22,7 +22,7 @@ export class LFGCommand extends Command {
     super(context, {
       ...options,
       name: 'lfg',
-      description: 'Post a standard LFG session.',
+      description: 'Post a looking-for-group session.',
     });
   }
 
@@ -33,12 +33,16 @@ export class LFGCommand extends Command {
         .setDescription(this.description)
         .setDMPermission(false)
         .addStringOption((o) =>
-          o.setName('game').setDescription('Game title').setRequired(true),
+          o
+            .setName('game')
+            .setDescription('Name of the game')
+            .setMaxLength(1000)
+            .setRequired(true),
         )
         .addIntegerOption((o) =>
           o
             .setName('slots')
-            .setDescription('Available slots')
+            .setDescription('Number of players needed')
             .setMinValue(1)
             .setMaxValue(10)
             .setRequired(true),
@@ -46,7 +50,7 @@ export class LFGCommand extends Command {
         .addStringOption((o) =>
           o
             .setName('vc_link')
-            .setDescription('Voice Channel Link (URL)')
+            .setDescription('Link to the voice channel')
             .setRequired(true),
         ),
     );
@@ -62,22 +66,22 @@ export class LFGCommand extends Command {
     } catch {
       return interaction.reply({
         content:
-          '❌ Invalid link provided. Please ensure your Voice Channel Link is a valid URL (e.g., https://discord.gg/...).',
+          '❌ Enter a valid voice channel URL (for example, https://discord.gg/...).',
         ephemeral: true,
       });
     }
 
     const embed = new EmbedBuilder()
-      .setTitle('🎮 LFG Session')
+      .setTitle('🎮 Looking for Group')
       .setColor(0x5865f2)
       .setDescription(
-        `**Host:** ${interaction.user}\n**Game:** ${game}\n**Slots:** ${slots} players needed`,
+        `**Host:** ${interaction.user}\n**Game:** ${game}\n**Players needed:** ${slots}`,
       )
-      .setFooter({ text: 'Standard Matchmaking' });
+      .setFooter({ text: 'Looking for group' });
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setLabel('Join Voice')
+        .setLabel('Join Voice Channel')
         .setStyle(ButtonStyle.Link)
         .setURL(vcLink),
     );
