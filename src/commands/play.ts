@@ -57,7 +57,7 @@ export class PlayCommand extends Command {
     super(context, {
       ...options,
       name: 'play',
-      description: 'Stream music directly in RAM by typing titles (No links, No downloads!)',
+      description: 'Search and stream songs from Audius by title (no links)',
       preconditions: [
         { name: 'RequireRole', context: { level: 'MEMBER' } } as any,
       ],
@@ -73,7 +73,7 @@ export class PlayCommand extends Command {
         .addStringOption((option) =>
           option
             .setName('query')
-            .setDescription('Type any song title (Awam-friendly, no links needed!)')
+            .setDescription('Search for a song title on Audius (links not supported)')
             .setRequired(true),
         ),
     );
@@ -166,7 +166,7 @@ export class PlayCommand extends Command {
         const ownsConnection = activePlaybacks.get(guildId) === playback;
         if (ownsConnection) activePlaybacks.delete(guildId);
         abortController.abort();
-        if (!ownsConnection) connection.off('error', onConnectionError);
+        connection.off('error', onConnectionError);
         player.off('error', onPlayerError);
         player.off(AudioPlayerStatus.Idle, onIdle);
         player.stop(true);
@@ -207,7 +207,11 @@ export class PlayCommand extends Command {
           void failPlayback(new Error('Audio player stopped before playback started'));
           return;
         }
-        if (!await audio?.completed || finished) {
+        const completed = await Promise.race([
+          audio?.completed,
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000)),
+        ]);
+        if (!completed || finished) {
           if (!finished) void failPlayback(new Error('Audio stream ended before extraction completed'));
           return;
         }
@@ -236,7 +240,7 @@ export class PlayCommand extends Command {
       if (finished || connection.state.status !== VoiceConnectionStatus.Ready) {
         throw new Error('Voice connection did not become ready');
       }
-      audio = await streamTrack(targetUrl, (error) => void failPlayback(error));
+      audio = await streamTrack(track.id, (error) => void failPlayback(error));
       if (finished) {
         audio.stop();
         throw new Error('Playback stopped during audio extraction');
@@ -268,7 +272,7 @@ export class PlayCommand extends Command {
           { name: '⚡ Remaining Limit', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
         )
         .setTimestamp()
-        .setFooter({ text: 'Powered by SBot Engine (Zero Storage Download)' });
+        .setFooter({ text: 'Music from Audius • streamed without saving files' });
 
       successReply = interaction.editReply({ embeds: [embed] });
       return await successReply;
@@ -281,7 +285,7 @@ export class PlayCommand extends Command {
       audio?.stop();
       return interaction.editReply(error instanceof MissingAudioToolError || error instanceof TrackExtractionError
         ? `❌ ${error.message}`
-        : '❌ Could not find or extract this track. Please try another title or link!');
+        : '❌ Could not find or stream this track. Please try another title!');
     }
   }
 }
