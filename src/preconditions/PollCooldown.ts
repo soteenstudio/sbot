@@ -32,11 +32,11 @@ export class PollCooldown extends Precondition {
     if (lastUsed && now - lastUsed < COOLDOWN_TIME) {
       const remaining = Math.ceil((COOLDOWN_TIME - (now - lastUsed)) / 60000);
       await interaction.reply({
-        content: `🚫 **Cooldown**: Slow down! You can use this command again in **${remaining} minutes**.`,
+        content: `⏳ You can create another poll in **${remaining} ${remaining === 1 ? 'minute' : 'minutes'}**.`,
         ephemeral: true,
       });
       return this.error({
-        message: `Cooldown: Try again in ${remaining} minutes.`,
+        message: `You can create another poll in ${remaining} ${remaining === 1 ? 'minute' : 'minutes'}.`,
       });
     }
 

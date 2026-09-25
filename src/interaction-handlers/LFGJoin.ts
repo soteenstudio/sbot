@@ -48,7 +48,7 @@ export class JoinButtonHandler extends InteractionHandler {
 
     if (!session)
       return interaction.reply({
-        content: '❌ Session expired!',
+        content: '❌ This session is no longer active.',
         ephemeral: true,
       });
 
@@ -59,23 +59,23 @@ export class JoinButtonHandler extends InteractionHandler {
         .setCustomId(
           `lfg_pro_accept_${interaction.user.id}_${interaction.channelId}_${hostId}`,
         )
-        .setLabel('Accept')
+        .setLabel('Accept Request')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`lfg_pro_decline_${interaction.user.id}_${hostId}`)
-        .setLabel('Decline')
+        .setLabel('Decline Request')
         .setStyle(ButtonStyle.Danger),
     );
 
     const notificationEmbed = new EmbedBuilder()
-      .setTitle('🔔 New LFG Request')
+      .setTitle('🔔 Session Join Request')
       .setColor(0x0099ff)
       .setDescription(
-        `**${interaction.user.tag}** wants to join your LFG session!`,
+        `${interaction.user} has requested to join your looking-for-group session.`,
       )
       .setThumbnail(interaction.user.displayAvatarURL())
       .setTimestamp()
-      .setFooter({ text: 'SoTeen Studio LFG System' });
+      .setFooter({ text: 'SoTeen Studio • Looking for group' });
 
     try {
       await host.send({
@@ -84,12 +84,12 @@ export class JoinButtonHandler extends InteractionHandler {
       });
 
       return interaction.followUp({
-        content: `✅ Request sent to host!`,
+        content: '✅ Your join request has been sent to the host.',
         ephemeral: true,
       });
     } catch {
       return interaction.followUp({
-        content: '❌ Host DM is closed.',
+        content: '❌ The host could not receive your request by direct message.',
         ephemeral: true,
       });
     }

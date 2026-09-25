@@ -3,13 +3,13 @@ import { ApplicationCommandRegistry } from '@sapphire/framework';
 import { GuildMember, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { Roles } from '../config.js';
 
-const ROLE_LIMITS: Record<string, number> = {
-  [Roles.MEMBER.id]: 4,
-  [Roles.DONATUR.id]: 8,
-  [Roles.BILLION.id]: 15,
-  [Roles.RICHMAN.id]: 30,
-  [Roles.DEPUTY.id]: 50,
-  [Roles.FOUNDER.id]: 9999,
+const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
+  MEMBER: 4,
+  DONATUR: 8,
+  BILLION: 15,
+  RICHMAN: 30,
+  DEPUTY: 50,
+  FOUNDER: 9999,
 };
 
 const usageTracker = new Map<string, { count: number; lastReset: number }>();
@@ -20,7 +20,7 @@ export class TssCommand extends Command {
     super(context, {
       ...options,
       name: 'tts',
-      description: 'Generate AI speech audio via OpenRouter powered by SoTeen Bot (SBot Engine)',
+      description: 'Convert text to speech audio.',
       preconditions: [
         { name: 'RequireRole', context: { level: 'MEMBER' } } as any,
       ],
@@ -36,7 +36,7 @@ export class TssCommand extends Command {
         .addStringOption((option) =>
           option
             .setName('text')
-            .setDescription('The text you want to convert into speech')
+            .setDescription('Text to convert into speech')
             .setMaxLength(4086)
             .setRequired(true),
         ),
@@ -49,7 +49,7 @@ export class TssCommand extends Command {
     const member = interaction.member as GuildMember;
     const userId = interaction.user.id;
 
-    let userLimit = ROLE_LIMITS[Roles.MEMBER.id];
+    let userLimit = ROLE_LIMITS.MEMBER;
     let matchedRoleName = 'MEMBER';
 
     const sortedRoles = [
@@ -59,11 +59,11 @@ export class TssCommand extends Command {
       { key: 'BILLION', data: Roles.BILLION },
       { key: 'DONATUR', data: Roles.DONATUR },
       { key: 'MEMBER', data: Roles.MEMBER },
-    ];
+    ] as const;
 
     for (const r of sortedRoles) {
       if (r.data.id && member.roles.cache.has(r.data.id)) {
-        userLimit = ROLE_LIMITS[r.data.id] ?? userLimit;
+        userLimit = ROLE_LIMITS[r.key];
         matchedRoleName = r.key;
         break;
       }
@@ -80,7 +80,7 @@ export class TssCommand extends Command {
 
     if (userUsage.count >= userLimit) {
       return interaction.reply({
-        content: `❌ You have reached your daily TTS generation limit for the **${matchedRoleName}** role (${userUsage.count}/${userLimit}). Please try again tomorrow!`,
+        content: `❌ You have reached the daily speech generation limit for the **${matchedRoleName}** role (${userUsage.count}/${userLimit}). Please try again after your limit resets.`,
         ephemeral: true,
       });
     }
@@ -135,7 +135,7 @@ export class TssCommand extends Command {
       if (modResult === 'UNSAFE') {
         refundUsage(); // Balikin kuota karena ditolak
         return await interaction.editReply({
-          content: `❌ **Text rejected!** The content you provided contains prohibited, harsh, or inappropriate words. Please keep it clean!`,
+          content: '❌ This text cannot be converted to speech because it violates the content guidelines. Please revise it and try again.',
         });
       }
 
@@ -172,22 +172,22 @@ export class TssCommand extends Command {
       const remainingLimit = userLimit - userUsage.count;
 
       const embed = new EmbedBuilder()
-        .setTitle('🗣️ SoTeen Bot Text-to-Speech')
-        .setDescription(`**Text:** ${textInput}`)
+        .setTitle('🗣️ Speech Generated')
+        .setDescription(textInput)
         .setColor(0x00ff9d)
         .addFields(
-          { name: '👤 Requested by', value: `${interaction.user}`, inline: true },
-          { name: '🛡️ Role Tier', value: `\`${matchedRoleName}\``, inline: true },
-          { name: '⚡ Remaining Limit', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
+          { name: 'Requested by', value: `${interaction.user}`, inline: true },
+          { name: 'Role', value: `\`${matchedRoleName}\``, inline: true },
+          { name: 'Generations remaining today', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
         )
         .setTimestamp()
-        .setFooter({ text: 'Powered by SBot Engine & SoTeen Studio' });
+        .setFooter({ text: 'Powered by SBot Engine' });
 
       return await interaction.editReply({ embeds: [embed], files: [attachment] });
     } catch (error) {
       console.error(error);
       refundUsage();
-      return interaction.editReply('An error occurred while connecting to the TTS server. Please try again later!');
+      return interaction.editReply('❌ The speech service is unavailable. Please try again later.');
     }
   }
 }

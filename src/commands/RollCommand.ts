@@ -23,12 +23,12 @@ export class RollCommand extends Subcommand {
     registry.registerChatInputCommand((builder) =>
       builder
         .setName('roll')
-        .setDescription('Roll a random number')
+        .setDescription('Roll a random number within a chosen range.')
         .setDMPermission(false)
         .addIntegerOption((o) =>
           o
             .setName('max')
-            .setDescription('Max number (default 100)')
+            .setDescription('Maximum value (default: 100)')
             .setMinValue(1),
         )
         .setDMPermission(false),
@@ -42,7 +42,7 @@ export class RollCommand extends Subcommand {
     const result = Math.floor(Math.random() * max) + 1;
 
     await interaction.reply({
-      content: `🎲 **${interaction.user.username}** rolled a **${result}** (1-${max})`,
+      content: `🎲 ${interaction.user} rolled **${result}** (range: 1–${max}).`,
     });
     return;
   }
