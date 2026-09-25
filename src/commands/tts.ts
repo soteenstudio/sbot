@@ -19,7 +19,7 @@ export class TssCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
     super(context, {
       ...options,
-      name: 'tss',
+      name: 'tts',
       description: 'Generate AI speech audio via OpenRouter powered by SoTeen Bot (SBot Engine)',
       preconditions: [
         { name: 'RequireRole', context: { level: 'MEMBER' } } as any,
