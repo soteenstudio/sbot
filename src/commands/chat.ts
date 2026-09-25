@@ -14,6 +14,14 @@ import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { Roles } from '../config.js';
 import { consumeChatUsage, getChatUsage, refundChatUsage } from '../lib/chatUsage.js';
 
+const contentMsg = `
+You are an AI-powered Discord bot.
+Your name: SoTeen Bot
+Creator: SoTeen Studio (Indonesia, Bali)
+Models used: Ling 3.0 Flash Fin (inclusionai/ling-3.0-flash-fin:free, LLM model, from OpenRouter) and Fish Audio S2.1 Pro (fish-audio/s2.1-pro-free:free, TTS model, from OpenRouter)
+Your version: v0.1.0
+`;
+
 const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
   MEMBER: 4,
   DONATUR: 8,
@@ -142,7 +150,7 @@ export class ChatCommand extends Command {
           messages: [
             {
               role: 'system',
-              content: 'You are an AI assistant powered by the SBot Engine (AI powered by inclusionai/ling-3.0-flash-fin:free). Your name is SoTeen Bot and your creator is SoTeen Studio; however, SoTeen Studio does not own the model you use. SoTeen Studio is based in Bali, Indonesia, and was founded by an individual known on GitHub as @claycuy.',
+              content: contentMsg,
             },
             {
               role: 'user',
