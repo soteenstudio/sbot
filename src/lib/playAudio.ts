@@ -76,9 +76,22 @@ export async function streamTrack(
   try {
     const client = options.extractor ?? await getExtractor();
     const info = await client.getBasicInfo(id);
-    const webStream = await info.download({ type: 'audio', quality: 'best' });
+    const seenItags = new Set<number>();
+    const formats = [...(info.streaming_data?.formats ?? []), ...(info.streaming_data?.adaptive_formats ?? [])]
+      .filter((format) => {
+        if (seenItags.has(format.itag)) return false;
+        seenItags.add(format.itag);
+        return format.has_audio && (format.url || format.signature_cipher || format.cipher);
+      });
+    const audioOnly = formats.filter((format) => !format.has_video && !format.has_text);
+    const candidates = audioOnly.length ? audioOnly : formats;
+    const original = candidates.filter((format) => format.is_original);
+    const selected = (original.length ? original : candidates).sort((first, second) => second.bitrate - first.bitrate)[0];
+    if (!selected) throw new TrackExtractionError('No downloadable audio format is available for this track. Please try another title or YouTube link.');
+    const webStream = await info.download({ type: 'audio', quality: 'best', itag: selected.itag });
     source = Readable.fromWeb(webStream as NodeReadableStream<Uint8Array>);
   } catch (error) {
+    if (error instanceof TrackExtractionError) throw error;
     throw new TrackExtractionError('Could not extract audio from this track. Please try another title or YouTube link.', { cause: error });
   }
 
