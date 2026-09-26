@@ -89,9 +89,10 @@ function voiceChannel(id = '456789012345678901', humans = 0) {
   };
 }
 
-async function createParty(t, fetch) {
+async function createParty(t, fetch, maxPlayersOption = null) {
   const channel = voiceChannel();
   let cleanup;
+  let reply;
   t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
     assert.equal(delay, 300000);
     cleanup = callback;
@@ -103,6 +104,7 @@ async function createParty(t, fetch) {
       async create(options) {
         assert.equal(options.name, channel.name);
         assert.equal(options.type, ChannelType.GuildVoice);
+        assert.equal(options.userLimit, maxPlayersOption ?? Games.minecraft.maxPlayers);
         return channel;
       },
       fetch,
@@ -111,16 +113,35 @@ async function createParty(t, fetch) {
   await PartyCommand.prototype.chatInputRun.call(
     {},
     {
-      options: { getString: () => 'minecraft' },
+      options: {
+        getString: () => 'minecraft',
+        getInteger: () => maxPlayersOption,
+      },
       guild,
       user: { id: hostId, username: 'host' },
       async deferReply() {},
-      async editReply() {},
+      async editReply(value) {
+        reply = value;
+      },
     },
   );
   assert.deepEqual(activeParties.get(channel.id), party);
   assert.equal(channel.deletes, 0);
-  return { channel, cleanup };
+  return { channel, cleanup, reply };
+}
+
+for (const [maxPlayersOption, label] of [
+  [null, '8'],
+  [0, 'Unlimited'],
+  [12, '12'],
+]) {
+  test(`party uses ${maxPlayersOption ?? 'default'} player limit`, async (t) => {
+    const { reply } = await createParty(t, async () => null, maxPlayersOption);
+    const playerLimit = reply.embeds[0].data.fields.find(
+      (field) => field.name === 'Player limit',
+    );
+    assert.equal(playerLimit.value, label);
+  });
 }
 
 for (const humanCount of [0, 1]) {
