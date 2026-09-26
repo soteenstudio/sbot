@@ -10,7 +10,13 @@
 
 import { Command } from '@sapphire/framework';
 import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
-import { activeParties, Games } from '../lib/party-data.js';
+import {
+  activeParties,
+  deleteEmptyParty,
+  Games,
+  getPartyChannelName,
+  isUnknownChannel,
+} from '../lib/party-data.js';
 
 export class PartyCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -67,7 +73,7 @@ export class PartyCommand extends Command {
     let channel;
     try {
       channel = await guild.channels.create({
-        name: `${game.label}-${interaction.user.username}`,
+        name: getPartyChannelName(gameKey, interaction.user.id),
         type: ChannelType.GuildVoice,
         userLimit: game.maxPlayers,
         permissionOverwrites: [
@@ -96,6 +102,21 @@ export class PartyCommand extends Command {
     }
 
     activeParties.set(channel.id, { hostId: interaction.user.id, gameKey });
+
+    const channelId = channel.id;
+    setTimeout(
+      async () => {
+        if (!activeParties.has(channelId)) return;
+        try {
+          const fresh = await guild.channels.fetch(channelId, { force: true });
+          if (fresh?.isVoiceBased()) await deleteEmptyParty(fresh);
+        } catch (error) {
+          console.error('Could not fetch party channel for cleanup:', error);
+          if (isUnknownChannel(error)) activeParties.delete(channelId);
+        }
+      },
+      5 * 60 * 1000,
+    ).unref();
 
     const embed = new EmbedBuilder()
       .setTitle('🎮 Party voice channel')

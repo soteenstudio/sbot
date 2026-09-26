@@ -9,6 +9,13 @@
  */
 
 import 'dotenv/config';
+import {
+  ChannelType,
+  OverwriteType,
+  PermissionsBitField,
+  RESTJSONErrorCodes,
+  type GuildChannel,
+} from 'discord.js';
 
 type Game = { label: string; roleId: string | undefined; maxPlayers: number };
 
@@ -34,3 +41,67 @@ export const activeParties = new Map<
   string,
   { hostId: string; gameKey: string }
 >();
+
+const deletingParties = new Set<string>();
+
+export function getPartyChannelName(gameKey: string, hostId: string) {
+  return `sbot-party-${gameKey}-${hostId}`;
+}
+
+export function getMarkedParty(channel: GuildChannel) {
+  if (channel.type !== ChannelType.GuildVoice) return;
+  const match = /^sbot-party-([a-z0-9_]+)-(\d{17,20})$/.exec(channel.name);
+  if (!match) return;
+  const [, gameKey, hostId] = match;
+  const game = Object.hasOwn(Games, gameKey) ? Games[gameKey] : undefined;
+  if (!game?.roleId) return;
+
+  const everyone = channel.permissionOverwrites.cache.get(channel.guild.id);
+  const role = channel.permissionOverwrites.cache.get(game.roleId);
+  const host = channel.permissionOverwrites.cache.get(hostId);
+  const access = [
+    PermissionsBitField.Flags.ViewChannel,
+    PermissionsBitField.Flags.Connect,
+  ];
+  if (
+    everyone?.type !== OverwriteType.Role ||
+    !everyone.deny.has(PermissionsBitField.Flags.ViewChannel) ||
+    role?.type !== OverwriteType.Role ||
+    !role.allow.has(access) ||
+    host?.type !== OverwriteType.Member ||
+    !host.allow.has(access)
+  )
+    return;
+
+  return { hostId, gameKey };
+}
+
+export function isUnknownChannel(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === RESTJSONErrorCodes.UnknownChannel
+  );
+}
+
+export async function deleteEmptyParty(channel: GuildChannel) {
+  if (
+    !activeParties.has(channel.id) ||
+    deletingParties.has(channel.id) ||
+    !channel.isVoiceBased() ||
+    channel.members.some((member) => !member.user.bot)
+  )
+    return;
+
+  deletingParties.add(channel.id);
+  try {
+    await channel.delete();
+    activeParties.delete(channel.id);
+  } catch (error) {
+    console.error('Could not delete party channel:', error);
+    if (isUnknownChannel(error)) activeParties.delete(channel.id);
+  } finally {
+    deletingParties.delete(channel.id);
+  }
+}
