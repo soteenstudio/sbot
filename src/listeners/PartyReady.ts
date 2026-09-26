@@ -10,11 +10,7 @@
 
 import { Events, Listener } from '@sapphire/framework';
 import type { Client } from 'discord.js';
-import {
-  activeParties,
-  deleteEmptyParty,
-  getMarkedParty,
-} from '../lib/party-data.js';
+import { activeParties, getMarkedParty } from '../lib/party-data.js';
 
 export class PartyReady extends Listener<typeof Events.ClientReady> {
   public constructor(
@@ -34,7 +30,6 @@ export class PartyReady extends Listener<typeof Events.ClientReady> {
           if (!party) continue;
 
           activeParties.set(channel.id, party);
-          await deleteEmptyParty(channel);
         }
       } catch (error) {
         console.error('Could not reconcile party channels:', error);
