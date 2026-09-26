@@ -69,6 +69,15 @@ export const activeParties = new Map<
 
 const deletingParties = new Set<string>();
 
+export function findHostedParty(
+  hostId: string,
+): [string, { hostId: string; gameKey: string }] | undefined {
+  for (const entry of activeParties.entries()) {
+    if (entry[1].hostId === hostId) return entry;
+  }
+  return undefined;
+}
+
 export function getPartyChannelName(gameKey: string, hostId: string) {
   return `sbot-party-${gameKey}-${hostId}`;
 }
