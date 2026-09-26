@@ -19,6 +19,7 @@ import {
   isUnknownChannel,
 } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
+import { kickFromSession } from '../lib/session-kick.js';
 
 const pendingCreations = new Set<string>();
 
@@ -42,6 +43,13 @@ export class PartyCommand extends Subcommand {
         {
           name: 'close',
           chatInputRun: 'close',
+          preconditions: [
+            { name: 'RequireRole', context: { level: 'BILLION' } } as any,
+          ],
+        },
+        {
+          name: 'kick',
+          chatInputRun: 'kick',
           preconditions: [
             { name: 'RequireRole', context: { level: 'BILLION' } } as any,
           ],
@@ -86,6 +94,17 @@ export class PartyCommand extends Subcommand {
           sub
             .setName('close')
             .setDescription('Close your active party voice channel.'),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('kick')
+            .setDescription('Remove a participant from your active party.')
+            .addUserOption((option) =>
+              option
+                .setName('participant')
+                .setDescription('Participant to remove')
+                .setRequired(true),
+            ),
         )
         .addSubcommand((sub) =>
           sub
@@ -244,6 +263,55 @@ export class PartyCommand extends Subcommand {
       content: '✅ Your party voice channel has been closed.',
       ephemeral: true,
     });
+  }
+
+  public async kick(interaction: Subcommand.ChatInputCommandInteraction) {
+    const found = findHostedParty(interaction.user.id);
+    if (!found || !interaction.guild) {
+      return interaction.reply({
+        content: '❌ You do not have an active party to manage.',
+        ephemeral: true,
+      });
+    }
+
+    const participant = interaction.options.getUser('participant', true);
+    if (participant.id === interaction.user.id || participant.bot) {
+      return interaction.reply({
+        content: '❌ Choose another human participant in your party.',
+        ephemeral: true,
+      });
+    }
+
+    const [channelId] = found;
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const channel = await interaction.guild.channels.fetch(channelId);
+      if (
+        channel?.type !== ChannelType.GuildVoice ||
+        channel.guild.id !== interaction.guild.id
+      ) {
+        return interaction.editReply({
+          content: '❌ Your party voice channel is unavailable.',
+        });
+      }
+      const member = channel.members.get(participant.id);
+      if (!member) {
+        return interaction.editReply({
+          content: '❌ That participant is not in your party voice channel.',
+        });
+      }
+
+      await kickFromSession(channel, member);
+      return interaction.editReply({
+        content: `✅ <@${participant.id}> has been removed from this party.`,
+        allowedMentions: { users: [] },
+      });
+    } catch (error) {
+      console.error('Could not kick party participant:', error);
+      return interaction.editReply({
+        content: '❌ Could not remove that participant. Please try again.',
+      });
+    }
   }
 
   public async list(interaction: Subcommand.ChatInputCommandInteraction) {
