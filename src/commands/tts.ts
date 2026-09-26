@@ -12,6 +12,7 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandRegistry } from '@sapphire/framework';
 import { GuildMember, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { Roles } from '../config.js';
+import { registerUsageCleanup } from '../lib/usageCleanup.js';
 
 const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
   MEMBER: 4,
@@ -22,7 +23,16 @@ const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
   FOUNDER: 9999,
 };
 
-const usageTracker = new Map<string, { count: number; lastReset: number }>();
+const twentyFourHours = 24 * 60 * 60 * 1000;
+export const usageTracker = new Map<
+  string,
+  { count: number; lastReset: number }
+>();
+registerUsageCleanup((now) => {
+  for (const [userId, usage] of usageTracker) {
+    if (now - usage.lastReset > twentyFourHours) usageTracker.delete(userId);
+  }
+});
 const OPENROUTER_TIMEOUT_MS = 60_000;
 
 export class TssCommand extends Command {
@@ -82,7 +92,6 @@ export class TssCommand extends Command {
     }
 
     const now = Date.now();
-    const twentyFourHours = 24 * 60 * 60 * 1000;
     let userUsage = usageTracker.get(userId);
 
     if (!userUsage || now - userUsage.lastReset > twentyFourHours) {

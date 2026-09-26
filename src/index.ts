@@ -9,19 +9,14 @@
  */
 
 import { SapphireClient, RegisterBehavior } from '@sapphire/framework';
-import { GatewayIntentBits } from 'discord.js';
+import { GatewayIntentBits, Options } from 'discord.js';
 import 'dotenv/config';
 import { join } from 'path';
 
-// fix resource usage issues
 const client = new SapphireClient({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates,
-  ],
-  loadMessageCommandListeners: true,
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  loadMessageCommandListeners: false,
+  makeCache: Options.cacheWithLimits({ MessageManager: 25 }),
   baseUserDirectory: join(process.cwd(), 'dist'),
 });
 
