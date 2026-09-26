@@ -2,8 +2,19 @@
 
 ## Party voice channels
 
-Use `/party game:<game>` to create a private voice channel for a game. The chosen game's role can join, and the command pings that role. The channel has a player limit and is deleted when the last human participant leaves.
+Use `/party game:<game> [max_players:<number>]` to create a private voice channel for a game. The chosen game's role can join, and the command pings that role. Each game has a default player limit; set `max_players` from 0 to 99 to override it for one party (`0` means unlimited). The channel is deleted when the last human participant leaves.
 
 Channels that are still empty or contain only bots after five minutes are also deleted. New channels use the reserved name `sbot-party-<gameKey>-<hostId>` so the bot can recover them after a restart. On startup, channels with this marker and the expected party permission overwrites are tracked again; those without human participants are deleted. Older unmarked channels, renamed channels, and channels whose game role configuration or required permissions no longer match are preserved for manual cleanup.
 
-Configure games in `src/lib/party-data.ts`. The three entries are examples; replace their labels, player limits, and role environment variables with your server's games and role IDs. Set `PARTY_ROLE_MINECRAFT`, `PARTY_ROLE_VALORANT`, and `PARTY_ROLE_FORTNITE` to the corresponding Discord role IDs when using the examples.
+Configure games in `src/lib/party-data.ts`. Set each game's role environment variable to its Discord role ID:
+
+| Game | Default player limit | Role environment variable |
+| --- | ---: | --- |
+| Minecraft | 8 | `PARTY_ROLE_MINECRAFT` |
+| Growtopia | 8 | `PARTY_ROLE_GROWTOPIA` |
+| Roblox | 8 | `PARTY_ROLE_ROBLOX` |
+| Free Fire | 4 | `PARTY_ROLE_FREEFIRE` |
+| Mobile Legends | 5 | `PARTY_ROLE_MOBILELEGENDS` |
+| Genshin Impact | 4 | `PARTY_ROLE_GENSHINIMPACT` |
+| Valorant | 5 | `PARTY_ROLE_VALORANT` |
+| Neverland | 8 | `PARTY_ROLE_NEVERLAND` |

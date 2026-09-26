@@ -44,6 +44,14 @@ export class PartyCommand extends Command {
                 value: key,
               })),
             ),
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName('max_players')
+            .setDescription('Override the player limit (0 = unlimited).')
+            .setMinValue(0)
+            .setMaxValue(99)
+            .setRequired(false),
         ),
     );
   }
@@ -52,6 +60,7 @@ export class PartyCommand extends Command {
     interaction: Command.ChatInputCommandInteraction,
   ) {
     const gameKey = interaction.options.getString('game', true);
+    const maxPlayersOption = interaction.options.getInteger('max_players');
     const game = Object.hasOwn(Games, gameKey) ? Games[gameKey] : undefined;
     if (!game) {
       return interaction.reply({
@@ -68,6 +77,8 @@ export class PartyCommand extends Command {
       });
     }
 
+    const maxPlayers = maxPlayersOption ?? game.maxPlayers;
+
     await interaction.deferReply();
     const guild = interaction.guild;
     let channel;
@@ -75,7 +86,7 @@ export class PartyCommand extends Command {
       channel = await guild.channels.create({
         name: getPartyChannelName(gameKey, interaction.user.id),
         type: ChannelType.GuildVoice,
-        userLimit: game.maxPlayers,
+        userLimit: maxPlayers,
         permissionOverwrites: [
           { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
           {
@@ -123,7 +134,11 @@ export class PartyCommand extends Command {
       .setColor(0x5865f2)
       .addFields(
         { name: 'Game', value: game.label, inline: true },
-        { name: 'Player limit', value: String(game.maxPlayers), inline: true },
+        {
+          name: 'Player limit',
+          value: maxPlayers === 0 ? 'Unlimited' : String(maxPlayers),
+          inline: true,
+        },
         { name: 'Voice channel', value: channel.toString() },
       );
 
