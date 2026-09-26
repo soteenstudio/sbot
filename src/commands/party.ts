@@ -13,12 +13,12 @@ import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
 import {
   activeParties,
   findHostedParty,
-  Games,
   getPartyChannelName,
   isUnknownChannel,
 } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 import { kickFromSession } from '../lib/session-kick.js';
+import { Games } from '../games.js';
 
 const pendingCreations = new Set<string>();
 

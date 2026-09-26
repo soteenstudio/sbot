@@ -8,7 +8,6 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-// halo
 import { SapphireClient, RegisterBehavior } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
 import 'dotenv/config';
@@ -19,20 +18,21 @@ const client = new SapphireClient({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates, // <--- TAMBAHKAN INI DI SINI
+    GatewayIntentBits.GuildVoiceStates,
   ],
   loadMessageCommandListeners: true,
   baseUserDirectory: join(process.cwd(), 'dist'),
 });
 
-// Di index.ts, setelah inisialisasi client
-client.stores.get('listeners').registerPath(join(process.cwd(), 'dist', 'listeners'));
+client.stores
+  .get('listeners')
+  .registerPath(join(process.cwd(), 'dist', 'listeners'));
 
 async function main() {
   try {
     await client.login(process.env.TOKEN);
     console.log('The bot is online! Ready to execute.');
-    
+
     client.on('ready', () => {
       console.log('--- Pieces Loaded ---');
       console.log('Commands:', client.stores.get('commands').size);

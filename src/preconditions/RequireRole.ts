@@ -19,7 +19,10 @@ export class RequireRole extends Precondition {
     context: { level: keyof typeof Roles },
   ) {
     const member = interaction.member;
-    if (!member) return this.error({ message: 'Your server membership could not be verified.' });
+    if (!member)
+      return this.error({
+        message: 'Your server membership could not be verified.',
+      });
 
     const targetRole = Roles[context.level];
 
@@ -43,7 +46,9 @@ export class RequireRole extends Precondition {
         ephemeral: true,
       });
 
-      return this.error({ message: 'You do not have the required role for this command.' });
+      return this.error({
+        message: 'You do not have the required role for this command.',
+      });
     }
   }
 }

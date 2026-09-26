@@ -56,6 +56,8 @@ export class PollButtonHandler extends InteractionHandler {
     const currentVotes = poll.votes.get(index) || 0;
     poll.votes.set(index, currentVotes + 1);
 
-    await interaction.editReply({ content: `✅ Your vote for option ${index} has been recorded.` });
+    await interaction.editReply({
+      content: `✅ Your vote for option ${index} has been recorded.`,
+    });
   }
 }

@@ -72,7 +72,8 @@ export class ReportCommand extends Subcommand {
 
     if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
       await interaction.reply({
-        content: '❌ Reports are unavailable because the staff channel is not configured.',
+        content:
+          '❌ Reports are unavailable because the staff channel is not configured.',
         ephemeral: true,
       });
       return;

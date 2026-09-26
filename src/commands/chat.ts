@@ -12,7 +12,11 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandRegistry } from '@sapphire/framework';
 import { EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { Roles } from '../config.js';
-import { consumeChatUsage, getChatUsage, refundChatUsage } from '../lib/chatUsage.js';
+import {
+  consumeChatUsage,
+  getChatUsage,
+  refundChatUsage,
+} from '../lib/chatUsage.js';
 
 const contentMsg = `
 You are an AI-powered Discord bot.
@@ -45,7 +49,9 @@ export class ChatCommand extends Command {
     });
   }
 
-  public override registerApplicationCommands(registry: ApplicationCommandRegistry) {
+  public override registerApplicationCommands(
+    registry: ApplicationCommandRegistry,
+  ) {
     registry.registerChatInputCommand((builder) =>
       builder
         .setName(this.name)
@@ -60,7 +66,9 @@ export class ChatCommand extends Command {
         .addBooleanOption((option) =>
           option
             .setName('tts')
-            .setDescription('Include spoken audio (Richman, Deputy, or Founder roles)')
+            .setDescription(
+              'Include spoken audio (Richman, Deputy, or Founder roles)',
+            )
             .setRequired(false),
         ),
     );
@@ -71,7 +79,9 @@ export class ChatCommand extends Command {
   ) {
     const member = interaction.member;
     const memberRoleIds = member
-      ? Array.isArray(member.roles) ? member.roles : [...member.roles.cache.keys()]
+      ? Array.isArray(member.roles)
+        ? member.roles
+        : [...member.roles.cache.keys()]
       : [];
     const userId = interaction.user.id;
 
@@ -112,7 +122,8 @@ export class ChatCommand extends Command {
     } catch (error) {
       console.error(error);
       return interaction.reply({
-        content: '❌ Your AI usage could not be checked. Please try again later.',
+        content:
+          '❌ Your AI usage could not be checked. Please try again later.',
         ephemeral: true,
       });
     }
@@ -132,40 +143,47 @@ export class ChatCommand extends Command {
     try {
       const result = await consumeChatUsage(userId, now, userLimit);
       if (!result.consumed) {
-        return interaction.editReply(`❌ You have reached the daily AI request limit for the **${matchedRoleName}** role (${result.usage.count}/${userLimit}). Please try again after your limit resets.`);
+        return interaction.editReply(
+          `❌ You have reached the daily AI request limit for the **${matchedRoleName}** role (${result.usage.count}/${userLimit}). Please try again after your limit resets.`,
+        );
       }
       consumedUsage = result.usage;
 
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'HTTP-Referer': 'https://discord.com',
-          'X-Title': 'SBot Engine',
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          method: 'POST',
+          signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+          headers: {
+            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+            'HTTP-Referer': 'https://discord.com',
+            'X-Title': 'SBot Engine',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'inclusionai/ling-3.0-flash-fin:free',
+            messages: [
+              {
+                role: 'system',
+                content: contentMsg,
+              },
+              {
+                role: 'user',
+                content: prompt,
+              },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          model: 'inclusionai/ling-3.0-flash-fin:free',
-          messages: [
-            {
-              role: 'system',
-              content: contentMsg,
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-        }),
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
-      let replyMessage = data.choices?.[0]?.message?.content || 'The AI assistant did not return a response. Please try again.';
+      let replyMessage =
+        data.choices?.[0]?.message?.content ||
+        'The AI assistant did not return a response. Please try again.';
 
       if (replyMessage.length > 4000) {
         replyMessage = replyMessage.substring(0, 3997) + '...';
@@ -180,42 +198,52 @@ export class ChatCommand extends Command {
         .addFields(
           { name: 'Requested by', value: `${interaction.user}`, inline: true },
           { name: 'Role', value: `\`${matchedRoleName}\``, inline: true },
-          { name: 'Requests remaining today', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
+          {
+            name: 'Requests remaining today',
+            value: `\`${remainingLimit}/${userLimit}\``,
+            inline: true,
+          },
         )
         .setTimestamp()
         .setFooter({ text: 'Powered by SBot Engine' });
 
       if (requestedTts) {
-        const ttsResponse = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-          method: 'POST',
-          signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
-          headers: {
-            'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-            'HTTP-Referer': 'https://discord.com',
-            'X-Title': 'SBot Engine',
-            'Content-Type': 'application/json',
+        const ttsResponse = await fetch(
+          'https://openrouter.ai/api/v1/audio/speech',
+          {
+            method: 'POST',
+            signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+            headers: {
+              Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+              'HTTP-Referer': 'https://discord.com',
+              'X-Title': 'SBot Engine',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'fish-audio/s2.1-pro-free:free',
+              input: replyMessage,
+              voice: 'b347db033a6549378b48d00acb0d06cd',
+              response_format: 'mp3',
+            }),
           },
-          body: JSON.stringify({
-            model: 'fish-audio/s2.1-pro-free:free',
-            input: replyMessage,
-            voice: 'b347db033a6549378b48d00acb0d06cd',
-            response_format: 'mp3',
-          }),
-        });
+        );
 
         if (ttsResponse.ok) {
           const arrayBuffer = await ttsResponse.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
-          const attachment = new AttachmentBuilder(buffer, { name: 'speech.mp3' });
+          const attachment = new AttachmentBuilder(buffer, {
+            name: 'speech.mp3',
+          });
 
-          return interaction.editReply({ 
-            embeds: [embed], 
-            files: [attachment] 
+          return interaction.editReply({
+            embeds: [embed],
+            files: [attachment],
           });
         }
 
         return interaction.editReply({
-          content: '⚠️ Audio generation was unavailable. Your AI response is shown below.',
+          content:
+            '⚠️ Audio generation was unavailable. Your AI response is shown below.',
           embeds: [embed],
         });
       }
@@ -230,7 +258,9 @@ export class ChatCommand extends Command {
           console.error(refundError);
         }
       }
-      return interaction.editReply('❌ The AI service is unavailable. Please try again later.');
+      return interaction.editReply(
+        '❌ The AI service is unavailable. Please try again later.',
+      );
     }
   }
 }

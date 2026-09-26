@@ -31,7 +31,10 @@ export class PingCommand extends Command {
   public override async chatInputRun(
     interaction: Command.ChatInputCommandInteraction,
   ) {
-    const msg = await interaction.reply({ content: 'Checking latency…', fetchReply: true });
+    const msg = await interaction.reply({
+      content: 'Checking latency…',
+      fetchReply: true,
+    });
 
     const diff = msg.createdTimestamp - interaction.createdTimestamp;
     const ping = Math.round(this.container.client.ws.ping);
