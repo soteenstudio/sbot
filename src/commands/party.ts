@@ -52,9 +52,9 @@ export class PartyCommand extends Command {
         .addIntegerOption((option) =>
           option
             .setName('max_players')
-            .setDescription('Override the player limit (0 = unlimited).')
-            .setMinValue(0)
-            .setMaxValue(99)
+            .setDescription('Override the player limit (1-10).')
+            .setMinValue(1)
+            .setMaxValue(10)
             .setRequired(false),
         ),
     );
@@ -151,7 +151,7 @@ export class PartyCommand extends Command {
         { name: 'Game', value: game.label, inline: true },
         {
           name: 'Player limit',
-          value: maxPlayers === 0 ? 'Unlimited' : String(maxPlayers),
+          value: String(maxPlayers),
           inline: true,
         },
         { name: 'Voice channel', value: channel.toString() },
