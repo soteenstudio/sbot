@@ -38,7 +38,8 @@ export class ChatInputError extends Listener {
     console.error(error);
     return interaction
       .reply({
-        content: '❌ This command could not be completed. Please try again later.',
+        content:
+          '❌ This command could not be completed. Please try again later.',
         ephemeral: true,
       })
       .catch(() => null);

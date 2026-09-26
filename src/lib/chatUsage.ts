@@ -9,14 +9,24 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 export type ChatUsage = { count: number; lastReset: number };
 type UsageRecords = Record<string, ChatUsage>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const usagePath = () => resolve(process.env.CHAT_USAGE_FILE ?? 'data/chat-usage.json');
+const usagePath = () =>
+  resolve(process.env.CHAT_USAGE_FILE ?? 'data/chat-usage.json');
 
 async function readUsage(path: string): Promise<UsageRecords> {
   try {
@@ -27,14 +37,20 @@ async function readUsage(path: string): Promise<UsageRecords> {
   }
 }
 
-function currentUsage(records: UsageRecords, userId: string, now: number): ChatUsage {
+function currentUsage(
+  records: UsageRecords,
+  userId: string,
+  now: number,
+): ChatUsage {
   const usage = records[userId];
   return usage && now - usage.lastReset <= DAY_MS
     ? usage
     : { count: 0, lastReset: now };
 }
 
-async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): Promise<T> {
+async function updateUsage<T>(
+  change: (records: UsageRecords) => [T, boolean],
+): Promise<T> {
   const path = usagePath();
   const lockPath = `${path}.lock`;
   await mkdir(dirname(path), { recursive: true });
@@ -42,8 +58,6 @@ async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): 
   const started = Date.now();
   let ownedMarker: string | undefined;
   while (!ownedMarker) {
-    // Prepare a nonempty directory before publishing it as the lock. This keeps
-    // a newly acquired lock nonempty even when another caller is removing a stale one.
     const candidatePath = `${lockPath}.${randomUUID()}.tmp`;
     const markerName = randomUUID();
     const candidateMarker = join(candidatePath, markerName);
@@ -54,7 +68,8 @@ async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): 
       ownedMarker = join(lockPath, markerName);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'EEXIST' && code !== 'ENOTEMPTY' && code !== 'ENOTDIR') throw error;
+      if (code !== 'EEXIST' && code !== 'ENOTEMPTY' && code !== 'ENOTDIR')
+        throw error;
     } finally {
       await unlink(candidateMarker).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw error;
@@ -74,8 +89,6 @@ async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): 
       if (markers.length === 1) {
         const markerPath = join(lockPath, markers[0]);
         if (Date.now() - (await stat(markerPath)).mtimeMs > 30_000) {
-          // The marker name identifies the observed owner. A replacement lock
-          // has a different name, so this rename cannot take its marker.
           const stalePath = `${lockPath}.${randomUUID()}.stale`;
           await rename(markerPath, stalePath);
           try {
@@ -88,9 +101,16 @@ async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): 
       }
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'ENOTEMPTY' && code !== 'EEXIST' && code !== 'ENOTDIR') throw error;
+      if (
+        code !== 'ENOENT' &&
+        code !== 'ENOTEMPTY' &&
+        code !== 'EEXIST' &&
+        code !== 'ENOTDIR'
+      )
+        throw error;
     }
-    if (Date.now() - started > 35_000) throw new Error('Chat usage storage is busy');
+    if (Date.now() - started > 35_000)
+      throw new Error('Chat usage storage is busy');
     await new Promise((done) => setTimeout(done, 25));
   }
 
@@ -114,12 +134,20 @@ async function updateUsage<T>(change: (records: UsageRecords) => [T, boolean]): 
       if (error.code !== 'ENOENT') throw error;
     });
     await rmdir(lockPath).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY' && error.code !== 'EEXIST') throw error;
+      if (
+        error.code !== 'ENOENT' &&
+        error.code !== 'ENOTEMPTY' &&
+        error.code !== 'EEXIST'
+      )
+        throw error;
     });
   }
 }
 
-export async function getChatUsage(userId: string, now: number): Promise<ChatUsage> {
+export async function getChatUsage(
+  userId: string,
+  now: number,
+): Promise<ChatUsage> {
   return currentUsage(await readUsage(usagePath()), userId, now);
 }
 
@@ -137,10 +165,14 @@ export async function consumeChatUsage(
   });
 }
 
-export async function refundChatUsage(userId: string, lastReset: number): Promise<void> {
+export async function refundChatUsage(
+  userId: string,
+  lastReset: number,
+): Promise<void> {
   await updateUsage((records) => {
     const usage = records[userId];
-    if (!usage || usage.lastReset !== lastReset || usage.count === 0) return [undefined, false];
+    if (!usage || usage.lastReset !== lastReset || usage.count === 0)
+      return [undefined, false];
     records[userId] = { ...usage, count: usage.count - 1 };
     return [undefined, true];
   });

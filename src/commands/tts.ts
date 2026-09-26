@@ -1,3 +1,13 @@
+/**
+ * Copyright 2026 SoTeen Studio
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+
 import { Command } from '@sapphire/framework';
 import { ApplicationCommandRegistry } from '@sapphire/framework';
 import { GuildMember, EmbedBuilder, AttachmentBuilder } from 'discord.js';
@@ -27,7 +37,9 @@ export class TssCommand extends Command {
     });
   }
 
-  public override registerApplicationCommands(registry: ApplicationCommandRegistry) {
+  public override registerApplicationCommands(
+    registry: ApplicationCommandRegistry,
+  ) {
     registry.registerChatInputCommand((builder) =>
       builder
         .setName(this.name)
@@ -99,43 +111,50 @@ export class TssCommand extends Command {
     await interaction.deferReply();
 
     try {
-      // 1. Cek konten pakai LLM OpenRouter untuk mendeteksi kata jorok/kasar/toksik
-      const moderationResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'HTTP-Referer': 'https://discord.com',
-          'X-Title': 'SoTeen Bot',
-          'Content-Type': 'application/json',
+      const moderationResponse = await fetch(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          method: 'POST',
+          signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+          headers: {
+            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+            'HTTP-Referer': 'https://discord.com',
+            'X-Title': 'SoTeen Bot',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'inclusionai/ling-3.0-flash-fin:free',
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are a strict content moderator. Analyze if the given text contains profanity, slurs, explicit sexual content, or harsh insults (in any language, including Indonesian/slang). Reply with ONLY the word "SAFE" if it is clean, or "UNSAFE" if it contains inappropriate content.',
+              },
+              {
+                role: 'user',
+                content: textInput,
+              },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          model: 'inclusionai/ling-3.0-flash-fin:free',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a strict content moderator. Analyze if the given text contains profanity, slurs, explicit sexual content, or harsh insults (in any language, including Indonesian/slang). Reply with ONLY the word "SAFE" if it is clean, or "UNSAFE" if it contains inappropriate content.',
-            },
-            {
-              role: 'user',
-              content: textInput,
-            },
-          ],
-        }),
-      });
+      );
 
       if (!moderationResponse.ok) {
-        throw new Error(`Moderation HTTP error! status: ${moderationResponse.status}`);
+        throw new Error(
+          `Moderation HTTP error! status: ${moderationResponse.status}`,
+        );
       }
 
       const modData = await moderationResponse.json();
       const modContent = modData.choices?.[0]?.message?.content;
-      const modResult = typeof modContent === 'string' ? modContent.trim().toUpperCase() : '';
+      const modResult =
+        typeof modContent === 'string' ? modContent.trim().toUpperCase() : '';
 
       if (modResult === 'UNSAFE') {
-        refundUsage(); // Balikin kuota karena ditolak
+        refundUsage();
         return await interaction.editReply({
-          content: '❌ This text cannot be converted to speech because it violates the content guidelines. Please revise it and try again.',
+          content:
+            '❌ This text cannot be converted to speech because it violates the content guidelines. Please revise it and try again.',
         });
       }
 
@@ -143,23 +162,25 @@ export class TssCommand extends Command {
         throw new Error(`Unexpected moderation result`);
       }
 
-      // 2. Kalau aman, lanjut proses ke API Text-to-Speech (Fish Audio)
-      const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-        method: 'POST',
-        signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'HTTP-Referer': 'https://discord.com',
-          'X-Title': 'SoTeen Bot',
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        'https://openrouter.ai/api/v1/audio/speech',
+        {
+          method: 'POST',
+          signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+          headers: {
+            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+            'HTTP-Referer': 'https://discord.com',
+            'X-Title': 'SoTeen Bot',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'fish-audio/s2.1-pro-free:free',
+            input: textInput,
+            voice: 'b347db033a6549378b48d00acb0d06cd',
+            response_format: 'mp3',
+          }),
         },
-        body: JSON.stringify({
-          model: 'fish-audio/s2.1-pro-free:free',
-          input: textInput,
-          voice: 'b347db033a6549378b48d00acb0d06cd',
-          response_format: 'mp3',
-        }),
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -178,16 +199,25 @@ export class TssCommand extends Command {
         .addFields(
           { name: 'Requested by', value: `${interaction.user}`, inline: true },
           { name: 'Role', value: `\`${matchedRoleName}\``, inline: true },
-          { name: 'Generations remaining today', value: `\`${remainingLimit}/${userLimit}\``, inline: true }
+          {
+            name: 'Generations remaining today',
+            value: `\`${remainingLimit}/${userLimit}\``,
+            inline: true,
+          },
         )
         .setTimestamp()
         .setFooter({ text: 'Powered by SBot Engine' });
 
-      return await interaction.editReply({ embeds: [embed], files: [attachment] });
+      return await interaction.editReply({
+        embeds: [embed],
+        files: [attachment],
+      });
     } catch (error) {
       console.error(error);
       refundUsage();
-      return interaction.editReply('❌ The speech service is unavailable. Please try again later.');
+      return interaction.editReply(
+        '❌ The speech service is unavailable. Please try again later.',
+      );
     }
   }
 }

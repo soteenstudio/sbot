@@ -189,6 +189,9 @@ export class PollCommand extends Subcommand {
       }
     } catch {}
 
-    await interaction.reply({ content: '✅ Your poll has been closed.', ephemeral: true });
+    await interaction.reply({
+      content: '✅ Your poll has been closed.',
+      ephemeral: true,
+    });
   }
 }

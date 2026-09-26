@@ -46,9 +46,30 @@ export class JoinButtonHandler extends InteractionHandler {
 
     const session = activeLFG.get(hostId);
 
-    if (!session)
-      return interaction.reply({
+    if (!session || interaction.message.id !== session.messageId)
+      return interaction.followUp({
         content: '❌ This session is no longer active.',
+        ephemeral: true,
+      });
+
+    if (session.kickedIds.has(interaction.user.id))
+      return interaction.followUp({
+        content: '❌ You have been removed from this session.',
+        ephemeral: true,
+      });
+
+    if (
+      interaction.user.id === hostId ||
+      session.participantIds.has(interaction.user.id)
+    )
+      return interaction.followUp({
+        content: '❌ You are already in this session.',
+        ephemeral: true,
+      });
+
+    if (session.participantIds.size + 1 >= session.maxPlayers)
+      return interaction.followUp({
+        content: '❌ This session is full.',
         ephemeral: true,
       });
 
@@ -57,7 +78,7 @@ export class JoinButtonHandler extends InteractionHandler {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(
-          `lfg_pro_accept_${interaction.user.id}_${interaction.channelId}_${hostId}`,
+          `lfg_pro_accept_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
         )
         .setLabel('Accept Request')
         .setStyle(ButtonStyle.Success),
@@ -89,7 +110,8 @@ export class JoinButtonHandler extends InteractionHandler {
       });
     } catch {
       return interaction.followUp({
-        content: '❌ The host could not receive your request by direct message.',
+        content:
+          '❌ The host could not receive your request by direct message.',
         ephemeral: true,
       });
     }
