@@ -83,7 +83,9 @@ export class JoinButtonHandler extends InteractionHandler {
         .setLabel('Accept Request')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`lfg_pro_decline_${interaction.user.id}_${hostId}`)
+        .setCustomId(
+          `lfg_pro_decline_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
+        )
         .setLabel('Decline Request')
         .setStyle(ButtonStyle.Danger),
     );
