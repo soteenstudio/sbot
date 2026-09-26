@@ -141,6 +141,7 @@ test('party rejects a player limit override from a lower role', async () => {
       getString: () => 'minecraft',
       getInteger: () => 4,
     },
+    user: { id: hostId },
     member: { roles: [roleId] },
     reply(value) {
       reply = value;

@@ -18,6 +18,7 @@ import {
   ComponentType,
 } from 'discord.js';
 import { activeLFG } from '../lib/lfg-data.js';
+import { bannedUsers } from '../lib/ban-data.js';
 import { Games } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 
@@ -46,6 +47,20 @@ export class LFGCommand extends Subcommand {
           ],
         },
         { name: 'list', chatInputRun: 'list' },
+        {
+          name: 'ban',
+          chatInputRun: 'ban',
+          preconditions: [
+            { name: 'RequireRole', context: { level: 'RICHMAN' } } as any,
+          ],
+        },
+        {
+          name: 'unban',
+          chatInputRun: 'unban',
+          preconditions: [
+            { name: 'RequireRole', context: { level: 'RICHMAN' } } as any,
+          ],
+        },
       ],
     });
   }
@@ -91,13 +106,45 @@ export class LFGCommand extends Subcommand {
           sub.setName('close').setDescription('Close your active session.'),
         )
         .addSubcommand((sub) =>
-          sub.setName('list').setDescription('View all active premium sessions.'),
+          sub
+            .setName('list')
+            .setDescription('View all active premium sessions.'),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('ban')
+            .setDescription(
+              'Ban a user from creating or joining premium sessions.',
+            )
+            .addUserOption((o) =>
+              o.setName('user').setDescription('User to ban').setRequired(true),
+            ),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('unban')
+            .setDescription(
+              'Unban a user from creating or joining premium sessions.',
+            )
+            .addUserOption((o) =>
+              o
+                .setName('user')
+                .setDescription('User to unban')
+                .setRequired(true),
+            ),
         ),
     );
   }
 
   public async create(interaction: ChatInputCommandInteraction) {
     const gameKey = interaction.options.getString('game', true);
+    if (bannedUsers.has(interaction.user.id)) {
+      return interaction.reply({
+        content: '🚫 You are banned from creating premium sessions.',
+        ephemeral: true,
+      });
+    }
+
     const game = Games[gameKey]?.label ?? gameKey;
     const rank = interaction.options.getString('rank', true);
     const maxPlayersOption = interaction.options.getInteger('max_players');
@@ -223,5 +270,36 @@ export class LFGCommand extends Subcommand {
       .setColor(0x2f3136);
 
     return interaction.reply({ embeds: [embed] });
+  }
+
+  public async ban(interaction: ChatInputCommandInteraction) {
+    const target = interaction.options.getUser('user', true);
+    bannedUsers.add(target.id);
+
+    const session = activeLFG.get(target.id);
+    if (session) {
+      if (session.vcId) {
+        const channel = await interaction.guild?.channels
+          .fetch(session.vcId)
+          .catch(() => null);
+        if (channel) await channel.delete().catch(() => null);
+      }
+      activeLFG.delete(target.id);
+    }
+
+    return interaction.reply({
+      content: `✅ <@${target.id}> is now banned from premium sessions.`,
+      ephemeral: true,
+    });
+  }
+
+  public async unban(interaction: ChatInputCommandInteraction) {
+    const target = interaction.options.getUser('user', true);
+    bannedUsers.delete(target.id);
+
+    return interaction.reply({
+      content: `✅ <@${target.id}> is no longer banned from premium sessions.`,
+      ephemeral: true,
+    });
   }
 }

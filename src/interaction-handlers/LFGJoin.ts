@@ -21,6 +21,7 @@ import {
   EmbedBuilder,
 } from 'discord.js';
 import { activeLFG } from '../lib/lfg-data.js';
+import { bannedUsers } from '../lib/ban-data.js';
 
 export class JoinButtonHandler extends InteractionHandler {
   public constructor(
@@ -40,6 +41,13 @@ export class JoinButtonHandler extends InteractionHandler {
 
   public async run(interaction: ButtonInteraction) {
     await interaction.deferUpdate();
+
+    if (bannedUsers.has(interaction.user.id)) {
+      return interaction.followUp({
+        content: '🚫 You are banned from joining premium sessions.',
+        ephemeral: true,
+      });
+    }
 
     const parts = interaction.customId.split('_');
     const hostId = parts[parts.length - 1];
@@ -89,7 +97,8 @@ export class JoinButtonHandler extends InteractionHandler {
       });
     } catch {
       return interaction.followUp({
-        content: '❌ The host could not receive your request by direct message.',
+        content:
+          '❌ The host could not receive your request by direct message.',
         ephemeral: true,
       });
     }

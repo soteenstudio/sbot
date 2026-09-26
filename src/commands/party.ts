@@ -10,6 +10,7 @@
 
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
+import { bannedUsers } from '../lib/ban-data.js';
 import {
   activeParties,
   deleteEmptyParty,
@@ -47,6 +48,20 @@ export class PartyCommand extends Subcommand {
           ],
         },
         { name: 'list', chatInputRun: 'list' },
+        {
+          name: 'ban',
+          chatInputRun: 'ban',
+          preconditions: [
+            { name: 'RequireRole', context: { level: 'RICHMAN' } } as any,
+          ],
+        },
+        {
+          name: 'unban',
+          chatInputRun: 'unban',
+          preconditions: [
+            { name: 'RequireRole', context: { level: 'RICHMAN' } } as any,
+          ],
+        },
       ],
     });
   }
@@ -91,12 +106,41 @@ export class PartyCommand extends Subcommand {
           sub
             .setName('list')
             .setDescription('View all active party voice channels.'),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('ban')
+            .setDescription('Ban a user from creating or joining parties.')
+            .addUserOption((option) =>
+              option
+                .setName('user')
+                .setDescription('User to ban')
+                .setRequired(true),
+            ),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('unban')
+            .setDescription('Unban a user from creating or joining parties.')
+            .addUserOption((option) =>
+              option
+                .setName('user')
+                .setDescription('User to unban')
+                .setRequired(true),
+            ),
         ),
     );
   }
 
   public async create(interaction: Subcommand.ChatInputCommandInteraction) {
     const gameKey = interaction.options.getString('game', true);
+    if (bannedUsers.has(interaction.user.id)) {
+      return interaction.reply({
+        content: '🚫 You are banned from creating parties.',
+        ephemeral: true,
+      });
+    }
+
     const maxPlayersOption = interaction.options.getInteger('max_players');
     if (
       maxPlayersOption !== null &&
@@ -162,6 +206,13 @@ export class PartyCommand extends Subcommand {
                 PermissionsBitField.Flags.Connect,
               ],
             },
+            ...Array.from(bannedUsers, (userId) => ({
+              id: userId,
+              deny: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.Connect,
+              ],
+            })),
           ],
         });
       } catch (error) {
@@ -275,5 +326,61 @@ export class PartyCommand extends Subcommand {
       .setColor(0x2f3136);
 
     return interaction.reply({ embeds: [embed] });
+  }
+
+  public async ban(interaction: Subcommand.ChatInputCommandInteraction) {
+    const target = interaction.options.getUser('user', true);
+    bannedUsers.add(target.id);
+
+    if (interaction.guild) {
+      for (const channelId of activeParties.keys()) {
+        const channel = await interaction.guild.channels
+          .fetch(channelId)
+          .catch(() => null);
+        if (channel?.isVoiceBased()) {
+          await channel.permissionOverwrites
+            .edit(target.id, { ViewChannel: false, Connect: false })
+            .catch(() => null);
+        }
+      }
+    }
+
+    const hosted = findHostedParty(target.id);
+    if (hosted) {
+      const [channelId] = hosted;
+      const channel = await interaction.guild?.channels
+        .fetch(channelId)
+        .catch(() => null);
+      if (channel) await channel.delete().catch(() => null);
+      activeParties.delete(channelId);
+    }
+
+    return interaction.reply({
+      content: `✅ <@${target.id}> is now banned from parties.`,
+      ephemeral: true,
+    });
+  }
+
+  public async unban(interaction: Subcommand.ChatInputCommandInteraction) {
+    const target = interaction.options.getUser('user', true);
+    bannedUsers.delete(target.id);
+
+    if (interaction.guild) {
+      for (const channelId of activeParties.keys()) {
+        const channel = await interaction.guild.channels
+          .fetch(channelId)
+          .catch(() => null);
+        if (channel?.isVoiceBased()) {
+          await channel.permissionOverwrites
+            .delete(target.id)
+            .catch(() => null);
+        }
+      }
+    }
+
+    return interaction.reply({
+      content: `✅ <@${target.id}> is no longer banned from parties.`,
+      ephemeral: true,
+    });
   }
 }
