@@ -16,6 +16,7 @@ import {
   OverwriteType,
   PermissionsBitField,
 } from 'discord.js';
+import { Roles } from '../dist/config.js';
 import { PartyCommand } from '../dist/commands/party.js';
 import { PartyReady } from '../dist/listeners/PartyReady.js';
 import { PartyVoiceCleanup } from '../dist/listeners/PartyVoiceCleanup.js';
@@ -29,6 +30,7 @@ import {
 
 const hostId = '123456789012345678';
 const roleId = '234567890123456789';
+const richmanRoleId = '567890123456789012';
 const guildId = '345678901234567890';
 const party = { hostId, gameKey: 'minecraft' };
 const access = [
@@ -39,6 +41,7 @@ const access = [
 beforeEach(() => {
   activeParties.clear();
   Games.minecraft.roleId = roleId;
+  Roles.RICHMAN.id = richmanRoleId;
 });
 
 function voiceChannel(id = '456789012345678901', humans = 0) {
@@ -118,6 +121,7 @@ async function createParty(t, fetch, maxPlayersOption = null) {
         getInteger: () => maxPlayersOption,
       },
       guild,
+      member: { roles: [richmanRoleId] },
       user: { id: hostId, username: 'host' },
       async deferReply() {},
       async editReply(value) {
@@ -129,6 +133,22 @@ async function createParty(t, fetch, maxPlayersOption = null) {
   assert.equal(channel.deletes, 0);
   return { channel, cleanup, reply };
 }
+
+test('party rejects a player limit override from a lower role', async () => {
+  let reply;
+  await PartyCommand.prototype.chatInputRun.call({}, {
+    options: {
+      getString: () => 'minecraft',
+      getInteger: () => 4,
+    },
+    member: { roles: [roleId] },
+    reply(value) {
+      reply = value;
+    },
+  });
+  assert.match(reply.content, /Richman.*max_players/);
+  assert.equal(reply.ephemeral, true);
+});
 
 for (const [maxPlayersOption, label] of [
   [null, '8'],
