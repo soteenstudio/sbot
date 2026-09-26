@@ -435,3 +435,129 @@ test('marker recognition rejects unknown games, invalid hosts, and mismatched ov
   Games.minecraft.roleId = undefined;
   assert.equal(getMarkedParty(channel), undefined);
 });
+
+function creationInteraction(channel) {
+  return {
+    options: {
+      getString: () => 'minecraft',
+      getInteger: () => null,
+    },
+    guild: { id: guildId, channels: { create: async () => channel } },
+    user: { id: hostId },
+    async deferReply() {},
+    async editReply() {},
+    async reply(value) {
+      return value;
+    },
+  };
+}
+
+for (const stage of ['deferReply', 'create']) {
+  test(`party create rejects overlapping requests while awaiting ${stage}`, async (t) => {
+    t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+    const channel = voiceChannel();
+    const interaction = creationInteraction(channel);
+    const started = Promise.withResolvers();
+    const finish = Promise.withResolvers();
+    const target = stage === 'create' ? interaction.guild.channels : interaction;
+    const pendingStage = t.mock.method(target, stage, () => {
+      started.resolve();
+      return finish.promise;
+    });
+    const first = PartyCommand.prototype.create.call({}, interaction);
+    await started.promise;
+    try {
+      const reply = await PartyCommand.prototype.create.call({}, interaction);
+      assert.match(reply.content, /already have an active party/);
+      assert.equal(reply.ephemeral, true);
+      assert.equal(pendingStage.mock.callCount(), 1);
+    } finally {
+      finish.resolve(channel);
+      await first;
+    }
+    assert.deepEqual(activeParties.get(channel.id), party);
+    activeParties.clear();
+    pendingStage.mock.restore();
+    await PartyCommand.prototype.create.call({}, interaction);
+    assert.deepEqual(activeParties.get(channel.id), party);
+  });
+}
+
+for (const stage of ['deferReply', 'create', 'editReply']) {
+  test(`party create releases the host reservation after ${stage} fails`, async (t) => {
+    t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+    t.mock.method(console, 'error', () => {});
+    const channel = voiceChannel();
+    const interaction = creationInteraction(channel);
+    const target = stage === 'create' ? interaction.guild.channels : interaction;
+    const failure = new Error(`${stage} failed`);
+    const failedStage = t.mock.method(target, stage, async () => {
+      throw failure;
+    });
+    const request = PartyCommand.prototype.create.call({}, interaction);
+    if (stage === 'create') {
+      await request;
+    } else {
+      await assert.rejects(request, failure);
+    }
+    assert.equal(activeParties.has(channel.id), stage === 'editReply');
+    activeParties.clear();
+    failedStage.mock.restore();
+    await PartyCommand.prototype.create.call({}, interaction);
+    assert.deepEqual(activeParties.get(channel.id), party);
+  });
+}
+
+for (const stage of ['fetch', 'delete']) {
+  for (const code of [10003, 50013, 'ECONNRESET']) {
+    test(`party close handles ${stage} error ${code} without losing retryable parties`, async (t) => {
+      t.mock.method(console, 'error', () => {});
+      const channel = voiceChannel();
+      activeParties.set(channel.id, party);
+      const channels = { fetch: async () => channel };
+      const failedStage = t.mock.method(
+        stage === 'fetch' ? channels : channel,
+        stage,
+        async () => {
+          throw { code };
+        },
+      );
+      const interaction = {
+        user: { id: hostId },
+        guild: { channels },
+        reply: async (value) => value,
+      };
+      const reply = await PartyCommand.prototype.close.call({}, interaction);
+      assert.equal(activeParties.has(channel.id), code !== 10003);
+      assert.match(
+        reply.content,
+        code === 10003 ? /has been closed/ : /Could not close/,
+      );
+      assert.equal(reply.ephemeral, true);
+      if (code !== 10003) {
+        failedStage.mock.restore();
+        await PartyCommand.prototype.close.call({}, interaction);
+        assert.equal(channel.deletes, 1);
+        assert.equal(activeParties.has(channel.id), false);
+      }
+    });
+  }
+}
+
+for (const missing of ['channel', 'guild']) {
+  test(`party close handles a missing ${missing}`, async (t) => {
+    t.mock.method(console, 'error', () => {});
+    const channel = voiceChannel();
+    activeParties.set(channel.id, party);
+    const reply = await PartyCommand.prototype.close.call({}, {
+      user: { id: hostId },
+      guild: missing === 'guild' ? null : { channels: { fetch: async () => null } },
+      reply: async (value) => value,
+    });
+    assert.equal(activeParties.has(channel.id), missing === 'guild');
+    assert.match(
+      reply.content,
+      missing === 'guild' ? /Could not close/ : /has been closed/,
+    );
+  });
+}

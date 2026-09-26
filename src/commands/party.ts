@@ -20,6 +20,8 @@ import {
 } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 
+const pendingCreations = new Set<string>();
+
 export class PartyCommand extends Subcommand {
   public constructor(
     context: Subcommand.LoaderContext,
@@ -123,84 +125,92 @@ export class PartyCommand extends Subcommand {
       });
     }
 
-    if (findHostedParty(interaction.user.id)) {
+    const hostId = interaction.user.id;
+    if (pendingCreations.has(hostId) || findHostedParty(hostId)) {
       return interaction.reply({
         content:
-          '❌ You already have an active party. Close it with `/party close` first.',
+          '❌ You already have an active party or one being created. Wait for creation to finish or close it with `/party close` first.',
         ephemeral: true,
       });
     }
 
     const maxPlayers = maxPlayersOption ?? game.maxPlayers;
 
-    await interaction.deferReply();
-    const guild = interaction.guild;
-    let channel;
+    pendingCreations.add(hostId);
     try {
-      channel = await guild.channels.create({
-        name: getPartyChannelName(gameKey, interaction.user.id),
-        type: ChannelType.GuildVoice,
-        userLimit: maxPlayers,
-        permissionOverwrites: [
-          { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-          {
-            id: game.roleId,
-            allow: [
-              PermissionsBitField.Flags.ViewChannel,
-              PermissionsBitField.Flags.Connect,
-            ],
-          },
-          {
-            id: interaction.user.id,
-            allow: [
-              PermissionsBitField.Flags.ViewChannel,
-              PermissionsBitField.Flags.Connect,
-            ],
-          },
-        ],
-      });
-    } catch (error) {
-      console.error('Could not create party channel:', error);
-      return interaction.editReply(
-        '❌ Could not create the party voice channel. Please try again later.',
-      );
-    }
+      await interaction.deferReply();
+      const guild = interaction.guild;
+      let channel;
+      try {
+        channel = await guild.channels.create({
+          name: getPartyChannelName(gameKey, interaction.user.id),
+          type: ChannelType.GuildVoice,
+          userLimit: maxPlayers,
+          permissionOverwrites: [
+            { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+            {
+              id: game.roleId,
+              allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.Connect,
+              ],
+            },
+            {
+              id: interaction.user.id,
+              allow: [
+                PermissionsBitField.Flags.ViewChannel,
+                PermissionsBitField.Flags.Connect,
+              ],
+            },
+          ],
+        });
+      } catch (error) {
+        console.error('Could not create party channel:', error);
+        return await interaction.editReply(
+          '❌ Could not create the party voice channel. Please try again later.',
+        );
+      }
 
-    activeParties.set(channel.id, { hostId: interaction.user.id, gameKey });
+      activeParties.set(channel.id, { hostId: interaction.user.id, gameKey });
 
-    const channelId = channel.id;
-    setTimeout(
-      async () => {
-        if (!activeParties.has(channelId)) return;
-        try {
-          const fresh = await guild.channels.fetch(channelId, { force: true });
-          if (fresh?.isVoiceBased()) await deleteEmptyParty(fresh);
-        } catch (error) {
-          console.error('Could not fetch party channel for cleanup:', error);
-          if (isUnknownChannel(error)) activeParties.delete(channelId);
-        }
-      },
-      5 * 60 * 1000,
-    ).unref();
-
-    const embed = new EmbedBuilder()
-      .setTitle('🎮 Party voice channel')
-      .setColor(0x5865f2)
-      .addFields(
-        { name: 'Game', value: game.label, inline: true },
-        {
-          name: 'Player limit',
-          value: String(maxPlayers),
-          inline: true,
+      const channelId = channel.id;
+      setTimeout(
+        async () => {
+          if (!activeParties.has(channelId)) return;
+          try {
+            const fresh = await guild.channels.fetch(channelId, {
+              force: true,
+            });
+            if (fresh?.isVoiceBased()) await deleteEmptyParty(fresh);
+          } catch (error) {
+            console.error('Could not fetch party channel for cleanup:', error);
+            if (isUnknownChannel(error)) activeParties.delete(channelId);
+          }
         },
-        { name: 'Voice channel', value: channel.toString() },
-      );
+        5 * 60 * 1000,
+      ).unref();
 
-    return interaction.editReply({
-      content: `<@&${game.roleId}>`,
-      embeds: [embed],
-      allowedMentions: { roles: [game.roleId] },
-    });
+      const embed = new EmbedBuilder()
+        .setTitle('🎮 Party voice channel')
+        .setColor(0x5865f2)
+        .addFields(
+          { name: 'Game', value: game.label, inline: true },
+          {
+            name: 'Player limit',
+            value: String(maxPlayers),
+            inline: true,
+          },
+          { name: 'Voice channel', value: channel.toString() },
+        );
+
+      return await interaction.editReply({
+        content: `<@&${game.roleId}>`,
+        embeds: [embed],
+        allowedMentions: { roles: [game.roleId] },
+      });
+    } finally {
+      pendingCreations.delete(hostId);
+    }
   }
 
   public async close(interaction: Subcommand.ChatInputCommandInteraction) {
@@ -213,11 +223,19 @@ export class PartyCommand extends Subcommand {
     }
 
     const [channelId] = found;
-    const channel = await interaction.guild?.channels
-      .fetch(channelId)
-      .catch(() => null);
-    if (channel) {
-      await channel.delete().catch(() => null);
+    try {
+      if (!interaction.guild) throw new Error('Party server is unavailable.');
+      const channel = await interaction.guild.channels.fetch(channelId);
+      if (channel) await channel.delete();
+    } catch (error) {
+      if (!isUnknownChannel(error)) {
+        console.error('Could not close party channel:', error);
+        return interaction.reply({
+          content:
+            '❌ Could not close your party voice channel. Please try again later.',
+          ephemeral: true,
+        });
+      }
     }
 
     activeParties.delete(channelId);
