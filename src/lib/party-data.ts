@@ -67,8 +67,6 @@ export const activeParties = new Map<
   { hostId: string; gameKey: string }
 >();
 
-const deletingParties = new Set<string>();
-
 export function findHostedParty(
   hostId: string,
 ): [string, { hostId: string; gameKey: string }] | undefined {
@@ -117,25 +115,4 @@ export function isUnknownChannel(error: unknown) {
     'code' in error &&
     error.code === RESTJSONErrorCodes.UnknownChannel
   );
-}
-
-export async function deleteEmptyParty(channel: GuildChannel) {
-  if (
-    !activeParties.has(channel.id) ||
-    deletingParties.has(channel.id) ||
-    !channel.isVoiceBased() ||
-    channel.members.some((member) => !member.user.bot)
-  )
-    return;
-
-  deletingParties.add(channel.id);
-  try {
-    await channel.delete();
-    activeParties.delete(channel.id);
-  } catch (error) {
-    console.error('Could not delete party channel:', error);
-    if (isUnknownChannel(error)) activeParties.delete(channel.id);
-  } finally {
-    deletingParties.delete(channel.id);
-  }
 }

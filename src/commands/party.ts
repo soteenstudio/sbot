@@ -12,7 +12,6 @@ import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
 import {
   activeParties,
-  deleteEmptyParty,
   findHostedParty,
   Games,
   getPartyChannelName,
@@ -191,23 +190,6 @@ export class PartyCommand extends Subcommand {
       }
 
       activeParties.set(channel.id, { hostId: interaction.user.id, gameKey });
-
-      const channelId = channel.id;
-      setTimeout(
-        async () => {
-          if (!activeParties.has(channelId)) return;
-          try {
-            const fresh = await guild.channels.fetch(channelId, {
-              force: true,
-            });
-            if (fresh?.isVoiceBased()) await deleteEmptyParty(fresh);
-          } catch (error) {
-            console.error('Could not fetch party channel for cleanup:', error);
-            if (isUnknownChannel(error)) activeParties.delete(channelId);
-          }
-        },
-        5 * 60 * 1000,
-      ).unref();
 
       const embed = new EmbedBuilder()
         .setTitle('🎮 Party voice channel')
