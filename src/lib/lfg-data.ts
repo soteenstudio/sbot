@@ -19,5 +19,7 @@ export const activeLFG = new Map<
     channelId: string;
     messageId: string;
     vcId: string;
+    participantIds: Set<string>;
+    kickedIds: Set<string>;
   }
 >();
