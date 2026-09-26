@@ -152,8 +152,8 @@ test('party rejects a player limit override from a lower role', async () => {
 
 for (const [maxPlayersOption, label] of [
   [null, '8'],
-  [0, 'Unlimited'],
-  [12, '12'],
+  [1, '1'],
+  [10, '10'],
 ]) {
   test(`party uses ${maxPlayersOption ?? 'default'} player limit`, async (t) => {
     const { reply } = await createParty(t, async () => null, maxPlayersOption);
