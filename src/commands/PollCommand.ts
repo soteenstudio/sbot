@@ -16,7 +16,8 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { activePolls } from '../lib/pollData.js';
+import { type ActivePoll } from '../lib/pollData.js';
+import { deletePoll, getPoll, savePoll } from '../lib/pollSession.js';
 
 export class PollCommand extends Subcommand {
   public constructor(
@@ -76,7 +77,7 @@ export class PollCommand extends Subcommand {
   }
 
   public async create(interaction: ChatInputCommandInteraction): Promise<void> {
-    if (activePolls.has(interaction.user.id)) {
+    if (await getPoll(interaction.user.id)) {
       await interaction.reply({
         content:
           '❌ You already have an active poll. Use `/poll close` before creating another.',
@@ -119,20 +120,22 @@ export class PollCommand extends Subcommand {
       fetchReply: true,
     });
 
-    activePolls.set(interaction.user.id, {
+    const poll: ActivePoll = {
+      authorId: interaction.user.id,
       question,
       options,
       messageId: response.id,
       channelId: interaction.channelId,
       votes: new Map<number, number>(),
       voters: new Set<string>(),
-    });
+    };
+    await savePoll(poll);
   }
 
   public async results(
     interaction: ChatInputCommandInteraction,
   ): Promise<void> {
-    const poll = activePolls.get(interaction.user.id);
+    const poll = await getPoll(interaction.user.id);
 
     if (!poll) {
       await interaction.reply({
@@ -142,11 +145,9 @@ export class PollCommand extends Subcommand {
       return;
     }
 
-    const votes = poll.votes || new Map<number, number>();
-
     const resultLines = poll.options
       .map((option, index) => {
-        const count = votes.get(index + 1) || 0;
+        const count = poll.votes.get(index + 1) || 0;
         return `${index + 1}. ${option} — ${count} ${count === 1 ? 'vote' : 'votes'}`;
       })
       .join('\n');
@@ -160,7 +161,7 @@ export class PollCommand extends Subcommand {
   }
 
   public async close(interaction: ChatInputCommandInteraction): Promise<void> {
-    const poll = activePolls.get(interaction.user.id);
+    const poll = await deletePoll(interaction.user.id);
     if (!poll) {
       await interaction.reply({
         content: '❌ You do not have an active poll to close.',
@@ -168,8 +169,6 @@ export class PollCommand extends Subcommand {
       });
       return;
     }
-
-    activePolls.delete(interaction.user.id);
 
     try {
       const channel = await interaction.client.channels.fetch(poll.channelId);
