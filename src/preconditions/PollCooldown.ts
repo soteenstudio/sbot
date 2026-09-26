@@ -11,8 +11,7 @@
 import { Precondition } from '@sapphire/framework';
 import { CommandInteraction, GuildMember } from 'discord.js';
 import { Roles } from '../config.js';
-
-const cooldowns = new Map<string, number>();
+import { checkAndRecordPollCooldown } from '../lib/pollSession.js';
 
 export class PollCooldown extends Precondition {
   public async chatInputRun(interaction: CommandInteraction) {
@@ -28,9 +27,13 @@ export class PollCooldown extends Precondition {
 
     if (isAdminOrAbove) return this.ok();
 
-    const lastUsed = cooldowns.get(interaction.user.id);
-    if (lastUsed && now - lastUsed < COOLDOWN_TIME) {
-      const remaining = Math.ceil((COOLDOWN_TIME - (now - lastUsed)) / 60000);
+    const remainingMs = await checkAndRecordPollCooldown(
+      interaction.user.id,
+      now,
+      COOLDOWN_TIME,
+    );
+    if (remainingMs > 0) {
+      const remaining = Math.ceil(remainingMs / 60000);
       await interaction.reply({
         content: `⏳ You can create another poll in **${remaining} ${remaining === 1 ? 'minute' : 'minutes'}**.`,
         ephemeral: true,
@@ -40,7 +43,6 @@ export class PollCooldown extends Precondition {
       });
     }
 
-    cooldowns.set(interaction.user.id, now);
     return this.ok();
   }
 }
