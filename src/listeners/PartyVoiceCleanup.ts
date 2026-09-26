@@ -10,9 +10,7 @@
 
 import { Listener } from '@sapphire/framework';
 import type { VoiceState } from 'discord.js';
-import { activeParties } from '../lib/party-data.js';
-
-const deletingParties = new Set<string>();
+import { deleteEmptyParty } from '../lib/party-data.js';
 
 export class PartyVoiceCleanup extends Listener {
   public constructor(
@@ -24,20 +22,6 @@ export class PartyVoiceCleanup extends Listener {
 
   public override async run(oldState: VoiceState) {
     const channel = oldState.channel;
-    if (
-      !channel ||
-      !activeParties.has(channel.id) ||
-      deletingParties.has(channel.id)
-    )
-      return;
-    if (channel.members.some((member) => !member.user.bot)) return;
-
-    deletingParties.add(channel.id);
-    try {
-      await channel.delete();
-      activeParties.delete(channel.id);
-    } finally {
-      deletingParties.delete(channel.id);
-    }
+    if (channel) await deleteEmptyParty(channel);
   }
 }

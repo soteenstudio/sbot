@@ -10,7 +10,13 @@
 
 import { Command } from '@sapphire/framework';
 import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
-import { activeParties, Games } from '../lib/party-data.js';
+import {
+  activeParties,
+  deleteEmptyParty,
+  Games,
+  getPartyChannelName,
+  isUnknownChannel,
+} from '../lib/party-data.js';
 
 export class PartyCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -38,6 +44,14 @@ export class PartyCommand extends Command {
                 value: key,
               })),
             ),
+        )
+        .addIntegerOption((option) =>
+          option
+            .setName('max_players')
+            .setDescription('Override the player limit (0 = unlimited).')
+            .setMinValue(0)
+            .setMaxValue(99)
+            .setRequired(false),
         ),
     );
   }
@@ -46,6 +60,7 @@ export class PartyCommand extends Command {
     interaction: Command.ChatInputCommandInteraction,
   ) {
     const gameKey = interaction.options.getString('game', true);
+    const maxPlayersOption = interaction.options.getInteger('max_players');
     const game = Object.hasOwn(Games, gameKey) ? Games[gameKey] : undefined;
     if (!game) {
       return interaction.reply({
@@ -62,14 +77,16 @@ export class PartyCommand extends Command {
       });
     }
 
+    const maxPlayers = maxPlayersOption ?? game.maxPlayers;
+
     await interaction.deferReply();
     const guild = interaction.guild;
     let channel;
     try {
       channel = await guild.channels.create({
-        name: `${game.label}-${interaction.user.username}`,
+        name: getPartyChannelName(gameKey, interaction.user.id),
         type: ChannelType.GuildVoice,
-        userLimit: game.maxPlayers,
+        userLimit: maxPlayers,
         permissionOverwrites: [
           { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
           {
@@ -97,12 +114,31 @@ export class PartyCommand extends Command {
 
     activeParties.set(channel.id, { hostId: interaction.user.id, gameKey });
 
+    const channelId = channel.id;
+    setTimeout(
+      async () => {
+        if (!activeParties.has(channelId)) return;
+        try {
+          const fresh = await guild.channels.fetch(channelId, { force: true });
+          if (fresh?.isVoiceBased()) await deleteEmptyParty(fresh);
+        } catch (error) {
+          console.error('Could not fetch party channel for cleanup:', error);
+          if (isUnknownChannel(error)) activeParties.delete(channelId);
+        }
+      },
+      5 * 60 * 1000,
+    ).unref();
+
     const embed = new EmbedBuilder()
       .setTitle('🎮 Party voice channel')
       .setColor(0x5865f2)
       .addFields(
         { name: 'Game', value: game.label, inline: true },
-        { name: 'Player limit', value: String(game.maxPlayers), inline: true },
+        {
+          name: 'Player limit',
+          value: maxPlayers === 0 ? 'Unlimited' : String(maxPlayers),
+          inline: true,
+        },
         { name: 'Voice channel', value: channel.toString() },
       );
 
