@@ -13,6 +13,7 @@ import { GatewayIntentBits } from 'discord.js';
 import 'dotenv/config';
 import { join } from 'path';
 
+// fix resource usage issues
 const client = new SapphireClient({
   intents: [
     GatewayIntentBits.Guilds,
