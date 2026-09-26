@@ -17,6 +17,7 @@ import {
   getPartyChannelName,
   isUnknownChannel,
 } from '../lib/party-data.js';
+import { meetsRoleLevel } from '../lib/role-utils.js';
 
 export class PartyCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -24,6 +25,9 @@ export class PartyCommand extends Command {
       ...options,
       name: 'party',
       description: 'Create a private voice channel for a game.',
+      preconditions: [
+        { name: 'RequireRole', context: { level: 'BILLION' } } as any,
+      ],
     });
   }
 
@@ -61,6 +65,17 @@ export class PartyCommand extends Command {
   ) {
     const gameKey = interaction.options.getString('game', true);
     const maxPlayersOption = interaction.options.getInteger('max_players');
+    if (
+      maxPlayersOption !== null &&
+      !meetsRoleLevel(interaction.member, 'RICHMAN')
+    ) {
+      return interaction.reply({
+        content:
+          '🚫 Only the **Richman** role or higher can set `max_players`. Send the command again without this option.',
+        ephemeral: true,
+      });
+    }
+
     const game = Object.hasOwn(Games, gameKey) ? Games[gameKey] : undefined;
     if (!game) {
       return interaction.reply({

@@ -18,6 +18,8 @@ import {
   ComponentType,
 } from 'discord.js';
 import { activeLFG } from '../lib/lfg-data.js';
+import { Games } from '../lib/party-data.js';
+import { meetsRoleLevel } from '../lib/role-utils.js';
 
 export class LFGCommand extends Subcommand {
   public constructor(
@@ -62,7 +64,12 @@ export class LFGCommand extends Subcommand {
               o
                 .setName('game')
                 .setDescription('Name of the game')
-                .setMaxLength(1000)
+                .addChoices(
+                  ...Object.entries(Games).map(([key, game]) => ({
+                    name: game.label,
+                    value: key,
+                  })),
+                )
                 .setRequired(true),
             )
             .addStringOption((o) =>
@@ -90,11 +97,21 @@ export class LFGCommand extends Subcommand {
   }
 
   public async create(interaction: ChatInputCommandInteraction) {
-    const member = interaction.member;
-
-    const game = interaction.options.getString('game', true);
+    const gameKey = interaction.options.getString('game', true);
+    const game = Games[gameKey]?.label ?? gameKey;
     const rank = interaction.options.getString('rank', true);
-    const maxPlayers = interaction.options.getInteger('max_players') || 2;
+    const maxPlayersOption = interaction.options.getInteger('max_players');
+    if (
+      maxPlayersOption !== null &&
+      !meetsRoleLevel(interaction.member, 'RICHMAN')
+    ) {
+      return interaction.reply({
+        content:
+          '🚫 Only the **Richman** role or higher can set `max_players`. Send the command again without this option.',
+        ephemeral: true,
+      });
+    }
+    const maxPlayers = maxPlayersOption ?? 2;
 
     const embed = new EmbedBuilder()
       .setTitle('🎮 Premium Looking-for-Group Session')

@@ -4,7 +4,7 @@
   "scripts": {
     "start": "node ./build.js && node ./dist/index.js",
     "test": "node --enable-source-maps ./dist/index.js",
-    "test:party": "npm run build && node --test tests/party-cleanup.test.js",
+    "test:party": "npm run build && node --test tests/party-cleanup.test.js tests/role-access.test.js",
     "build": "node ./build.js",
     "typecheck": "tsc",
     "prettier": "npx prettier ./src/**/*.ts --write",
