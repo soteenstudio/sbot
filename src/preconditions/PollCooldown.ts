@@ -11,14 +11,21 @@
 import { Precondition } from '@sapphire/framework';
 import { CommandInteraction, GuildMember } from 'discord.js';
 import { Roles } from '../config.js';
+import { registerUsageCleanup } from '../lib/usageCleanup.js';
 
-const cooldowns = new Map<string, number>();
+const COOLDOWN_TIME = 60 * 60 * 1000;
+export const cooldowns = new Map<string, number>();
+
+registerUsageCleanup((now) => {
+  for (const [userId, lastUsed] of cooldowns) {
+    if (now - lastUsed >= COOLDOWN_TIME) cooldowns.delete(userId);
+  }
+});
 
 export class PollCooldown extends Precondition {
   public async chatInputRun(interaction: CommandInteraction) {
     const member = (interaction.member as GuildMember) ?? 0;
     const now = Date.now();
-    const COOLDOWN_TIME = 3600000;
 
     const isAdminOrAbove = member.roles.cache.some((role) => {
       const roleConfig = Object.values(Roles).find((r) => r.id === role.id);
