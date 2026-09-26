@@ -200,17 +200,17 @@ export async function finishTTSUsage(
   lastReset: number,
   reservationId: string,
   refund: boolean,
-): Promise<void> {
-  await updateUsage((records) => {
+): Promise<boolean> {
+  return updateUsage((records) => {
     const usage = records[userId];
     if (
       !usage ||
       usage.lastReset !== lastReset ||
       !Object.hasOwn(usage.pending, reservationId)
     )
-      return [undefined, false];
+      return [false, false];
     delete usage.pending[reservationId];
     if (refund) usage.count--;
-    return [undefined, true];
+    return [true, true];
   });
 }

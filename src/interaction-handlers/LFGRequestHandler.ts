@@ -181,10 +181,11 @@ export class RequestHandler extends InteractionHandler {
             },
           ],
         });
-        session.vcId = vc.id;
       }
-      session.participantIds.add(joinerId);
-      await saveLFGSession(session);
+      const participantIds = new Set(session.participantIds).add(joinerId);
+      await saveLFGSession({ ...session, vcId: vc.id, participantIds });
+      session.vcId = vc.id;
+      session.participantIds = participantIds;
 
       try {
         const channel = await interaction.client.channels

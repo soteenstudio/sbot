@@ -454,3 +454,94 @@ test('restart restores kicked participants and rejects their old join requests',
   });
   assert.match(reply.content, /removed from this session/);
 });
+
+test('LFG creation removes join controls on save failure and registers saved sessions', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const path = process.env.LFG_DATA_FILE;
+  let edited;
+  const interaction = {
+    user: { id: hostId, tag: 'host' }, channelId: originId,
+    options: { getString: () => 'game', getInteger: () => null },
+    reply: async () => ({ id: 'message' }),
+    editReply: async (value) => { edited = value; },
+  };
+  try {
+    process.env.LFG_DATA_FILE = storageDirectory;
+    await LFGCommand.prototype.create(interaction);
+    assert.match(edited.content, /Could not create/);
+    assert.deepEqual(edited.components, []);
+    assert.deepEqual(edited.embeds, []);
+    assert.equal(activeLFG.has(hostId), false);
+  } finally { process.env.LFG_DATA_FILE = path; }
+  await LFGCommand.prototype.create(interaction);
+  assert.equal(activeLFG.get(hostId).messageId, 'message');
+  assert.equal((await getLFGSession(hostId)).messageId, 'message');
+});
+
+test('LFG failed kick save preserves in-memory and stored participants', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  const stored = await getLFGSession(hostId);
+  const channel = voiceChannel();
+  const path = process.env.LFG_DATA_FILE;
+  try {
+    process.env.LFG_DATA_FILE = storageDirectory;
+    const reply = await LFGCommand.prototype.kick(kickInteraction(hostId, participantId, {
+      id: guildId,
+      channels: { fetch: async () => channel },
+      members: { fetch: async () => channel.member },
+    }));
+    assert.match(reply.content, /Could not remove/);
+    assert.deepEqual([...session.participantIds], stored.participantIds);
+    assert.deepEqual([...session.kickedIds], stored.kickedIds);
+  } finally { process.env.LFG_DATA_FILE = path; }
+  assert.deepEqual(await getLFGSession(hostId), stored);
+});
+
+test('LFG failed accept save preserves participants and voice channel id', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  for (const vcId of ['', voiceId]) {
+    const session = lfgSession([]);
+    session.vcId = vcId;
+    activeLFG.set(hostId, session);
+    await saveLFGSession(session);
+    const stored = await getLFGSession(hostId);
+    const channel = voiceChannel(false);
+    const guild = {
+      id: guildId,
+      members: { fetch: async () => channel.member },
+      channels: { create: async () => channel, fetch: async () => channel },
+    };
+    const path = process.env.LFG_DATA_FILE;
+    try {
+      process.env.LFG_DATA_FILE = storageDirectory;
+      const reply = await RequestHandler.prototype.run({
+        customId: `lfg_pro_accept_${participantId}_${originId}_${session.messageId}_${hostId}`,
+        user: { id: hostId },
+        client: {
+          channels: { fetch: async () => ({ guild, isTextBased: () => false }) },
+          users: { fetch: async () => ({ id: hostId, username: 'host' }) },
+        },
+        async deferUpdate() {},
+        async followUp(value) { return value; },
+      });
+      assert.match(reply.content, /Could not add/);
+      assert.equal(session.vcId, vcId);
+      assert.equal(session.participantIds.size, 0);
+    } finally { process.env.LFG_DATA_FILE = path; }
+    assert.deepEqual(await getLFGSession(hostId), stored);
+  }
+});
+
+test('LFG storage rejects invalid roots and member collections without overwriting them', async () => {
+  const { writeFile, readFile } = await import('node:fs/promises');
+  for (const value of [null, [], 1, 'sessions', { host: null }, { host: {} }, { host: { participantIds: 'id', kickedIds: [] } }, { host: { participantIds: [], kickedIds: {} } }]) {
+    const raw = JSON.stringify(value);
+    await writeFile(process.env.LFG_DATA_FILE, raw);
+    await assert.rejects(restoreLFGSessions(), /Invalid LFG storage/);
+    await assert.rejects(saveLFGSession(lfgSession()), /Invalid LFG storage/);
+    assert.equal(await readFile(process.env.LFG_DATA_FILE, 'utf8'), raw);
+  }
+});

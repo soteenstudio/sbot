@@ -182,7 +182,17 @@ export class LFGCommand extends Subcommand {
       participantIds: new Set(),
       kickedIds: new Set(),
     };
-    await saveLFGSession(session);
+    try {
+      await saveLFGSession(session);
+    } catch (error) {
+      console.error('Could not save LFG session:', error);
+      await interaction.editReply({
+        content: '❌ Could not create the session. Please try again.',
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
     activeLFG.set(interaction.user.id, session);
   }
 
@@ -279,9 +289,13 @@ export class LFGCommand extends Subcommand {
       }
       const member = await interaction.guild.members.fetch(participant.id);
       await kickFromSession(channel, member);
-      session.participantIds.delete(participant.id);
-      session.kickedIds.add(participant.id);
-      await saveLFGSession(session);
+      const participantIds = new Set(session.participantIds);
+      const kickedIds = new Set(session.kickedIds);
+      participantIds.delete(participant.id);
+      kickedIds.add(participant.id);
+      await saveLFGSession({ ...session, participantIds, kickedIds });
+      session.participantIds = participantIds;
+      session.kickedIds = kickedIds;
 
       try {
         const origin = await interaction.client.channels.fetch(

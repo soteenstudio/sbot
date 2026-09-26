@@ -58,7 +58,25 @@ const lfgPath = () =>
 
 async function readLFG(path: string): Promise<LFGRecords> {
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as LFGRecords;
+    const records: unknown = JSON.parse(await readFile(path, 'utf8'));
+    if (
+      records === null ||
+      typeof records !== 'object' ||
+      Object.getPrototypeOf(records) !== Object.prototype
+    )
+      throw new Error('Invalid LFG storage: expected an object');
+    for (const record of Object.values(records)) {
+      if (
+        record === null ||
+        typeof record !== 'object' ||
+        !Array.isArray(record.participantIds) ||
+        !Array.isArray(record.kickedIds)
+      )
+        throw new Error(
+          'Invalid LFG storage: expected participantIds and kickedIds arrays',
+        );
+    }
+    return records as LFGRecords;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
     throw error;

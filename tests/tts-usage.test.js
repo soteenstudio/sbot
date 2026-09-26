@@ -186,3 +186,34 @@ test('failed final storage write prevents audio delivery and pending quota expir
   assert.equal(pending.count, 1);
   assert.equal((await getTTSUsage('user-1', Date.now() + RESERVATION_TTL_MS)).count, 0);
 });
+
+test('finishing reports committed, missing, duplicate, expired and reset reservations', async () => {
+  const start = Date.now();
+  assert.equal(await finishTTSUsage('missing', start, 'none', false), false);
+  const first = await reserveTTSUsage('user-1', start, 4);
+  assert.equal(await finishTTSUsage('user-1', first.usage.lastReset, first.reservationId, false), true);
+  assert.equal(await finishTTSUsage('user-1', first.usage.lastReset, first.reservationId, false), false);
+  const second = await reserveTTSUsage('user-1', start, 4);
+  await getTTSUsage('user-1', start + RESERVATION_TTL_MS);
+  assert.equal(await finishTTSUsage('user-1', second.usage.lastReset, second.reservationId, false), false);
+  const third = await reserveTTSUsage('user-1', start, 4);
+  await reserveTTSUsage('user-1', start + 86_400_001, 4);
+  assert.equal(await finishTTSUsage('user-1', third.usage.lastReset, third.reservationId, false), false);
+});
+
+test('a reclaimed reservation prevents the command from delivering audio', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  speechService();
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const response = await fetch(url);
+    if (url.endsWith('/audio/speech')) {
+      await getTTSUsage('user-1', Date.now() + RESERVATION_TTL_MS);
+    }
+    return response;
+  };
+  const request = interaction();
+  await TssCommand.prototype.chatInputRun(request);
+  assert.match(request.replies.at(-1), /unavailable/);
+  assert.equal(request.replies.some((reply) => reply.files), false);
+});

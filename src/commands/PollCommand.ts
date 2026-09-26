@@ -129,7 +129,21 @@ export class PollCommand extends Subcommand {
       votes: new Map<number, number>(),
       voters: new Set<string>(),
     };
-    await savePoll(poll);
+    let saved;
+    try {
+      saved = await savePoll(poll);
+    } catch (error) {
+      await interaction.deleteReply().catch(() => null);
+      throw error;
+    }
+    if (!saved) {
+      await interaction.deleteReply();
+      await interaction.followUp({
+        content:
+          '❌ You already have an active poll. Use `/poll close` before creating another.',
+        ephemeral: true,
+      });
+    }
   }
 
   public async results(

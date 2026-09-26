@@ -194,12 +194,14 @@ export class TssCommand extends Command {
 
       // Commit before delivering audio. A failed storage write must not deliver
       // a generation whose quota cannot be tracked.
-      await finishTTSUsage(
+      const committed = await finishTTSUsage(
         userId,
         reservation.usage.lastReset,
         reservationId,
         false,
       );
+      if (!committed)
+        throw new Error('Speech usage reservation is no longer valid');
       finished = true;
       const attachment = new AttachmentBuilder(buffer, { name: 'speech.mp3' });
       const remainingLimit = userLimit - reservation.usage.count;

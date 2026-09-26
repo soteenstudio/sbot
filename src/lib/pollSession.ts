@@ -44,7 +44,27 @@ const pollPath = () => resolve(process.env.POLL_DATA_FILE ?? 'data/polls.json');
 
 async function readPolls(path: string): Promise<PollRecords> {
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as PollRecords;
+    const records: unknown = JSON.parse(await readFile(path, 'utf8'));
+    if (
+      records === null ||
+      typeof records !== 'object' ||
+      Array.isArray(records)
+    )
+      throw new Error('Invalid poll storage: expected an object');
+    const polls = 'polls' in records ? records.polls : {};
+    const cooldowns = 'cooldowns' in records ? records.cooldowns : {};
+    if (
+      polls === null ||
+      typeof polls !== 'object' ||
+      Array.isArray(polls) ||
+      cooldowns === null ||
+      typeof cooldowns !== 'object' ||
+      Array.isArray(cooldowns)
+    )
+      throw new Error(
+        'Invalid poll storage: expected polls and cooldowns maps',
+      );
+    return { polls, cooldowns } as PollRecords;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT')
       return { polls: {}, cooldowns: {} };

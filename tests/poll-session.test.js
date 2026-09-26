@@ -166,3 +166,73 @@ test('cooldown survives restart and expires after one hour', async () => {
   assert.match(request.lastReply.content, /create another poll/);
   assert.equal(await checkAndRecordPollCooldown(authorId, now + 3601000, 3600000), 0);
 });
+
+test('poll creation removes the reply when a competing save wins', async () => {
+  const request = command('losing-message');
+  const reply = request.reply;
+  let deleted = false;
+  let followUp;
+  request.reply = async (value) => {
+    await PollCommand.prototype.create(command('winning-message'));
+    return reply(value);
+  };
+  request.deleteReply = async () => { deleted = true; };
+  request.followUp = async (value) => { followUp = value; };
+  await PollCommand.prototype.create(request);
+  assert.equal(deleted, true);
+  assert.match(followUp.content, /already have an active poll/);
+  assert.equal((await getPoll(authorId)).messageId, 'winning-message');
+});
+
+test('poll creation deletes the reply and propagates save rejection even if cleanup fails', async () => {
+  const path = process.env.POLL_DATA_FILE;
+  for (const cleanupFails of [false, true]) {
+    const request = command();
+    let deleted = false;
+    request.reply = async () => {
+      process.env.POLL_DATA_FILE = directory;
+      return { id: messageId };
+    };
+    request.deleteReply = async () => {
+      deleted = true;
+      if (cleanupFails) throw new Error('cleanup failed');
+    };
+    try {
+      await assert.rejects(PollCommand.prototype.create(request), { code: 'EISDIR' });
+      assert.equal(deleted, true);
+    } finally {
+      process.env.POLL_DATA_FILE = path;
+    }
+  }
+});
+
+test('invalid poll requests do not reserve cooldown', async () => {
+  const precondition = { ok: () => true, error: () => false };
+  const request = command();
+  request.member = { roles: { cache: { some: () => false } } };
+  await PollCommand.prototype.create(command());
+  assert.equal(await PollCooldown.prototype.chatInputRun.call(precondition, request), false);
+  assert.match(request.lastReply.content, /already have an active poll/);
+  await PollCommand.prototype.close(command());
+  request.options.getString = () => '1|2|3|4|5|6';
+  assert.equal(await PollCooldown.prototype.chatInputRun.call(precondition, request), false);
+  assert.match(request.lastReply.content, /at most five/);
+  request.options.getString = () => '1|2|3|4|5';
+  assert.equal(await PollCooldown.prototype.chatInputRun.call(precondition, request), true);
+});
+
+test('poll storage rejects invalid roots and maps without overwriting them', async () => {
+  const { writeFile, readFile } = await import('node:fs/promises');
+  for (const value of [null, [], 1, 'polls', { polls: null }, { polls: [] }, { cooldowns: 1 }, { cooldowns: [] }]) {
+    const raw = JSON.stringify(value);
+    await writeFile(process.env.POLL_DATA_FILE, raw);
+    await assert.rejects(getPoll(authorId), /Invalid poll storage/);
+    await assert.rejects(checkAndRecordPollCooldown(authorId, Date.now(), 1000), /Invalid poll storage/);
+    assert.equal(await readFile(process.env.POLL_DATA_FILE, 'utf8'), raw);
+  }
+  for (const value of [{}, { polls: {} }, { cooldowns: {} }]) {
+    await writeFile(process.env.POLL_DATA_FILE, JSON.stringify(value));
+    assert.equal(await getPoll(authorId), null);
+    assert.equal(await checkAndRecordPollCooldown(authorId, Date.now(), 1000), 0);
+  }
+});

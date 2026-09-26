@@ -9,12 +9,25 @@
  */
 
 import { Precondition } from '@sapphire/framework';
-import { CommandInteraction, GuildMember } from 'discord.js';
+import { ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import { Roles } from '../config.js';
-import { checkAndRecordPollCooldown } from '../lib/pollSession.js';
+import { checkAndRecordPollCooldown, getPoll } from '../lib/pollSession.js';
 
 export class PollCooldown extends Precondition {
-  public async chatInputRun(interaction: CommandInteraction) {
+  public async chatInputRun(interaction: ChatInputCommandInteraction) {
+    if (await getPoll(interaction.user.id)) {
+      const message =
+        '❌ You already have an active poll. Use `/poll close` before creating another.';
+      await interaction.reply({ content: message, ephemeral: true });
+      return this.error({ message });
+    }
+    if (interaction.options.getString('options', true).split('|').length > 5) {
+      const message =
+        '❌ A poll can have at most five answer options. Separate them with `|`.';
+      await interaction.reply({ content: message, ephemeral: true });
+      return this.error({ message });
+    }
+
     const member = (interaction.member as GuildMember) ?? 0;
     const now = Date.now();
     const COOLDOWN_TIME = 3600000;
