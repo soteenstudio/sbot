@@ -23,6 +23,7 @@ import {
   EmbedBuilder,
 } from 'discord.js';
 import { activeLFG } from '../lib/lfg-data.js';
+import { saveLFGSession } from '../lib/lfgSession.js';
 
 const pendingAccepts = new Set<string>();
 
@@ -51,18 +52,11 @@ export class RequestHandler extends InteractionHandler {
     const parts = interaction.customId.split('_');
     const action = parts[2];
     const joinerId = parts[3];
-    const hostId = action === 'decline' ? parts[4] : parts[6];
+    const hostId = parts[parts.length - 1];
 
     if (interaction.user.id !== hostId) {
       return interaction.reply({
         content: '❌ Only the session host can answer join requests.',
-        ephemeral: true,
-      });
-    }
-
-    if (action === 'decline') {
-      return interaction.reply({
-        content: 'Your join request has been declined.',
         ephemeral: true,
       });
     }
@@ -77,6 +71,13 @@ export class RequestHandler extends InteractionHandler {
         content: '❌ This session is no longer active.',
         ephemeral: true,
       });
+
+    if (action === 'decline') {
+      return interaction.reply({
+        content: 'Your join request has been declined.',
+        ephemeral: true,
+      });
+    }
 
     if (session.kickedIds.has(joinerId)) {
       return interaction.reply({
@@ -183,6 +184,7 @@ export class RequestHandler extends InteractionHandler {
         session.vcId = vc.id;
       }
       session.participantIds.add(joinerId);
+      await saveLFGSession(session);
 
       try {
         const channel = await interaction.client.channels

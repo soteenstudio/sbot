@@ -20,18 +20,38 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { activeLFG, type ActiveLFGSession } from './lfg-data.js';
 
-export type LFGSession = {
-  sessionId: string;
-  hostId: string;
-  game: string;
-  slots: number;
-  vcLink: string;
-  participants: string[];
-  createdAt: number;
+export type LFGSession = Omit<ActiveLFGSession, 'participantIds' | 'kickedIds'> & {
+  participantIds: string[];
+  kickedIds: string[];
 };
 
-type LFGRecords = Record<string, LFGSession>; // Key-nya pakai sessionId
+type LFGRecords = Record<string, LFGSession>;
+
+export function toLFGSession(session: ActiveLFGSession): LFGSession {
+  return {
+    ...session,
+    participantIds: [...session.participantIds],
+    kickedIds: [...session.kickedIds],
+  };
+}
+
+export function toActiveLFGSession(session: LFGSession): ActiveLFGSession {
+  return {
+    ...session,
+    participantIds: new Set(session.participantIds),
+    kickedIds: new Set(session.kickedIds),
+  };
+}
+
+export async function restoreLFGSessions(): Promise<void> {
+  const records = await getAllLFGSessions();
+  activeLFG.clear();
+  for (const session of records) {
+    activeLFG.set(session.authorId, toActiveLFGSession(session));
+  }
+}
 
 const lfgPath = () =>
   resolve(process.env.LFG_DATA_FILE ?? 'data/lfg-sessions.json');
@@ -141,22 +161,26 @@ async function updateLFG<T>(
   }
 }
 
-export async function getLFGSession(sessionId: string): Promise<LFGSession | null> {
+export async function getLFGSession(hostId: string): Promise<LFGSession | null> {
   const records = await readLFG(lfgPath());
-  return records[sessionId] ?? null;
+  return records[hostId] ?? null;
 }
 
-export async function saveLFGSession(session: LFGSession): Promise<void> {
+export async function getAllLFGSessions(): Promise<LFGSession[]> {
+  return Object.values(await readLFG(lfgPath()));
+}
+
+export async function saveLFGSession(session: ActiveLFGSession): Promise<void> {
   await updateLFG((records) => {
-    records[session.sessionId] = session;
+    records[session.authorId] = toLFGSession(session);
     return [undefined, true];
   });
 }
 
-export async function deleteLFGSession(sessionId: string): Promise<boolean> {
+export async function deleteLFGSession(hostId: string): Promise<boolean> {
   return updateLFG((records) => {
-    if (!records[sessionId]) return [false, false];
-    delete records[sessionId];
+    if (!records[hostId]) return [false, false];
+    delete records[hostId];
     return [true, true];
   });
 }

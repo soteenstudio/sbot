@@ -9,7 +9,10 @@
  */
 
 import assert from 'node:assert/strict';
-import { beforeEach, test } from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, beforeEach, test } from 'node:test';
 import { ChannelType, EmbedBuilder } from 'discord.js';
 import { PartyCommand } from '../dist/commands/party.js';
 import { LFGCommand } from '../dist/commands/lfg-pro.js';
@@ -18,6 +21,11 @@ import { EndSessionHandler } from '../dist/interaction-handlers/LFGEndSession.js
 import { JoinButtonHandler } from '../dist/interaction-handlers/LFGJoin.js';
 import { activeParties } from '../dist/lib/party-data.js';
 import { activeLFG } from '../dist/lib/lfg-data.js';
+import {
+  getLFGSession,
+  restoreLFGSessions,
+  saveLFGSession,
+} from '../dist/lib/lfgSession.js';
 
 const hostId = '123456789012345678';
 const participantId = '234567890123456789';
@@ -26,9 +34,14 @@ const guildId = '456789012345678901';
 const voiceId = '567890123456789012';
 const originId = '678901234567890123';
 
-beforeEach(() => {
+const storageDirectory = await mkdtemp(join(tmpdir(), 'lfg-session-test-'));
+process.env.LFG_DATA_FILE = join(storageDirectory, 'sessions.json');
+after(() => rm(storageDirectory, { recursive: true, force: true }));
+
+beforeEach(async () => {
   activeParties.clear();
   activeLFG.clear();
+  await rm(process.env.LFG_DATA_FILE, { force: true });
 });
 
 function voiceChannel(connected = true) {
@@ -178,6 +191,8 @@ test('LFG host kicks an accepted participant, including when disconnected', asyn
   assert.equal(channel.disconnects, 0);
   assert.equal(session.participantIds.has(participantId), false);
   assert.equal(session.kickedIds.has(participantId), true);
+  assert.deepEqual((await getLFGSession(hostId)).participantIds, []);
+  assert.deepEqual((await getLFGSession(hostId)).kickedIds, [participantId]);
 });
 
 test('LFG connected participant is disconnected, and unauthorized targets are rejected', async () => {
@@ -292,6 +307,8 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
   assert.match(reply.content, /Join request accepted/);
   assert.equal(session.vcId, voiceId);
   assert.equal(session.participantIds.has(participantId), true);
+  assert.deepEqual((await getLFGSession(hostId)).participantIds, [participantId]);
+  assert.equal((await getLFGSession(hostId)).vcId, voiceId);
 
   session.participantIds.delete(participantId);
   session.kickedIds.add(participantId);
@@ -309,12 +326,16 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
 });
 
 test('an old LFG join button cannot request access to a later session', async () => {
+  const oldSession = lfgSession([]);
+  await saveLFGSession(oldSession);
   const session = lfgSession([]);
-  activeLFG.set(hostId, session);
+  session.messageId = '890123456789012345';
+  await saveLFGSession(session);
+  await restoreLFGSessions();
   const reply = await JoinButtonHandler.prototype.run({
     customId: `lfg_pro_join_${hostId}`,
     user: { id: participantId },
-    message: { id: 'old-message' },
+    message: { id: oldSession.messageId },
     async deferUpdate() {},
     async followUp(value) {
       return value;
@@ -322,12 +343,14 @@ test('an old LFG join button cannot request access to a later session', async ()
   });
   assert.match(reply.content, /no longer active/);
   assert.equal(session.participantIds.size, 0);
+  assert.equal(activeLFG.get(hostId).messageId, session.messageId);
 });
 
 test('LFG close deletes the channel and discards session-specific access state', async () => {
   const session = lfgSession([]);
   session.kickedIds.add(participantId);
   activeLFG.set(hostId, session);
+  await saveLFGSession(session);
   const channel = voiceChannel();
   const reply = await LFGCommand.prototype.close.call({}, {
     user: { id: hostId },
@@ -340,12 +363,15 @@ test('LFG close deletes the channel and discards session-specific access state',
   assert.match(reply.content, /has been closed/);
   assert.equal(channel.deletes, 1);
   assert.equal(activeLFG.has(hostId), false);
+  assert.equal(await getLFGSession(hostId), null);
   assert.equal(lfgSession([]).kickedIds.size, 0);
 });
 
 test('LFG close retains the session when channel deletion fails for a retry', async (t) => {
   t.mock.method(console, 'error', () => {});
-  activeLFG.set(hostId, lfgSession());
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
   const channel = voiceChannel();
   channel.delete = async () => {
     throw { code: 50013 };
@@ -359,12 +385,14 @@ test('LFG close retains the session when channel deletion fails for a retry', as
   });
   assert.match(reply.content, /Could not close/);
   assert.equal(activeLFG.has(hostId), true);
+  assert.ok(await getLFGSession(hostId));
 });
 
 test('LFG end button requires its host and deletes the session channel', async () => {
   const session = lfgSession();
   session.kickedIds.add(outsiderId);
   activeLFG.set(hostId, session);
+  await saveLFGSession(session);
   const channel = voiceChannel();
   const guild = { channels: { fetch: async () => channel } };
   const client = { channels: { fetch: async () => null } };
@@ -384,4 +412,45 @@ test('LFG end button requires its host and deletes the session channel', async (
   assert.match(ended.content, /has ended/);
   assert.equal(channel.deletes, 1);
   assert.equal(activeLFG.has(hostId), false);
+  assert.equal(await getLFGSession(hostId), null);
+});
+
+test('LFG end button retains persisted state when channel deletion fails', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  const channel = voiceChannel();
+  channel.delete = async () => { throw { code: 50013 }; };
+  const reply = await EndSessionHandler.prototype.run({
+    customId: `lfg_pro_end_${voiceId}`,
+    user: { id: hostId },
+    guild: { channels: { fetch: async () => channel } },
+    async reply(value) { return value; },
+  });
+  assert.match(reply.content, /Could not end/);
+  assert.ok(await getLFGSession(hostId));
+  activeLFG.clear();
+  await restoreLFGSessions();
+  assert.equal(activeLFG.get(hostId).vcId, voiceId);
+});
+
+test('restart restores kicked participants and rejects their old join requests', async () => {
+  const session = lfgSession([]);
+  session.kickedIds.add(participantId);
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  activeLFG.clear();
+  await restoreLFGSessions();
+
+  assert.equal(activeLFG.get(hostId).kickedIds.has(participantId), true);
+  assert.ok(activeLFG.get(hostId).participantIds instanceof Set);
+  const reply = await JoinButtonHandler.prototype.run({
+    customId: `lfg_pro_join_${hostId}`,
+    user: { id: participantId },
+    message: { id: session.messageId },
+    async deferUpdate() {},
+    async followUp(value) { return value; },
+  });
+  assert.match(reply.content, /removed from this session/);
 });
