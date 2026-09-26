@@ -12,6 +12,7 @@ import { Command } from '@sapphire/framework';
 import { ApplicationCommandRegistry } from '@sapphire/framework';
 import { GuildMember, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { Roles } from '../config.js';
+import { finishTTSUsage, reserveTTSUsage } from '../lib/ttsUsage.js';
 
 const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
   MEMBER: 4,
@@ -22,7 +23,6 @@ const ROLE_LIMITS: Record<keyof typeof Roles, number> = {
   FOUNDER: 9999,
 };
 
-const usageTracker = new Map<string, { count: number; lastReset: number }>();
 const OPENROUTER_TIMEOUT_MS = 60_000;
 
 export class TssCommand extends Command {
@@ -81,36 +81,33 @@ export class TssCommand extends Command {
       }
     }
 
-    const now = Date.now();
-    const twentyFourHours = 24 * 60 * 60 * 1000;
-    let userUsage = usageTracker.get(userId);
-
-    if (!userUsage || now - userUsage.lastReset > twentyFourHours) {
-      userUsage = { count: 0, lastReset: now };
-      usageTracker.set(userId, userUsage);
-    }
-
-    if (userUsage.count >= userLimit) {
+    let reservation;
+    try {
+      reservation = await reserveTTSUsage(userId, Date.now(), userLimit);
+    } catch (error) {
+      console.error(error);
       return interaction.reply({
-        content: `❌ You have reached the daily speech generation limit for the **${matchedRoleName}** role (${userUsage.count}/${userLimit}). Please try again after your limit resets.`,
+        content:
+          '❌ The speech service is unavailable. Please try again later.',
         ephemeral: true,
       });
     }
 
-    userUsage.count++;
-    let refunded = false;
-    const refundUsage = () => {
-      if (!refunded) {
-        userUsage.count--;
-        refunded = true;
-      }
-    };
+    if (!reservation.reservationId) {
+      return interaction.reply({
+        content: `❌ You have reached the daily speech generation limit for the **${matchedRoleName}** role (${reservation.usage.count}/${userLimit}). Please try again after your limit resets.`,
+        ephemeral: true,
+      });
+    }
 
-    const textInput = interaction.options.getString('text', true);
-
-    await interaction.deferReply();
+    const reservationId = reservation.reservationId;
+    let finished = false;
+    let deferred = false;
 
     try {
+      const textInput = interaction.options.getString('text', true);
+      await interaction.deferReply();
+      deferred = true;
       const moderationResponse = await fetch(
         'https://openrouter.ai/api/v1/chat/completions',
         {
@@ -151,7 +148,13 @@ export class TssCommand extends Command {
         typeof modContent === 'string' ? modContent.trim().toUpperCase() : '';
 
       if (modResult === 'UNSAFE') {
-        refundUsage();
+        await finishTTSUsage(
+          userId,
+          reservation.usage.lastReset,
+          reservationId,
+          true,
+        );
+        finished = true;
         return await interaction.editReply({
           content:
             '❌ This text cannot be converted to speech because it violates the content guidelines. Please revise it and try again.',
@@ -189,8 +192,17 @@ export class TssCommand extends Command {
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
+      // Commit before delivering audio. A failed storage write must not deliver
+      // a generation whose quota cannot be tracked.
+      await finishTTSUsage(
+        userId,
+        reservation.usage.lastReset,
+        reservationId,
+        false,
+      );
+      finished = true;
       const attachment = new AttachmentBuilder(buffer, { name: 'speech.mp3' });
-      const remainingLimit = userLimit - userUsage.count;
+      const remainingLimit = userLimit - reservation.usage.count;
 
       const embed = new EmbedBuilder()
         .setTitle('🗣️ Speech Generated')
@@ -214,10 +226,24 @@ export class TssCommand extends Command {
       });
     } catch (error) {
       console.error(error);
-      refundUsage();
-      return interaction.editReply(
-        '❌ The speech service is unavailable. Please try again later.',
-      );
+      if (!finished) {
+        try {
+          await finishTTSUsage(
+            userId,
+            reservation.usage.lastReset,
+            reservationId,
+            true,
+          );
+        } catch (refundError) {
+          // The pending reservation expires automatically if storage is unavailable.
+          console.error(refundError);
+        }
+      }
+      const message =
+        '❌ The speech service is unavailable. Please try again later.';
+      return deferred
+        ? interaction.editReply(message)
+        : interaction.reply({ content: message, ephemeral: true });
     }
   }
 }

@@ -8,15 +8,14 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-export const activePolls = new Map<
-  string,
-  {
-    question: string;
-    options: string[];
-    messageId: string;
-    channelId: string;
-    votes: Map<number, number>;
+export type ActivePoll = {
+  authorId: string;
+  question: string;
+  options: string[];
+  messageId: string;
+  channelId: string;
+  votes: Map<number, number>;
+  voters: Set<string>;
+};
 
-    voters: Set<string>;
-  }
->();
+export const activePolls = new Map<string, ActivePoll>();

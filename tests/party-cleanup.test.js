@@ -17,11 +17,11 @@ import {
   PermissionsBitField,
 } from 'discord.js';
 import { Roles } from '../dist/config.js';
+import { Games } from '../dist/games.js';
 import { PartyCommand } from '../dist/commands/party.js';
 import { PartyReady } from '../dist/listeners/PartyReady.js';
 import {
   activeParties,
-  Games,
   getMarkedParty,
   getPartyChannelName,
 } from '../dist/lib/party-data.js';
