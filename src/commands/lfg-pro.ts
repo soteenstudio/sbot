@@ -19,9 +19,10 @@ import {
   ChannelType,
 } from 'discord.js';
 import { activeLFG } from '../lib/lfg-data.js';
-import { Games, isUnknownChannel } from '../lib/party-data.js';
+import { isUnknownChannel } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 import { kickFromSession } from '../lib/session-kick.js';
+import { Games } from '../games.js';
 
 export class LFGCommand extends Subcommand {
   public constructor(
