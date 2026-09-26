@@ -113,7 +113,7 @@ async function createParty(t, fetch, maxPlayersOption = null) {
       fetch,
     },
   };
-  await PartyCommand.prototype.chatInputRun.call(
+  await PartyCommand.prototype.create.call(
     {},
     {
       options: {
@@ -136,7 +136,7 @@ async function createParty(t, fetch, maxPlayersOption = null) {
 
 test('party rejects a player limit override from a lower role', async () => {
   let reply;
-  await PartyCommand.prototype.chatInputRun.call({}, {
+  await PartyCommand.prototype.create.call({}, {
     options: {
       getString: () => 'minecraft',
       getInteger: () => 4,
@@ -150,10 +150,91 @@ test('party rejects a player limit override from a lower role', async () => {
   assert.equal(reply.ephemeral, true);
 });
 
+test('party close reports when the host has no active party', async () => {
+  let reply;
+  await PartyCommand.prototype.close.call({}, {
+    user: { id: hostId },
+    reply(value) {
+      reply = value;
+    },
+  });
+  assert.match(reply.content, /do not have an active party/);
+  assert.equal(reply.ephemeral, true);
+});
+
+test('party close deletes the hosted voice channel', async (t) => {
+  const channel = voiceChannel();
+  activeParties.set(channel.id, party);
+  const deletion = t.mock.method(channel, 'delete');
+  let reply;
+  await PartyCommand.prototype.close.call({}, {
+    user: { id: hostId },
+    guild: {
+      channels: {
+        async fetch(id) {
+          assert.equal(id, channel.id);
+          return channel;
+        },
+      },
+    },
+    reply(value) {
+      reply = value;
+    },
+  });
+  assert.equal(deletion.mock.callCount(), 1);
+  assert.equal(activeParties.has(channel.id), false);
+  assert.match(reply.content, /has been closed/);
+});
+
+test('party list shows the game, host, and voice channel', async () => {
+  const channel = voiceChannel();
+  activeParties.set(channel.id, party);
+  let reply;
+  await PartyCommand.prototype.list.call({}, {
+    reply(value) {
+      reply = value;
+    },
+  });
+  const description = reply.embeds[0].data.description;
+  assert.match(description, /Minecraft/);
+  assert.ok(description.includes(`<@${hostId}>`));
+  assert.ok(description.includes(`<#${channel.id}>`));
+});
+
+test('party create rejects a second active party from the same host', async (t) => {
+  const channel = voiceChannel();
+  const create = t.mock.fn(async () => channel);
+  t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+  const replies = [];
+  const interaction = {
+    options: {
+      getString: () => 'minecraft',
+      getInteger: () => null,
+    },
+    guild: { id: guildId, channels: { create } },
+    member: { roles: [richmanRoleId] },
+    user: { id: hostId },
+    async deferReply() {},
+    async editReply(value) {
+      replies.push(value);
+    },
+    async reply(value) {
+      replies.push(value);
+    },
+  };
+
+  await PartyCommand.prototype.create.call({}, interaction);
+  await PartyCommand.prototype.create.call({}, interaction);
+
+  assert.equal(create.mock.callCount(), 1);
+  assert.match(replies[1].content, /already have an active party/);
+  assert.equal(replies[1].ephemeral, true);
+});
+
 for (const [maxPlayersOption, label] of [
   [null, '8'],
-  [0, 'Unlimited'],
-  [12, '12'],
+  [1, '1'],
+  [10, '10'],
 ]) {
   test(`party uses ${maxPlayersOption ?? 'default'} player limit`, async (t) => {
     const { reply } = await createParty(t, async () => null, maxPlayersOption);

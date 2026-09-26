@@ -2,7 +2,9 @@
 
 ## Party voice channels
 
-Use `/party game:<game> [max_players:<number>]` to create a private voice channel for a game. The chosen game's role can join, and the command pings that role. Each game has a default player limit; set `max_players` from 0 to 99 to override it for one party (`0` means unlimited). The channel is deleted when the last human participant leaves.
+Use `/party create game:<game> [max_players:<number>]` to create a private voice channel for a game. The chosen game's role can join, and the command pings that role. Each game has a default player limit; set `max_players` from 1 to 10 to override it for one party. Only one active party can exist per host. The channel is deleted when the last human participant leaves.
+
+Use `/party close` to close your active party voice channel. Use `/party list` to view all active party voice channels on the server.
 
 Channels that are still empty or contain only bots after five minutes are also deleted. New channels use the reserved name `sbot-party-<gameKey>-<hostId>` so the bot can recover them after a restart. On startup, channels with this marker and the expected party permission overwrites are tracked again; those without human participants are deleted. Older unmarked channels, renamed channels, and channels whose game role configuration or required permissions no longer match are preserved for manual cleanup.
 

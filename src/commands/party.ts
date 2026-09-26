@@ -8,61 +8,92 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { Command } from '@sapphire/framework';
+import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
 import {
   activeParties,
   deleteEmptyParty,
+  findHostedParty,
   Games,
   getPartyChannelName,
   isUnknownChannel,
 } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 
-export class PartyCommand extends Command {
-  public constructor(context: Command.LoaderContext, options: Command.Options) {
+export class PartyCommand extends Subcommand {
+  public constructor(
+    context: Subcommand.LoaderContext,
+    options: Subcommand.Options,
+  ) {
     super(context, {
       ...options,
       name: 'party',
-      description: 'Create a private voice channel for a game.',
-      preconditions: [
-        { name: 'RequireRole', context: { level: 'BILLION' } } as any,
+      description: 'Create and manage private voice party channels.',
+      subcommands: [
+        {
+          name: 'create',
+          chatInputRun: 'create',
+          preconditions: [
+            { name: 'RequireRole', context: { level: 'BILLION' } } as any,
+          ],
+        },
+        {
+          name: 'close',
+          chatInputRun: 'close',
+          preconditions: [
+            { name: 'RequireRole', context: { level: 'BILLION' } } as any,
+          ],
+        },
+        { name: 'list', chatInputRun: 'list' },
       ],
     });
   }
 
-  public override registerApplicationCommands(registry: Command.Registry) {
+  public override registerApplicationCommands(registry: Subcommand.Registry) {
     registry.registerChatInputCommand((builder) =>
       builder
         .setName(this.name)
         .setDescription(this.description)
         .setDMPermission(false)
-        .addStringOption((option) =>
-          option
-            .setName('game')
-            .setDescription('Game to play')
-            .setRequired(true)
-            .addChoices(
-              ...Object.entries(Games).map(([key, game]) => ({
-                name: game.label,
-                value: key,
-              })),
+        .addSubcommand((sub) =>
+          sub
+            .setName('create')
+            .setDescription('Create a private voice channel for a game.')
+            .addStringOption((option) =>
+              option
+                .setName('game')
+                .setDescription('Game to play')
+                .setRequired(true)
+                .addChoices(
+                  ...Object.entries(Games).map(([key, game]) => ({
+                    name: game.label,
+                    value: key,
+                  })),
+                ),
+            )
+            .addIntegerOption((option) =>
+              option
+                .setName('max_players')
+                .setDescription('Override the player limit (1-10).')
+                .setMinValue(1)
+                .setMaxValue(10)
+                .setRequired(false),
             ),
         )
-        .addIntegerOption((option) =>
-          option
-            .setName('max_players')
-            .setDescription('Override the player limit (0 = unlimited).')
-            .setMinValue(0)
-            .setMaxValue(99)
-            .setRequired(false),
+        .addSubcommand((sub) =>
+          sub
+            .setName('close')
+            .setDescription('Close your active party voice channel.'),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('list')
+            .setDescription('View all active party voice channels.'),
         ),
     );
   }
 
-  public override async chatInputRun(
-    interaction: Command.ChatInputCommandInteraction,
-  ) {
+  public async create(interaction: Subcommand.ChatInputCommandInteraction) {
     const gameKey = interaction.options.getString('game', true);
     const maxPlayersOption = interaction.options.getInteger('max_players');
     if (
@@ -88,6 +119,14 @@ export class PartyCommand extends Command {
       return interaction.reply({
         content:
           '❌ This party game is missing its server or role configuration.',
+        ephemeral: true,
+      });
+    }
+
+    if (findHostedParty(interaction.user.id)) {
+      return interaction.reply({
+        content:
+          '❌ You already have an active party. Close it with `/party close` first.',
         ephemeral: true,
       });
     }
@@ -151,7 +190,7 @@ export class PartyCommand extends Command {
         { name: 'Game', value: game.label, inline: true },
         {
           name: 'Player limit',
-          value: maxPlayers === 0 ? 'Unlimited' : String(maxPlayers),
+          value: String(maxPlayers),
           inline: true,
         },
         { name: 'Voice channel', value: channel.toString() },
@@ -162,5 +201,61 @@ export class PartyCommand extends Command {
       embeds: [embed],
       allowedMentions: { roles: [game.roleId] },
     });
+  }
+
+  public async close(interaction: Subcommand.ChatInputCommandInteraction) {
+    const found = findHostedParty(interaction.user.id);
+    if (!found) {
+      return interaction.reply({
+        content: '❌ You do not have an active party to close.',
+        ephemeral: true,
+      });
+    }
+
+    const [channelId] = found;
+    const channel = await interaction.guild?.channels
+      .fetch(channelId)
+      .catch(() => null);
+    if (channel) {
+      await channel.delete().catch(() => null);
+    }
+
+    activeParties.delete(channelId);
+
+    return interaction.reply({
+      content: '✅ Your party voice channel has been closed.',
+      ephemeral: true,
+    });
+  }
+
+  public async list(interaction: Subcommand.ChatInputCommandInteraction) {
+    if (activeParties.size === 0) {
+      return interaction.reply({
+        content: 'No party voice channels are currently active.',
+        ephemeral: true,
+      });
+    }
+
+    const lines = Array.from(activeParties.entries()).map(
+      ([channelId, party]) =>
+        `• ${Games[party.gameKey]?.label ?? party.gameKey} | Host: <@${party.hostId}> | Channel: <#${channelId}>`,
+    );
+    const visibleLines: string[] = [];
+    for (const line of lines) {
+      if (visibleLines.join('\n').length + line.length + 1 > 4000) break;
+      visibleLines.push(line);
+    }
+    const omitted = lines.length - visibleLines.length;
+    const list =
+      visibleLines.join('\n') +
+      (omitted
+        ? `\n${omitted} more ${omitted === 1 ? 'party' : 'parties'} not shown.`
+        : '');
+    const embed = new EmbedBuilder()
+      .setTitle('Active Party Voice Channels')
+      .setDescription(list)
+      .setColor(0x2f3136);
+
+    return interaction.reply({ embeds: [embed] });
   }
 }
