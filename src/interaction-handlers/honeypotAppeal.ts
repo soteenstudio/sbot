@@ -19,6 +19,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
 
@@ -54,14 +55,14 @@ export class HoneypotAppealHandler extends InteractionHandler {
     if (!targetUserId || !targetGuildId) {
       return interaction.reply({
         content: '❌ Invalid appeal data detected.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (interaction.user.id !== targetUserId) {
       return interaction.reply({
         content: '❌ Only the banned user can submit this appeal.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -70,7 +71,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
       return interaction.reply({
         content:
           'Your appeal is already being processed or has been submitted.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -79,7 +80,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
     let step = 'acknowledgment';
 
     try {
-      await interaction.deferUpdate();
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       step = 'staff-channel delivery';
 
       const reportChannelId = process.env.REPORT_CHANNEL;
@@ -93,10 +94,9 @@ export class HoneypotAppealHandler extends InteractionHandler {
           : undefined;
 
       if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
-        await interaction.followUp({
+        await interaction.editReply({
           content:
             '❌ Your appeal could not be sent because the staff channel is not configured properly.',
-          ephemeral: true,
         });
         return;
       }
@@ -134,27 +134,46 @@ export class HoneypotAppealHandler extends InteractionHandler {
 
       await reportChannel.send({ embeds: [embed], components: [row] });
       submitted = true;
+      step = 'DM button update';
+
+      try {
+        await interaction.message.edit({ components: [] });
+      } catch (error) {
+        console.error(
+          '[Honeypot Appeal Handler] Failed to update DM button:',
+          error,
+        );
+      }
+
       step = 'confirmation';
 
       await interaction.editReply({
         content:
           '✅ Your appeal has been successfully submitted to the server staff. Please wait for their response.',
-        components: [],
       });
     } catch (error) {
       console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
 
       const response = {
         content: submitted
-          ? 'Your appeal was submitted, but the confirmation could not be updated.'
+          ? 'Your appeal was submitted, but the confirmation could not be displayed.'
           : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
-        ephemeral: true,
       };
       try {
         if (interaction.deferred || interaction.replied) {
-          await interaction.followUp(response);
+          if (step === 'confirmation') {
+            await interaction.followUp({
+              ...response,
+              flags: MessageFlags.Ephemeral,
+            });
+          } else {
+            await interaction.editReply(response);
+          }
         } else {
-          await interaction.reply(response);
+          await interaction.reply({
+            ...response,
+            flags: MessageFlags.Ephemeral,
+          });
         }
       } catch (responseError) {
         console.error(
