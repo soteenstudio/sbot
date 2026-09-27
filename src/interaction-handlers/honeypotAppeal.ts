@@ -36,7 +36,6 @@ export class HoneypotAppealHandler extends InteractionHandler {
   }
 
   public override parse(interaction: ButtonInteraction) {
-    // Filter tombol khusus honeypot appeal
     if (interaction.customId.startsWith('honeypot_appeal_')) {
       return this.some();
     }
@@ -44,10 +43,11 @@ export class HoneypotAppealHandler extends InteractionHandler {
   }
 
   public async run(interaction: ButtonInteraction) {
-    console.log(`[Honeypot Appeal Handler] Triggered with customId: ${interaction.customId}`);
+    console.log(
+      `[Honeypot Appeal Handler] Triggered with customId: ${interaction.customId}`,
+    );
 
     const parts = interaction.customId.split('_');
-    // Format: honeypot_appeal_<userId>_<guildId>
     const targetUserId = parts[2];
     const targetGuildId = parts[3];
 
@@ -68,32 +68,37 @@ export class HoneypotAppealHandler extends InteractionHandler {
     const messageId = interaction.message.id;
     if (handledAppeals.has(messageId)) {
       return interaction.reply({
-        content: 'Your appeal is already being processed or has been submitted.',
+        content:
+          'Your appeal is already being processed or has been submitted.',
         ephemeral: true,
       });
     }
 
     handledAppeals.add(messageId);
     let submitted = false;
+    let step = 'acknowledgment';
 
     try {
       await interaction.deferUpdate();
+      step = 'staff-channel delivery';
 
       const reportChannelId = process.env.REPORT_CHANNEL;
       const guild = await interaction.client.guilds
         .fetch(targetGuildId)
         .catch(() => null);
-      
+
       const reportChannel =
         reportChannelId && guild
           ? await guild.channels.fetch(reportChannelId).catch(() => null)
           : undefined;
 
       if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
-        return interaction.followUp({
-          content: '❌ Your appeal could not be sent because the staff channel is not configured properly.',
+        await interaction.followUp({
+          content:
+            '❌ Your appeal could not be sent because the staff channel is not configured properly.',
           ephemeral: true,
         });
+        return;
       }
 
       const user = await interaction.client.users
@@ -129,20 +134,34 @@ export class HoneypotAppealHandler extends InteractionHandler {
 
       await reportChannel.send({ embeds: [embed], components: [row] });
       submitted = true;
+      step = 'confirmation';
 
-      return interaction.editReply({
-        content: '✅ Your appeal has been successfully submitted to the server staff. Please wait for their response.',
+      await interaction.editReply({
+        content:
+          '✅ Your appeal has been successfully submitted to the server staff. Please wait for their response.',
         components: [],
       });
     } catch (error) {
-      console.error('Failed to process honeypot appeal:', error);
+      console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
 
-      return interaction.followUp({
+      const response = {
         content: submitted
           ? 'Your appeal was submitted, but the confirmation could not be updated.'
           : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
         ephemeral: true,
-      });
+      };
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp(response);
+        } else {
+          await interaction.reply(response);
+        }
+      } catch (responseError) {
+        console.error(
+          '[Honeypot Appeal Handler] Failed to respond:',
+          responseError,
+        );
+      }
     } finally {
       if (!submitted) handledAppeals.delete(messageId);
     }
