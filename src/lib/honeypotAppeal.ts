@@ -17,10 +17,3 @@ export function isHoneypotAppealTitle(title: string | null | undefined) {
     title === HONEYPOT_APPEAL_TITLE || title === LEGACY_HONEYPOT_APPEAL_TITLE
   );
 }
-
-export const handledAppeals = new Set<string>();
-export const modalOpenTimes = new Map<string, number>();
-export const activeCaptchas = new Map<
-  string,
-  { answer: number; stringCode: string }
->();

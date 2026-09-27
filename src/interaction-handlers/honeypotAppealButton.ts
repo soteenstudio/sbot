@@ -25,12 +25,8 @@ import {
 } from 'discord.js';
 import 'dotenv/config';
 import { meetsRoleLevel } from '../lib/role-utils.js';
-import {
-  activeCaptchas,
-  modalOpenTimes,
-  handledAppeals,
-  isHoneypotAppealTitle,
-} from '../lib/honeypotAppeal.js';
+import { isHoneypotAppealTitle } from '../lib/honeypotAppeal.js';
+import { updateHoneypotRecord } from '../lib/honeypotStore.js';
 
 export class HoneypotAppealButtonHandler extends InteractionHandler {
   public constructor(
@@ -77,6 +73,46 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
       await interaction.deferUpdate();
 
       try {
+        if (!guildId) return;
+        const reviewed = await updateHoneypotRecord(
+          guildId,
+          targetUserId,
+          async (current) => {
+            if (!current || current.status !== 'submitted')
+              return [current, false];
+            if (action === 'done') {
+              const guild = await interaction.client.guilds.fetch(guildId);
+              const member = await guild.members
+                .fetch(targetUserId)
+                .catch((error: { code?: number }) => {
+                  if (error.code === 10007) return null;
+                  throw error;
+                });
+              if (member) {
+                await member.timeout(null, 'Honeypot appeal approved by staff');
+                if (process.env.ROLE_MEMBER)
+                  await member.roles.add(process.env.ROLE_MEMBER);
+              }
+            } else if (action === 'ban') {
+              const guild = await interaction.client.guilds.fetch(guildId);
+              await guild.members.ban(targetUserId, {
+                reason: `Honeypot appeal rejected by ${interaction.user.tag}`,
+              });
+            } else return [current, false];
+            return [
+              {
+                ...current,
+                status:
+                  action === 'done'
+                    ? ('approved' as const)
+                    : ('rejected' as const),
+                challenge: null,
+              },
+              true,
+            ];
+          },
+        );
+        if (!reviewed) return;
         const user = await interaction.client.users
           .fetch(targetUserId)
           .catch(() => null);
@@ -99,25 +135,6 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
         );
 
         if (action === 'done') {
-          if (guildId) {
-            const guildObj = await interaction.client.guilds
-              .fetch(guildId)
-              .catch(() => null);
-            const guildMember = guildObj
-              ? await guildObj.members.fetch(targetUserId).catch(() => null)
-              : null;
-            if (guildMember) {
-              await guildMember
-                .timeout(null, 'Honeypot appeal approved by staff')
-                .catch(() => {});
-              if (process.env.ROLE_MEMBER) {
-                await guildMember.roles
-                  .add(process.env.ROLE_MEMBER)
-                  .catch(() => {});
-              }
-            }
-          }
-
           if (user) {
             await user
               .send({
@@ -139,7 +156,6 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
             embeds: [oldEmbed],
             components: [disabledRow],
           });
-          handledAppeals.delete(targetUserId);
         } else if (action === 'ban') {
           if (user) {
             await user
@@ -148,19 +164,6 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
                   '❌ Your honeypot appeal was rejected. You have been banned from the server.',
               })
               .catch(() => {});
-          }
-
-          if (guildId) {
-            const guild = await interaction.client.guilds
-              .fetch(guildId)
-              .catch(() => null);
-            if (guild) {
-              await guild.members
-                .ban(targetUserId, {
-                  reason: `Honeypot appeal rejected by ${interaction.user.tag}`,
-                })
-                .catch(() => {});
-            }
           }
 
           oldEmbed
@@ -175,7 +178,6 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
             embeds: [oldEmbed],
             components: [disabledRow],
           });
-          handledAppeals.delete(targetUserId);
         }
       } catch (err) {
         console.error(
@@ -206,11 +208,37 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
         .substring(2, 8)
         .toUpperCase();
 
-      activeCaptchas.set(targetUserId, {
-        answer: mathAnswer,
-        stringCode: randomString,
-      });
-      modalOpenTimes.set(targetUserId, Date.now());
+      const openedAt = Date.now();
+      const stored = await updateHoneypotRecord(
+        targetGuildId,
+        targetUserId,
+        (current) => {
+          if (
+            !current ||
+            current.status !== 'pending' ||
+            current.deadline === null ||
+            current.deadline <= openedAt
+          )
+            return [current, false];
+          return [
+            {
+              ...current,
+              challenge: {
+                answer: mathAnswer,
+                stringCode: randomString,
+                openedAt,
+                expiresAt: Math.min(current.deadline, openedAt + 10 * 60_000),
+              },
+            },
+            true,
+          ];
+        },
+      );
+      if (!stored)
+        return interaction.reply({
+          content: 'This appeal is no longer available.',
+          flags: MessageFlags.Ephemeral,
+        });
 
       const modal = new ModalBuilder()
         .setCustomId(`honeypot_modal_submit_${targetUserId}_${targetGuildId}`)
@@ -235,7 +263,16 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
         new ActionRowBuilder<TextInputBuilder>().addComponents(stringInput),
       );
 
-      await interaction.showModal(modal);
+      try {
+        await interaction.showModal(modal);
+      } catch (error) {
+        await updateHoneypotRecord(targetGuildId, targetUserId, (current) => {
+          if (!current || current.challenge?.stringCode !== randomString)
+            return [current, undefined];
+          return [{ ...current, challenge: null }, undefined];
+        });
+        throw error;
+      }
       return;
     }
   }

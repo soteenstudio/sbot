@@ -9,657 +9,302 @@
  */
 
 import assert from 'node:assert/strict';
-import { after, afterEach, test } from 'node:test';
+import { afterEach, beforeEach, test } from 'node:test';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { SapphireClient } from '@sapphire/framework';
-import { ChannelType, GatewayIntentBits, MessageFlags } from 'discord.js';
-import { HoneypotListener, pendingHoneypotBans } from '../dist/listeners/honeypot.js';
+import { ChannelType, MessageFlags } from 'discord.js';
+import { GatewayIntentBits } from 'discord.js';
+import { HoneypotListener, pendingHoneypotBans, restoreHoneypotBans, scheduleHoneypotBan } from '../dist/listeners/honeypot.js';
 import { HoneypotSetupListener } from '../dist/listeners/honeypotSetup.js';
 import { HoneypotAppealHandler } from '../dist/interaction-handlers/honeypotAppeal.js';
+import { HoneypotAppealButtonHandler } from '../dist/interaction-handlers/honeypotAppealButton.js';
+import { getAllHoneypotRecords, getHoneypotRecord, updateHoneypotRecord } from '../dist/lib/honeypotStore.js';
+import { HONEYPOT_APPEAL_TITLE, LEGACY_HONEYPOT_APPEAL_TITLE } from '../dist/lib/honeypotAppeal.js';
 import { Roles } from '../dist/config.js';
 
-import { HoneypotAppealButtonHandler } from '../dist/interaction-handlers/honeypotAppealButton.js';
-import { activeCaptchas, modalOpenTimes, handledAppeals, HONEYPOT_APPEAL_TITLE, LEGACY_HONEYPOT_APPEAL_TITLE } from '../dist/lib/honeypotAppeal.js';
-
-function runAppeal(interaction) {
-  activeCaptchas.set('user', { answer: 2, stringCode: 'ABC123' });
-  modalOpenTimes.set('user', Date.now() - 4000);
-  return HoneypotAppealHandler.prototype.run(interaction);
-}
-
-afterEach(() => {
-  activeCaptchas.clear();
-  modalOpenTimes.clear();
-  handledAppeals.clear();
+let directory;
+const original = { HONEYPOT_DATA_FILE: process.env.HONEYPOT_DATA_FILE, HONEYPOT_CHANNEL: process.env.HONEYPOT_CHANNEL, REPORT_CHANNEL: process.env.REPORT_CHANNEL };
+beforeEach(async () => {
+  directory = await mkdtemp(join(tmpdir(), 'sbot-honeypot-'));
+  process.env.HONEYPOT_DATA_FILE = join(directory, 'honeypot.json');
+  process.env.HONEYPOT_CHANNEL = 'trap';
+  process.env.REPORT_CHANNEL = 'reports';
+});
+afterEach(async () => {
   for (const timer of pendingHoneypotBans.values()) clearTimeout(timer);
   pendingHoneypotBans.clear();
-});
-let nextMessageId = 0;
-const originalEnvironment = {
-  REPORT_CHANNEL: process.env.REPORT_CHANNEL,
-  HONEYPOT_CHANNEL: process.env.HONEYPOT_CHANNEL,
-};
-process.env.REPORT_CHANNEL = 'reports';
-process.env.HONEYPOT_CHANNEL = 'trap';
-after(() => {
-  for (const [key, value] of Object.entries(originalEnvironment)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+  await rm(directory, { recursive: true, force: true });
+  for (const [key, value] of Object.entries(original)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
 });
 
-function appeal(t) {
-  t.mock.method(console, 'log', () => {});
-  const errors = [];
-  t.mock.method(console, 'error', (...args) => errors.push(args));
+function record(overrides = {}) {
+  return { guildId: 'guild', userId: 'user', deadline: Date.now() + 60_000, token: randomUUID(), status: 'pending', challenge: null, ...overrides };
+}
+async function save(value = record()) {
+  await updateHoneypotRecord(value.guildId, value.userId, () => [value, undefined]);
+  return value;
+}
+function client(ban) {
+  return { guilds: { async fetch() { return { members: { ban }, channels: { async fetch() { return { type: ChannelType.GuildText, send: async () => {} }; } } }; } }, users: { async fetch() { return { tag: 'User', send: async () => {} }; } } };
+}
+function trap(botClient = client(async () => {})) {
+  return { channelId: 'trap', guild: { id: 'guild', name: 'Guild' }, client: botClient,
+    member: { bannable: true, roles: { cache: new Map() }, async timeout() {} },
+    author: { id: 'user', tag: 'User', bot: false, async send() {} }, async delete() {} };
+}
+function modal(botClient = client(async () => {})) {
   const events = [];
-  const channel = {
-    type: ChannelType.GuildText,
-    async send() {
-      events.push('send');
-    },
-  };
-  const guild = {
-    channels: {
-      async fetch() {
-        events.push('channel');
-        return channel;
-      },
-    },
-  };
-  const interaction = {
-    isButton: () => false,
-    isModalSubmit: () => true,
-    customId: 'honeypot_modal_submit_user_guild',
+  const interaction = { customId: 'honeypot_modal_submit_user_guild', user: { id: 'user' },
     fields: { getTextInputValue: (id) => id === 'captcha_math' ? '2' : 'ABC123' },
-    user: { id: 'user' },
-    message: {
-      id: String(++nextMessageId),
-      components: ['appeal button'],
-      async edit(value) {
-        events.push(['message.edit', value]);
-        this.components = value.components;
-      },
-    },
-    deferred: false,
-    replied: false,
-    client: {
-      guilds: {
-        async fetch() {
-          events.push('guild');
-          return guild;
-        },
-      },
-      users: {
-        async fetch() {
-          events.push('user');
-          return { tag: 'User' };
-        },
-      },
-    },
-    async deferReply(value) {
-      assert.equal(this.deferred, false);
-      this.deferred = true;
-      events.push(['deferReply', value]);
-    },
-    async reply(value) {
-      assert.equal(this.replied, false);
-      this.replied = true;
-      events.push(['reply', value]);
-    },
-    async editReply(value) {
-      assert.equal(this.deferred, true);
-      events.push(['editReply', value]);
-    },
-    async followUp(value) {
-      assert.equal(this.deferred, true);
-      events.push(['followUp', value]);
-    },
-  };
-  return { interaction, events, channel, errors };
+    client: botClient, deferred: false, replied: false,
+    message: { async edit(payload) { events.push(['dm.edit', payload]); } },
+    async deferReply(payload) { this.deferred = true; events.push(['defer', payload]); },
+    async editReply(payload) { events.push(['edit', payload]); },
+    async reply(payload) { this.replied = true; events.push(['reply', payload]); },
+    async followUp(payload) { events.push(['followUp', payload]); } };
+  return { interaction, events };
+}
+async function challenged(overrides = {}) {
+  return save(record({ challenge: { answer: 2, stringCode: 'ABC123', openedAt: Date.now() - 4_000, expiresAt: Date.now() + 60_000 }, ...overrides }));
 }
 
-test('Sapphire loads and routes a DM appeal button to the handler', async (t) => {
-  const originalDeputyId = Roles.DEPUTY.id;
-  const originalFounderId = Roles.FOUNDER.id;
-  Roles.DEPUTY.id = 'deputy';
-  Roles.FOUNDER.id = 'founder';
-  t.after(() => {
-    Roles.DEPUTY.id = originalDeputyId;
-    Roles.FOUNDER.id = originalFounderId;
+test('store validates guild/user keys and record fields', async () => {
+  await save();
+  await save(record({ guildId: 'other' }));
+  assert.equal((await getAllHoneypotRecords()).length, 2);
+  assert.equal((await getHoneypotRecord('other', 'user')).guildId, 'other');
+  assert.equal((await getHoneypotRecord('guild', 'user')).guildId, 'guild');
+  const raw = JSON.parse(await readFile(process.env.HONEYPOT_DATA_FILE, 'utf8'));
+  raw.guild.user.deadline = 'tomorrow';
+  await writeFile(process.env.HONEYPOT_DATA_FILE, JSON.stringify(raw));
+  await assert.rejects(getAllHoneypotRecords(), /Invalid honeypot storage/);
+});
+
+test('restart restores an overdue deadline and records a successful ban', async () => {
+  await save(record({ deadline: Date.now() - 1000 }));
+  let bans = 0;
+  await restoreHoneypotBans(client(async () => { bans++; }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(bans, 1);
+  assert.equal((await getHoneypotRecord('guild', 'user')).status, 'banned');
+  assert.equal((await getHoneypotRecord('guild', 'user')).deadline, null);
+});
+
+test('failed overdue ban retains the deadline for restart recovery', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const old = await save(record({ deadline: Date.now() - 1000 }));
+  await restoreHoneypotBans(client(async () => { throw new Error('Ban failed'); }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(await getHoneypotRecord('guild', 'user'), old);
+  let bans = 0;
+  await restoreHoneypotBans(client(async () => { bans++; }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(bans, 1);
+});
+
+test('replaced deadline makes an old timer inert, even after restart', async () => {
+  const old = await save(record({ deadline: Date.now() - 1000 }));
+  let bans = 0;
+  const botClient = client(async () => { bans++; });
+  const newer = record({ deadline: Date.now() + 60_000 });
+  await save(newer);
+  scheduleHoneypotBan(botClient, old);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(bans, 0);
+  assert.deepEqual(await getHoneypotRecord('guild', 'user'), newer);
+  await restoreHoneypotBans(botClient);
+  assert.equal(pendingHoneypotBans.has('guild:user'), true);
+});
+
+test('trap messages replace a pending deadline and do not reopen completed appeals', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const message = trap();
+  await HoneypotListener.prototype.run(message);
+  const first = await getHoneypotRecord('guild', 'user');
+  await HoneypotListener.prototype.run(message);
+  const second = await getHoneypotRecord('guild', 'user');
+  assert.notEqual(first.token, second.token);
+  await save(record({ status: 'approved', deadline: null }));
+  await HoneypotListener.prototype.run(message);
+  assert.equal((await getHoneypotRecord('guild', 'user')).status, 'approved');
+});
+
+test('honeypot ignores members that cannot be banned', async () => {
+  const message = trap();
+  message.member.bannable = false;
+  message.delete = async () => assert.fail('The message should not be deleted');
+  await HoneypotListener.prototype.run(message);
+  assert.equal(await getHoneypotRecord('guild', 'user'), null);
+});
+
+test('closed DMs do not prevent a durable ban deadline', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const message = trap();
+  message.author.send = async () => { throw new Error('DM closed'); };
+  await HoneypotListener.prototype.run(message);
+  assert.equal((await getHoneypotRecord('guild', 'user')).status, 'pending');
+  assert.equal(pendingHoneypotBans.has('guild:user'), true);
+});
+
+test('honeypot setup does not post a duplicate warning when lookup fails', async (t) => {
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  await HoneypotSetupListener.prototype.run({
+    user: { id: 'bot' }, channels: { async fetch() { return {
+      type: ChannelType.GuildText,
+      messages: { async fetch() { throw new Error('lookup failed'); } },
+      async send() { assert.fail('The warning should not be posted'); },
+    }; } },
   });
-  const client = new SapphireClient({
+  assert.match(errors[0][0], /Could not check or post/);
+});
+
+test('expired challenge is rejected and removed from durable storage', async () => {
+  await challenged({ challenge: { answer: 2, stringCode: 'ABC123', openedAt: Date.now() - 20_000, expiresAt: Date.now() - 10_000 } });
+  const { interaction, events } = modal();
+  await HoneypotAppealHandler.prototype.run(interaction);
+  assert.match(events.at(-1)[1].content, /expired/);
+  assert.equal((await getHoneypotRecord('guild', 'user')).challenge, null);
+  assert.equal((await getHoneypotRecord('guild', 'user')).status, 'pending');
+});
+
+test('button creates a durable challenge and only the affected user can open it', async () => {
+  await save();
+  const shown = [];
+  const interaction = { customId: 'honeypot_appeal_user_guild', user: { id: 'user' }, async showModal(value) { shown.push(value.toJSON()); } };
+  await HoneypotAppealButtonHandler.prototype.run(interaction);
+  assert.equal(shown.length, 1);
+  assert.ok((await getHoneypotRecord('guild', 'user')).challenge);
+  const denied = [];
+  await HoneypotAppealButtonHandler.prototype.run({ ...interaction, user: { id: 'other' }, async reply(value) { denied.push(value); } });
+  assert.equal(denied[0].flags, MessageFlags.Ephemeral);
+});
+
+test('successful delivery cancels the stored ban and duplicate submissions after restart', async () => {
+  const old = await challenged();
+  const calls = [];
+  const botClient = client(async () => {});
+  botClient.guilds.fetch = async () => ({ channels: { async fetch() { return { type: ChannelType.GuildText, async send() { calls.push('send'); } }; } } });
+  scheduleHoneypotBan(botClient, old);
+  const first = modal(botClient);
+  await HoneypotAppealHandler.prototype.run(first.interaction);
+  assert.deepEqual(calls, ['send']);
+  assert.equal((await getHoneypotRecord('guild', 'user')).status, 'submitted');
+  assert.equal((await getHoneypotRecord('guild', 'user')).deadline, null);
+  assert.equal(pendingHoneypotBans.has('guild:user'), false);
+  const second = modal(botClient);
+  await HoneypotAppealHandler.prototype.run(second.interaction);
+  assert.deepEqual(calls, ['send']);
+  assert.match(second.events.at(-1)[1].content, /already been submitted/);
+});
+
+test('failed delivery keeps the challenge and deadline available for retry', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  await challenged();
+  let fail = true;
+  let sends = 0;
+  const botClient = client(async () => {});
+  botClient.guilds.fetch = async () => ({ channels: { async fetch() { return { type: ChannelType.GuildText, async send() { sends++; if (fail) throw new Error('send failed'); } }; } } });
+  await HoneypotAppealHandler.prototype.run(modal(botClient).interaction);
+  const pending = await getHoneypotRecord('guild', 'user');
+  assert.equal(pending.status, 'pending');
+  assert.ok(pending.deadline);
+  assert.ok(pending.challenge);
+  fail = false;
+  await HoneypotAppealHandler.prototype.run(modal(botClient).interaction);
+  assert.equal(sends, 2);
+  assert.equal((await getHoneypotRecord('guild', 'user')).status, 'submitted');
+});
+
+test('concurrent submissions deliver once through the storage lock', async () => {
+  await challenged();
+  let sends = 0;
+  let release;
+  const pause = new Promise((resolve) => { release = resolve; });
+  const botClient = client(async () => {});
+  botClient.guilds.fetch = async () => ({ channels: { async fetch() { return { type: ChannelType.GuildText, async send() { sends++; await pause; } }; } } });
+  const first = HoneypotAppealHandler.prototype.run(modal(botClient).interaction);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const second = HoneypotAppealHandler.prototype.run(modal(botClient).interaction);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(sends, 1);
+});
+
+test('completed staff review remains completed after restart and duplicate clicks', async () => {
+  await save(record({ status: 'submitted', deadline: null }));
+  const deputyId = Roles.DEPUTY.id;
+  Roles.DEPUTY.id = 'deputy';
+  try {
+    let approvals = 0;
+    const edits = [];
+    const botClient = client(async () => {});
+    botClient.guilds.fetch = async () => ({ members: { async fetch() { return { async timeout() { approvals++; }, roles: { async add() {} } }; } } });
+    const interaction = { customId: 'report_done_user', guildId: 'guild', member: { roles: ['deputy'] }, user: { id: 'staff', tag: 'Staff' }, client: botClient,
+      message: { embeds: [{ title: HONEYPOT_APPEAL_TITLE }], async edit(value) { edits.push(value); } }, async deferUpdate() {} };
+    await HoneypotAppealButtonHandler.prototype.run(interaction);
+    assert.equal(approvals, 1);
+    assert.equal((await getHoneypotRecord('guild', 'user')).status, 'approved');
+    assert.equal(edits.length, 1);
+    await HoneypotAppealButtonHandler.prototype.run(interaction);
+    assert.equal(approvals, 1);
+    assert.equal(edits.length, 1);
+  } finally { Roles.DEPUTY.id = deputyId; }
+});
+
+test('legacy appeal titles still route to staff handler', () => {
+  const handler = { some: () => true, none: () => false };
+  for (const title of [HONEYPOT_APPEAL_TITLE, LEGACY_HONEYPOT_APPEAL_TITLE]) {
+    assert.equal(HoneypotAppealButtonHandler.prototype.parse.call(handler, { customId: 'report_done_user', message: { embeds: [{ title }] } }), true);
+  }
+});
+
+test('Sapphire loads both appeal interaction handlers', async (t) => {
+  const sapphire = new SapphireClient({
     intents: [GatewayIntentBits.Guilds],
     baseUserDirectory: join(process.cwd(), 'dist'),
   });
-  t.after(() => client.destroy());
-  client.stores.registerPath(client.options.baseUserDirectory);
-  await client.stores.get('interaction-handlers').loadAll();
-  await client.stores.get('listeners').loadAll();
+  t.after(() => sapphire.destroy());
+  sapphire.stores.registerPath(sapphire.options.baseUserDirectory);
+  await sapphire.stores.get('interaction-handlers').loadAll();
+  const handlers = sapphire.stores.get('interaction-handlers');
+  assert.ok(handlers.get('honeypotAppeal'));
+  assert.ok(handlers.get('honeypotAppealButton'));
+});
 
-  const handlers = client.stores.get('interaction-handlers');
-  assert.equal(
-    handlers.get('honeypotAppeal')?.location.full,
-    join(process.cwd(), 'dist', 'interaction-handlers', 'honeypotAppeal.js'),
-  );
-  const coreListener = client.stores.get('listeners').get('CoreInteractionCreate');
-  assert.ok(coreListener);
-
-  const { interaction, events } = appeal(t);
-  Object.assign(interaction, {
-    isChatInputCommand: () => false,
-    isContextMenuCommand: () => false,
-    isAutocomplete: () => false,
-    isMessageComponent: () => true,
-    isModalSubmit: () => false,
-    isButton: () => true,
-    customId: 'honeypot_appeal_user_guild',
-    async showModal(modal) { events.push(['showModal', modal.toJSON()]); },
+test('unauthorized staff cannot review an appeal', async () => {
+  await save(record({ status: 'submitted', deadline: null }));
+  const replies = [];
+  await HoneypotAppealButtonHandler.prototype.run({
+    customId: 'report_ban_user', member: null,
+    async reply(value) { replies.push(value); },
+    async deferUpdate() { assert.fail('Unauthorized review was acknowledged as staff'); },
   });
-  await coreListener.run(interaction);
-  assert.equal(events.length, 1);
-  assert.equal(events[0][0], 'showModal');
-  const modal = events[0][1];
-  assert.equal(modal.custom_id, 'honeypot_modal_submit_user_guild');
-  assert.equal(modal.title, 'Honeypot Appeal Verification');
-  assert.match(modal.components[0].components[0].label, /^What is \d+ \+ \d+\?$/);
-  assert.equal(modal.components[0].components[0].placeholder, 'Enter the answer');
-  assert.match(modal.components[1].components[0].label, /^Type this code: [A-Z0-9]+$/);
-  assert.equal(modal.components[1].components[0].placeholder, 'Enter the code above');
-  const captcha = activeCaptchas.get('user');
-  assert.ok(captcha);
-  assert.ok(modalOpenTimes.has('user'));
-  modalOpenTimes.set('user', Date.now() - 4000);
-  Object.assign(interaction, {
-    customId: modal.custom_id,
-    isMessageComponent: () => false,
-    isModalSubmit: () => true,
-    isButton: () => false,
-    fields: { getTextInputValue: (id) => id === 'captcha_math' ? String(captcha.answer) : captcha.stringCode },
-  });
-  await coreListener.run(interaction);
-  assert.ok(events.includes('send'));
-  assert.equal(events.at(-1)[0], 'editReply');
-  assert.equal(handledAppeals.has('user'), true);
-
-  // Honeypot and ordinary report resolution share a prefix but must route once.
-  const staffEvents = [];
-  interaction.client.guilds.fetch = async () => ({ members: {
-    fetch: async () => ({ timeout: async () => staffEvents.push('timeout'), roles: { add: async () => {} } }),
-    ban: async () => staffEvents.push('ban'),
-  } });
-  for (const [action, title] of [
-    ['done', HONEYPOT_APPEAL_TITLE],
-    ['ban', HONEYPOT_APPEAL_TITLE],
-    ['done', LEGACY_HONEYPOT_APPEAL_TITLE],
-    ['ban', LEGACY_HONEYPOT_APPEAL_TITLE],
-  ]) {
-    handledAppeals.add('user');
-    interaction.client.users.fetch = async () => ({
-      send: async ({ content }) => {
-        assert.match(content, action === 'done' ? /appeal was approved/ : /appeal was rejected/);
-        staffEvents.push('dm');
-      },
-    });
-    const staff = {
-      ...interaction,
-      customId: `report_${action}_user`,
-      guildId: 'guild',
-      member: { roles: title === HONEYPOT_APPEAL_TITLE ? ['deputy'] : { cache: new Map([['founder', {}]]) } },
-      user: { id: 'staff', tag: 'Staff' },
-      isMessageComponent: () => true,
-      isModalSubmit: () => false,
-      isButton: () => true,
-      async deferUpdate() { staffEvents.push('deferUpdate'); },
-      async deferReply() { assert.fail('General report handler claimed a honeypot report'); },
-      message: {
-        embeds: [{ title }],
-        async edit(value) {
-          assert.ok(value.components[0].components.every((button) => button.data.disabled));
-          assert.equal(value.embeds[0].data.color, action === 'done' ? 0x00ff00 : 0xff0000);
-          assert.match(value.embeds[0].data.fields.at(-1).value, action === 'done' ? /Approved by/ : /Rejected and banned by/);
-          assert.match(value.embeds[0].data.footer.text, action === 'done' ? /Approved by Staff/ : /Rejected by Staff/);
-          staffEvents.push('edit');
-        },
-      },
-    };
-    const start = staffEvents.length;
-    await coreListener.run(staff);
-    assert.deepEqual(staffEvents.slice(start), action === 'done'
-      ? ['deferUpdate', 'timeout', 'dm', 'edit']
-      : ['deferUpdate', 'dm', 'ban', 'edit']);
-    assert.equal(handledAppeals.has('user'), false);
-    const next = appeal(t);
-    await runAppeal(next.interaction);
-    assert.ok(next.events.includes('send'));
-  }
-
-  const ordinary = {
-    ...interaction,
-    customId: 'report_done_user',
-    isMessageComponent: () => true,
-    isModalSubmit: () => false,
-    isButton: () => true,
-    deferred: false,
-    message: { embeds: [{ title: 'Ordinary report' }], async edit(value) {
-      assert.equal(value.embeds[0].data.fields.at(-1).name, 'Status');
-      assert.match(value.embeds[0].data.fields.at(-1).value, /Resolved by/);
-      assert.equal(value.components[0].components[0].data.disabled, true);
-    } },
-  };
-  await coreListener.run(ordinary);
-  assert.equal(ordinary.deferred, true);
+  assert.equal(replies[0].flags, MessageFlags.Ephemeral);
+  assert.equal((await getHoneypotRecord('guild', 'user')).status, 'submitted');
 });
 
-test('honeypot staff actions deny unauthorized members before any processing', async (t) => {
-  const originalRichmanId = Roles.RICHMAN.id;
-  Roles.RICHMAN.id = 'richman';
-  t.after(() => { Roles.RICHMAN.id = originalRichmanId; });
-  for (const action of ['done', 'ban']) {
-    for (const member of [null, undefined, { roles: [] }, { roles: ['richman'] }, { roles: { cache: new Map([['richman', {}]]) } }]) {
-      const replies = [];
-      handledAppeals.add('user');
-      await HoneypotAppealButtonHandler.prototype.run({
-        customId: `report_${action}_user`,
-        member,
-        async reply(payload) { replies.push(payload); },
-        async deferUpdate() { assert.fail('Unauthorized action was deferred'); },
-        get client() { assert.fail('Unauthorized action accessed the client'); },
-        get message() { assert.fail('Unauthorized action accessed the message'); },
-      });
-      assert.equal(replies.length, 1);
-      assert.equal(replies[0].flags, MessageFlags.Ephemeral);
-      assert.match(replies[0].content, /Deputy role or higher/);
-      assert.equal(handledAppeals.has('user'), true);
-    }
-  }
-});
-
-test('appeal handlers parse only their own interaction IDs', () => {
-  const handler = { some: () => 'matched', none: () => 'ignored' };
-  const modalParse = HoneypotAppealHandler.prototype.parse;
-  const buttonParse = HoneypotAppealButtonHandler.prototype.parse;
-  for (const title of [HONEYPOT_APPEAL_TITLE, LEGACY_HONEYPOT_APPEAL_TITLE, 'Ordinary report']) {
-    for (const id of ['honeypot_appeal_user_guild', 'report_done_user', 'report_ban_user', 'honeypot_modal_submit_user_guild', 'unrelated']) {
-      const interaction = { customId: id, message: { embeds: [{ title }] } };
-      assert.equal(modalParse.call(handler, interaction), id.startsWith('honeypot_modal_submit_') ? 'matched' : 'ignored');
-      assert.equal(buttonParse.call(handler, interaction), id === 'honeypot_appeal_user_guild' || (title !== 'Ordinary report' && ['report_done_user', 'report_ban_user'].includes(id)) ? 'matched' : 'ignored');
-    }
-  }
-});
-
-for (const member of [null, { bannable: false }, { bannable: true, roles: { cache: new Map() }, timeout: async () => {} }]) {
-  test(`honeypot actions require a bannable member: ${JSON.stringify(member)}`, async (t) => {
-    t.mock.method(console, 'log', () => {});
-    t.mock.method(console, 'error', () => {});
-    t.mock.timers.enable({ apis: ['setTimeout'] });
-    for (const deleteFails of [false, true]) {
-      for (const dmFails of [false, true]) {
-        const events = [];
-        const message = {
-          member,
-          channelId: 'trap',
-          author: {
-            id: 'user',
-            bot: false,
-            tag: 'User',
-            async send(payload) {
-              events.push('dm');
-              assert.equal(payload.embeds[0].data.title, '⚠️ Honeypot Restriction');
-              assert.match(payload.embeds[0].data.description, /banned in 3 hours if you do not submit an appeal/);
-              assert.equal(payload.embeds[0].data.color, 0xffa500);
-              assert.equal(payload.embeds[0].data.footer.text, 'Submit an appeal within 3 hours.');
-              if (dmFails) throw new Error('DM closed');
-            },
-          },
-          guild: {
-            id: 'guild',
-            name: 'Guild',
-            members: {
-              async ban(id) {
-                assert.equal(id, 'user');
-                events.push('ban');
-              },
-            },
-          },
-          async delete() {
-            events.push('delete');
-            if (deleteFails) throw new Error('Delete failed');
-          },
-        };
-        await HoneypotListener.prototype.run(message);
-        assert.deepEqual(
-          events,
-          member?.bannable ? ['delete', 'dm'] : [],
-        );
-      }
-    }
-  });
-}
-
-test('DM appeal keeps the button until staff delivery succeeds', async (t) => {
-  const { interaction, events, channel } = appeal(t);
-  const send = channel.send;
-  channel.send = async (...args) => {
-    assert.deepEqual(interaction.message.components, ['appeal button']);
-    const embed = args[0].embeds[0].data;
-    assert.equal(embed.title, HONEYPOT_APPEAL_TITLE);
-    assert.match(embed.description, /submitted a honeypot appeal/);
-    assert.equal(embed.color, 0xffa500);
-    assert.equal(embed.footer.text, 'Review this appeal before taking action.');
-    return send(...args);
-  };
-  await runAppeal(interaction);
-  assert.deepEqual(
-    events.map((event) => (Array.isArray(event) ? event[0] : event)),
-    ['deferReply', 'guild', 'channel', 'user', 'send', 'message.edit', 'editReply'],
-  );
-  assert.equal(events[0][1].flags, MessageFlags.Ephemeral);
-  assert.equal(interaction.message.components[0].components[0].data.disabled, true);
-  assert.equal(events.at(-2)[1].components[0].components[0].data.disabled, true);
-  assert.equal(events.at(-1)[1].embeds[0].data.title, '✅ Appeal Submitted');
-  assert.match(events.at(-1)[1].embeds[0].data.description, /submitted to staff/);
-  assert.equal(events.at(-1)[1].embeds[0].data.color, 0x00ff00);
-  assert.equal(events.at(-1)[1].content, undefined);
-  assert.equal(events.at(-1)[1].components, undefined);
-});
-
-test('honeypot setup refreshes only bot-owned warning messages', async (t) => {
-  t.mock.method(console, 'log', () => {});
-  const events = [];
-  const unrelated = { author: { id: 'bot' }, embeds: [{ title: 'Another notice' }], async edit() { events.push('unrelated edit'); } };
-  const userWarning = { author: { id: 'user' }, embeds: [{ title: '⚠️ Restricted Area / Honeypot' }], async edit() { events.push('user edit'); } };
-  const warning = {
-    author: { id: 'bot' },
-    embeds: [{ title: '⚠️ Restricted Area / Honeypot', description: 'Dilarang keras mengirim pesan apa pun di channel ini!' }],
-    async edit(payload) { events.push(['warning edit', payload.embeds[0].data]); this.embeds = [payload.embeds[0].data]; },
-  };
-  const messages = [unrelated, userWarning, warning];
-  const channel = {
-    type: ChannelType.GuildText,
-    messages: { async fetch() { return messages; } },
-    async send(payload) { events.push(['send', payload.embeds[0].data]); },
-  };
-  const client = { user: { id: 'bot' }, channels: { async fetch() { return channel; } } };
-  await HoneypotSetupListener.prototype.run(client);
-  assert.deepEqual(events.map((event) => event[0]), ['warning edit']);
-  assert.equal(warning.embeds[0].title, '⚠️ Honeypot Channel');
-  assert.match(warning.embeds[0].description, /banned after 3 hours/);
-  assert.equal(warning.embeds[0].color, 0xff0000);
-  assert.equal(warning.embeds[0].footer.text, 'SoTeen Studio • Honeypot');
-
-  await HoneypotSetupListener.prototype.run(client);
-  assert.equal(events.length, 1);
-
-  messages.pop();
-  await HoneypotSetupListener.prototype.run(client);
-  assert.equal(events[1][0], 'send');
-  assert.equal(events[1][1].title, '⚠️ Honeypot Channel');
-});
-
-test('honeypot setup logs a message lookup failure without posting a warning', async (t) => {
-  const failure = new Error('Message lookup failed');
-  const errors = [];
-  t.mock.method(console, 'error', (...args) => errors.push(args));
-  const channel = {
-    type: ChannelType.GuildText,
-    messages: { async fetch() { throw failure; } },
-    async send() { assert.fail('A failed lookup must not post a warning'); },
-  };
-  await HoneypotSetupListener.prototype.run({
-    user: { id: 'bot' },
-    channels: { async fetch() { return channel; } },
-  });
-  assert.equal(errors.length, 1);
-  assert.match(errors[0][0], /Could not check or post the honeypot warning/);
-  assert.equal(errors[0][1], failure);
-});
-
-test('only the user named in the DM button can submit an appeal', async (t) => {
-  const { interaction, events } = appeal(t);
-  await runAppeal({ ...interaction, user: { id: 'someone_else' } });
-  assert.deepEqual(events.map((event) => event[0]), ['reply']);
-  assert.equal(events[0][1].flags, MessageFlags.Ephemeral);
-  assert.match(events[0][1].content, /another user/);
-
-  await HoneypotAppealButtonHandler.prototype.run({ ...interaction, customId: 'honeypot_appeal_user_guild', user: { id: 'someone_else' }, replied: false });
-  assert.match(events.at(-1)[1].content, /Only the affected user/);
-  await runAppeal(interaction);
-  assert.equal(events.includes('send'), true);
-});
-
-test('appeal verification failures use concise English responses', async (t) => {
-  const fast = appeal(t);
-  modalOpenTimes.set('user', Date.now());
-  await HoneypotAppealHandler.prototype.run(fast.interaction);
-  assert.match(fast.events[0][1].content, /Please wait a moment/);
-  assert.equal(fast.events[0][1].flags, MessageFlags.Ephemeral);
-
-  const incorrect = appeal(t);
-  activeCaptchas.set('user', { answer: 2, stringCode: 'ABC123' });
-  modalOpenTimes.set('user', Date.now() - 4000);
-  incorrect.interaction.fields.getTextInputValue = () => 'wrong';
-  await HoneypotAppealHandler.prototype.run(incorrect.interaction);
-  assert.match(incorrect.events[0][1].content, /Check both answers/);
-  assert.equal(incorrect.events[0][1].flags, MessageFlags.Ephemeral);
-});
-
-test('concurrent and later submissions by the same user send only one appeal', async (t) => {
-  const { interaction, events } = appeal(t);
-  const duplicate = { ...interaction };
-  const { promise, resolve } = Promise.withResolvers();
-  const deferReply = interaction.deferReply;
-  interaction.deferReply = async function (value) {
-    await deferReply.call(this, value);
-    await promise;
-  };
-  const pending = runAppeal(interaction);
-  await runAppeal(duplicate);
-  assert.equal(events.includes('guild'), false);
-  resolve();
-  await pending;
-  await runAppeal({ ...interaction, deferred: false, replied: false });
-  assert.equal(events.filter((event) => event === 'send').length, 1);
-  assert.equal(events.filter((event) => event[0] === 'reply').length, 2);
-
-  const other = appeal(t);
-  await runAppeal(other.interaction);
-  assert.equal(other.events.includes('send'), false);
-});
-
-test('confirmation failure retains the guard and reports successful delivery', async (t) => {
-  const { interaction, events } = appeal(t);
-  interaction.editReply = async () => {
-    throw new Error('Confirmation failed');
-  };
-  await runAppeal(interaction);
-  assert.equal(events.at(-1)[0], 'followUp');
-  assert.match(events.at(-1)[1].content, /appeal was submitted/);
-  await runAppeal({ ...interaction, deferred: false, replied: false });
-  assert.equal(events.filter((event) => event === 'send').length, 1);
-});
-
-test('DM button update failure still confirms delivery and blocks duplicate clicks', async (t) => {
-  const { interaction, events, errors } = appeal(t);
-  interaction.message.edit = async () => {
-    throw new Error('DM edit failed');
-  };
-  await runAppeal(interaction);
-  assert.equal(events.filter((event) => event === 'send').length, 1);
-  assert.equal(events.at(-1)[0], 'editReply');
-  assert.match(events.at(-1)[1].embeds[0].data.description, /submitted to staff/);
-  assert.match(errors[0][0], /Failed to update DM button/);
-  assert.deepEqual(interaction.message.components, ['appeal button']);
-  await runAppeal({ ...interaction, deferred: false, replied: false });
-  assert.equal(events.filter((event) => event === 'send').length, 1);
-});
-
-test('failed error response is logged and leaves the appeal available for retry', async (t) => {
-  const { interaction, events, channel, errors } = appeal(t);
-  const send = channel.send;
-  const editReply = interaction.editReply;
-  channel.send = async () => {
-    throw new Error('Send failed');
-  };
-  interaction.editReply = async () => {
-    throw new Error('Response failed');
-  };
-  await runAppeal(interaction);
-  assert.equal(errors.length, 2);
-  assert.match(errors[0][0], /staff-channel delivery/);
-  assert.match(errors[1][0], /Failed to respond/);
-  assert.deepEqual(interaction.message.components, ['appeal button']);
-  channel.send = send;
-  await runAppeal({ ...interaction, editReply, deferred: false });
-  assert.equal(events.filter((event) => event === 'send').length, 1);
-});
-
-test('failed acknowledgment and failed fallback reply are both logged', async (t) => {
-  const { interaction, events, errors } = appeal(t);
-  interaction.deferReply = async () => {
-    throw new Error('Acknowledgment failed');
-  };
-  interaction.reply = async () => {
-    throw new Error('Reply failed');
-  };
-  await runAppeal(interaction);
-  assert.match(errors[0][0], /acknowledgment/);
-  assert.match(errors[1][0], /Failed to respond/);
-  assert.deepEqual(interaction.message.components, ['appeal button']);
-  assert.equal(events.includes('send'), false);
-});
-
-for (const failure of ['configuration', 'send', 'acknowledgment']) {
-  test(`appeal ${failure} failure responds appropriately and releases the guard`, async (t) => {
-    const { interaction, events, channel, errors } = appeal(t);
-    const deferReply = interaction.deferReply;
-    const send = channel.send;
-    if (failure === 'configuration') channel.type = ChannelType.GuildVoice;
-    if (failure === 'send')
-      channel.send = async () => {
-        throw new Error('Send failed');
-      };
-    if (failure === 'acknowledgment')
-      interaction.deferReply = async () => {
-        throw new Error('Acknowledgment failed');
-      };
-    await runAppeal(interaction);
-    if (failure === 'acknowledgment' || failure === 'send') {
-      assert.match(
-        errors[0][0],
-        failure === 'acknowledgment' ? /acknowledgment/ : /staff-channel delivery/,
-      );
-    }
-    assert.equal(events.includes('send'), false);
-    assert.equal(events.some((event) => event[0] === 'message.edit'), false);
-    assert.equal(
-      events.at(-1)[0],
-      failure === 'acknowledgment' ? 'reply' : 'editReply',
-    );
-    if (failure === 'acknowledgment')
-      assert.equal(events.at(-1)[1].flags, MessageFlags.Ephemeral);
-    else assert.doesNotMatch(events.at(-1)[1].content, /submitted to staff/);
-    assert.deepEqual(interaction.message.components, ['appeal button']);
-    channel.type = ChannelType.GuildText;
-    channel.send = send;
-    await runAppeal({ ...interaction, deferReply, deferred: false, replied: false });
-    assert.equal(events.filter((event) => event === 'send').length, 1);
-    assert.equal(interaction.message.components[0].components[0].data.disabled, true);
-  });
-}
-
-test('missing REPORT_CHANNEL keeps the DM button available for retry', async (t) => {
-  const { interaction, events } = appeal(t);
-  const reportChannel = process.env.REPORT_CHANNEL;
-  delete process.env.REPORT_CHANNEL;
+test('rejected staff review persists and cannot ban twice', async () => {
+  await save(record({ status: 'submitted', deadline: null }));
+  const deputyId = Roles.DEPUTY.id;
+  Roles.DEPUTY.id = 'deputy';
   try {
-    await runAppeal(interaction);
-  } finally {
-    process.env.REPORT_CHANNEL = reportChannel;
-  }
-  assert.deepEqual(
-    events.map((event) => (Array.isArray(event) ? event[0] : event)),
-    ['deferReply', 'guild', 'editReply'],
-  );
-  assert.deepEqual(interaction.message.components, ['appeal button']);
-  await runAppeal({ ...interaction, deferred: false });
-  assert.equal(events.filter((event) => event === 'send').length, 1);
-  assert.equal(interaction.message.components[0].components[0].data.disabled, true);
-});
-
-for (const failure of [null, 'configuration', 'lookup', 'send']) {
-  test(`ban timer is canceled only after successful staff delivery: ${failure ?? 'success'}`, async (t) => {
-    const { interaction, channel } = appeal(t);
-    const timer = setTimeout(() => {}, 60_000).unref();
-    pendingHoneypotBans.set('user', timer);
-    const clear = t.mock.method(globalThis, 'clearTimeout');
-    const send = channel.send;
-    channel.send = async (...args) => {
-      assert.equal(pendingHoneypotBans.get('user'), timer);
-      assert.equal(clear.mock.callCount(), 0);
-      if (failure === 'send') throw new Error('Delivery failed');
-      return send(...args);
+    let bans = 0;
+    const interaction = {
+      customId: 'report_ban_user', guildId: 'guild', member: { roles: ['deputy'] },
+      user: { id: 'staff', tag: 'Staff' },
+      client: client(async () => { bans++; }),
+      message: { embeds: [{ title: HONEYPOT_APPEAL_TITLE }], async edit() {} },
+      async deferUpdate() {},
     };
-    if (failure === 'configuration') channel.type = ChannelType.GuildVoice;
-    if (failure === 'lookup') interaction.client.guilds.fetch = async () => { throw new Error('Lookup failed'); };
-    await runAppeal(interaction);
-    assert.equal(pendingHoneypotBans.has('user'), Boolean(failure));
-    assert.equal(handledAppeals.has('user'), !failure);
-    assert.equal(clear.mock.callCount(), failure ? 0 : 1);
-    if (!failure) assert.equal(clear.mock.calls[0].arguments[0], timer);
-  });
-}
-
-function trapMessage(fetchGuild) {
-  return {
-    channelId: 'trap',
-    author: { id: 'user', tag: 'User', bot: false, async send() {} },
-    member: { bannable: true, roles: { cache: new Map() }, async timeout() {} },
-    guild: { id: 'guild', name: 'Guild' },
-    client: { guilds: { fetch: fetchGuild } },
-    async delete() {},
-  };
-}
-
-test('repeated honeypot messages replace the timer and only the latest timer bans', async (t) => {
-  t.mock.method(console, 'log', () => {});
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  let bans = 0;
-  const message = trapMessage(async () => ({ members: { async ban() { bans++; } } }));
-  const clear = t.mock.method(globalThis, 'clearTimeout');
-  await HoneypotListener.prototype.run(message);
-  const first = pendingHoneypotBans.get('user');
-  await HoneypotListener.prototype.run(message);
-  const second = pendingHoneypotBans.get('user');
-  assert.notEqual(first, second);
-  assert.equal(clear.mock.calls[0].arguments[0], first);
-  t.mock.timers.tick(3 * 60 * 60 * 1000);
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(bans, 1);
-  assert.equal(pendingHoneypotBans.has('user'), false);
+    await HoneypotAppealButtonHandler.prototype.run(interaction);
+    await HoneypotAppealButtonHandler.prototype.run(interaction);
+    assert.equal(bans, 1);
+    assert.equal((await getHoneypotRecord('guild', 'user')).status, 'rejected');
+  } finally { Roles.DEPUTY.id = deputyId; }
 });
-
-for (const fails of [false, true]) {
-  test(`an older timer finishing cannot remove a replacement timer: ban ${fails ? 'fails' : 'succeeds'}`, async (t) => {
-    t.mock.method(console, 'log', () => {});
-    t.mock.method(console, 'error', () => {});
-    const callbacks = [];
-    t.mock.method(globalThis, 'setTimeout', (callback) => {
-      const timer = { callback };
-      callbacks.push(timer);
-      return timer;
-    });
-    t.mock.method(globalThis, 'clearTimeout', () => {});
-    const { promise, resolve } = Promise.withResolvers();
-    const message = trapMessage(() => promise);
-    await HoneypotListener.prototype.run(message);
-    const running = callbacks[0].callback();
-    await HoneypotListener.prototype.run(message);
-    const replacement = callbacks[1];
-    resolve({ members: { async ban() { if (fails) throw new Error('Ban failed'); } } });
-    await running;
-    assert.equal(pendingHoneypotBans.get('user'), replacement);
-    await replacement.callback();
-    assert.equal(pendingHoneypotBans.has('user'), false);
-  });
-}

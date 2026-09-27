@@ -14,6 +14,7 @@ import 'dotenv/config';
 import { join } from 'path';
 import { restoreLFGSessions } from './lib/lfgSession.js';
 import { restorePolls } from './lib/pollSession.js';
+import { restoreHoneypotBans } from './listeners/honeypot.js';
 
 const client = new SapphireClient({
   intents: [
@@ -34,6 +35,11 @@ async function main() {
   try {
     await restoreLFGSessions();
     await restorePolls();
+    client.once('ready', () => {
+      void restoreHoneypotBans(client).catch((error) =>
+        console.error('Failed to restore honeypot bans:', error),
+      );
+    });
     await client.login(process.env.TOKEN);
     console.log('The bot is online! Ready to execute.');
 
