@@ -9,7 +9,7 @@
  */
 
 import { Precondition } from '@sapphire/framework';
-import { CommandInteraction, GuildMember } from 'discord.js';
+import { CommandInteraction } from 'discord.js';
 import { Roles } from '../config.js';
 
 export class RequireRole extends Precondition {
@@ -18,13 +18,19 @@ export class RequireRole extends Precondition {
     _command: any,
     context: { level: keyof typeof Roles },
   ) {
-    const member = interaction.member as GuildMember;
-    if (!member) return this.error({ message: 'User not found.' });
+    const member = interaction.member;
+    if (!member)
+      return this.error({
+        message: 'Your server membership could not be verified.',
+      });
 
     const targetRole = Roles[context.level];
 
-    const hasSufficientAccess = member.roles.cache.some((role) => {
-      const userRoleConfig = Object.values(Roles).find((r) => r.id === role.id);
+    const memberRoleIds = Array.isArray(member.roles)
+      ? member.roles
+      : [...member.roles.cache.keys()];
+    const hasSufficientAccess = memberRoleIds.some((roleId) => {
+      const userRoleConfig = Object.values(Roles).find((r) => r.id === roleId);
       return userRoleConfig && userRoleConfig.weight >= targetRole.weight;
     });
 
@@ -36,11 +42,13 @@ export class RequireRole extends Precondition {
         context.level.slice(1).toLowerCase();
 
       await interaction.reply({
-        content: `🚫 **Access Denied**: This action is reserved for **${formattedLevel}** rank and above.`,
+        content: `🚫 This command requires the **${formattedLevel}** role or higher.`,
         ephemeral: true,
       });
 
-      return this.error({ message: 'Access Denied' });
+      return this.error({
+        message: 'You do not have the required role for this command.',
+      });
     }
   }
 }

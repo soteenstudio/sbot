@@ -16,6 +16,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
 
@@ -27,7 +28,7 @@ export class ReportCommand extends Subcommand {
     super(context, {
       ...options,
       name: 'report',
-      description: 'Report an issue or user.',
+      description: 'Submit a report to the server staff.',
     });
   }
 
@@ -40,17 +41,18 @@ export class ReportCommand extends Subcommand {
         .addStringOption((o) =>
           o
             .setName('reason')
-            .setDescription('What is happening?')
+            .setDescription('Describe the issue you are reporting')
+            .setMaxLength(4000)
             .setRequired(true),
         )
         .addStringOption((o) =>
           o
             .setName('category')
-            .setDescription('Category')
+            .setDescription('Type of report')
             .setRequired(true)
             .addChoices(
               { name: 'Harassment', value: 'harassment' },
-              { name: 'Bug/Glitch', value: 'bug' },
+              { name: 'Bug or glitch', value: 'bug' },
               { name: 'Other', value: 'other' },
             ),
         )
@@ -63,20 +65,23 @@ export class ReportCommand extends Subcommand {
   ): Promise<void> {
     const reason = interaction.options.getString('reason', true);
     const category = interaction.options.getString('category', true);
-    const reportChannel = interaction.guild?.channels.cache.get(
-      process.env.REPORT_CHANNEL ?? '',
-    );
+    const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
+    const reportChannelId = process.env.REPORT_CHANNEL;
+    const reportChannel = reportChannelId
+      ? interaction.guild?.channels.cache.get(reportChannelId)
+      : undefined;
 
     if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
       await interaction.reply({
-        content: '❌ Report channel not configured.',
+        content:
+          '❌ Reports are unavailable because the staff channel is not configured.',
         ephemeral: true,
       });
       return;
     }
 
     const embed = new EmbedBuilder()
-      .setTitle(`🚨 New Report: ${category.toUpperCase()}`)
+      .setTitle(`🚨 New ${categoryName} Report`)
       .setDescription(reason)
       .addFields(
         {
@@ -85,35 +90,71 @@ export class ReportCommand extends Subcommand {
           inline: true,
         },
         {
-          name: 'Timestamp',
+          name: 'Submitted',
           value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
           inline: true,
         },
+        {
+          name: 'Status',
+          value: '⏳ Awaiting staff review',
+          inline: false,
+        },
       )
-      .setColor(0xff0000)
+      .setColor(0xffa500)
+      .setFooter({ text: 'Review this report before taking action.' })
       .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`report_done_${interaction.user.id}`)
-        .setLabel('Mark as Done')
+        .setLabel('Mark as Resolved')
         .setStyle(ButtonStyle.Success),
     );
 
     try {
       await reportChannel.send({ embeds: [embed], components: [row] });
-      await interaction.reply({
-        content: '✅ Your report has been sent to the staff. Thank you!',
-        ephemeral: true,
-      });
     } catch (error) {
       console.error('Failed to send report to channel:', error);
 
       await interaction.reply({
         content:
-          "❌ Sorry, I couldn't deliver your report to the staff channel. Please contact an admin directly.",
-        ephemeral: true,
+          '❌ Your report could not be delivered. Please contact a server administrator directly.',
+        flags: MessageFlags.Ephemeral,
       });
+      return;
+    }
+
+    const confirmation = new EmbedBuilder()
+      .setTitle('✅ Report Submitted')
+      .setDescription(
+        'Your report has been sent to the server staff. Thank you.',
+      )
+      .setColor(0x00ff00);
+
+    try {
+      await interaction.reply({
+        embeds: [confirmation],
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error) {
+      console.error('Failed to confirm delivered report:', error);
+      try {
+        const response = {
+          content:
+            'Your report was delivered, but the confirmation could not be displayed.',
+          flags: MessageFlags.Ephemeral,
+        } as const;
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp(response);
+        } else {
+          await interaction.reply(response);
+        }
+      } catch (responseError) {
+        console.error(
+          'Failed to respond after report confirmation error:',
+          responseError,
+        );
+      }
     }
   }
 }

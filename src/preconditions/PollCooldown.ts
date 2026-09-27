@@ -9,13 +9,25 @@
  */
 
 import { Precondition } from '@sapphire/framework';
-import { CommandInteraction, GuildMember } from 'discord.js';
+import { ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import { Roles } from '../config.js';
-
-const cooldowns = new Map<string, number>();
+import { checkAndRecordPollCooldown, getPoll } from '../lib/pollSession.js';
 
 export class PollCooldown extends Precondition {
-  public async chatInputRun(interaction: CommandInteraction) {
+  public async chatInputRun(interaction: ChatInputCommandInteraction) {
+    if (await getPoll(interaction.user.id)) {
+      const message =
+        '❌ You already have an active poll. Use `/poll close` before creating another.';
+      await interaction.reply({ content: message, ephemeral: true });
+      return this.error({ message });
+    }
+    if (interaction.options.getString('options', true).split('|').length > 5) {
+      const message =
+        '❌ A poll can have at most five answer options. Separate them with `|`.';
+      await interaction.reply({ content: message, ephemeral: true });
+      return this.error({ message });
+    }
+
     const member = (interaction.member as GuildMember) ?? 0;
     const now = Date.now();
     const COOLDOWN_TIME = 3600000;
@@ -28,19 +40,22 @@ export class PollCooldown extends Precondition {
 
     if (isAdminOrAbove) return this.ok();
 
-    const lastUsed = cooldowns.get(interaction.user.id);
-    if (lastUsed && now - lastUsed < COOLDOWN_TIME) {
-      const remaining = Math.ceil((COOLDOWN_TIME - (now - lastUsed)) / 60000);
+    const remainingMs = await checkAndRecordPollCooldown(
+      interaction.user.id,
+      now,
+      COOLDOWN_TIME,
+    );
+    if (remainingMs > 0) {
+      const remaining = Math.ceil(remainingMs / 60000);
       await interaction.reply({
-        content: `🚫 **Cooldown**: Slow down! You can use this command again in **${remaining} minutes**.`,
+        content: `⏳ You can create another poll in **${remaining} ${remaining === 1 ? 'minute' : 'minutes'}**.`,
         ephemeral: true,
       });
       return this.error({
-        message: `Cooldown: Try again in ${remaining} minutes.`,
+        message: `You can create another poll in ${remaining} ${remaining === 1 ? 'minute' : 'minutes'}.`,
       });
     }
 
-    cooldowns.set(interaction.user.id, now);
     return this.ok();
   }
 }

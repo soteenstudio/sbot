@@ -12,6 +12,9 @@ import { SapphireClient, RegisterBehavior } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
 import 'dotenv/config';
 import { join } from 'path';
+import { restoreLFGSessions } from './lib/lfgSession.js';
+import { restorePolls } from './lib/pollSession.js';
+import { restoreHoneypotBans } from './listeners/honeypot.js';
 
 const client = new SapphireClient({
   intents: [
@@ -19,19 +22,28 @@ const client = new SapphireClient({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
   ],
   loadMessageCommandListeners: true,
   baseUserDirectory: join(process.cwd(), 'dist'),
 });
 
-// Di index.ts, setelah inisialisasi client
-client.stores.get('listeners').registerPath(join(process.cwd(), 'dist', 'listeners'));
+client.stores
+  .get('listeners')
+  .registerPath(join(process.cwd(), 'dist', 'listeners'));
 
 async function main() {
   try {
+    await restoreLFGSessions();
+    await restorePolls();
+    client.once('ready', () => {
+      void restoreHoneypotBans(client).catch((error) =>
+        console.error('Failed to restore honeypot bans:', error),
+      );
+    });
     await client.login(process.env.TOKEN);
     console.log('The bot is online! Ready to execute.');
-    
+
     client.on('ready', () => {
       console.log('--- Pieces Loaded ---');
       console.log('Commands:', client.stores.get('commands').size);

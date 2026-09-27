@@ -1,9 +1,12 @@
 import esbuild from 'esbuild';
 import { glob } from 'glob'; // Lo perlu install: npm i -D glob
+import { rm } from 'node:fs/promises';
 
 async function build() {
   // Ambil semua file .ts di folder src
   const entryPoints = await glob('src/**/*.ts');
+
+  await rm('dist', { recursive: true, force: true });
 
   await esbuild.build({
     entryPoints,

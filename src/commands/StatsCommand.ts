@@ -30,7 +30,7 @@ export class StatsCommand extends Subcommand {
     super(context, {
       ...options,
       name: 'stats',
-      description: 'View current system and bot performance.',
+      description: 'View server information and bot performance.',
     });
   }
 
@@ -59,16 +59,16 @@ export class StatsCommand extends Subcommand {
     const timestamp = Math.floor(guild.createdTimestamp / 1000);
 
     const embed = new EmbedBuilder()
-      .setTitle('📊 System Performance')
+      .setTitle('📊 Server and Bot Statistics')
       .setColor(0x00ff9d)
       .addFields(
         {
-          name: 'Server Stats',
-          value: `**Name:** ${serverName}\n**Guilds:** ${client.guilds.cache.size}\n**Member Count:** ${memberCount}\n**Created At:** <t:${timestamp}:D> (<t:${timestamp}:R>)\n**Latency:** ${client.ws.ping}ms`,
+          name: 'Server',
+          value: `**Name:** ${serverName}\n**Servers served:** ${client.guilds.cache.size}\n**Members:** ${memberCount}\n**Created:** <t:${timestamp}:D> (<t:${timestamp}:R>)\n**Gateway latency:** ${client.ws.ping} ms`,
           inline: true,
         },
         {
-          name: 'Bot Stats',
+          name: 'Bot',
           value: `**Uptime:** ${days}d ${hours}h ${minutes}m\n**Library:** Discord.js ${djsVersion}\n**Framework:** Sapphire ${cleanVersion(pkg.dependencies['@sapphire/framework'])}\n**Language:** TypeScript ${cleanVersion(pkg.devDependencies['typescript'])}\n**Engine:** SBot Engine ${pkg.version}`,
           inline: true,
         },

@@ -12,7 +12,7 @@ import { EmbedBuilder, EmbedField } from 'discord.js';
 
 export class EmbedFactory {
   private static readonly COLOR = 0x0099ff;
-  private static readonly FOOTER = 'SoTeen Studio System';
+  private static readonly FOOTER = 'SoTeen Studio';
 
   public static create(): EmbedBuilder {
     return new EmbedBuilder()

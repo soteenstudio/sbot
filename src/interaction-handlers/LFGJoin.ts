@@ -46,9 +46,30 @@ export class JoinButtonHandler extends InteractionHandler {
 
     const session = activeLFG.get(hostId);
 
-    if (!session)
-      return interaction.reply({
-        content: '❌ Session expired!',
+    if (!session || interaction.message.id !== session.messageId)
+      return interaction.followUp({
+        content: '❌ This session is no longer active.',
+        ephemeral: true,
+      });
+
+    if (session.kickedIds.has(interaction.user.id))
+      return interaction.followUp({
+        content: '❌ You have been removed from this session.',
+        ephemeral: true,
+      });
+
+    if (
+      interaction.user.id === hostId ||
+      session.participantIds.has(interaction.user.id)
+    )
+      return interaction.followUp({
+        content: '❌ You are already in this session.',
+        ephemeral: true,
+      });
+
+    if (session.participantIds.size + 1 >= session.maxPlayers)
+      return interaction.followUp({
+        content: '❌ This session is full.',
         ephemeral: true,
       });
 
@@ -57,25 +78,27 @@ export class JoinButtonHandler extends InteractionHandler {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(
-          `lfg_pro_accept_${interaction.user.id}_${interaction.channelId}_${hostId}`,
+          `lfg_pro_accept_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
         )
-        .setLabel('Accept')
+        .setLabel('Accept Request')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`lfg_pro_decline_${interaction.user.id}_${hostId}`)
-        .setLabel('Decline')
+        .setCustomId(
+          `lfg_pro_decline_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
+        )
+        .setLabel('Decline Request')
         .setStyle(ButtonStyle.Danger),
     );
 
     const notificationEmbed = new EmbedBuilder()
-      .setTitle('🔔 New LFG Request')
+      .setTitle('🔔 Session Join Request')
       .setColor(0x0099ff)
       .setDescription(
-        `**${interaction.user.tag}** wants to join your LFG session!`,
+        `${interaction.user} has requested to join your looking-for-group session.`,
       )
       .setThumbnail(interaction.user.displayAvatarURL())
       .setTimestamp()
-      .setFooter({ text: 'SoTeen Studio LFG System' });
+      .setFooter({ text: 'SoTeen Studio • Looking for group' });
 
     try {
       await host.send({
@@ -84,12 +107,13 @@ export class JoinButtonHandler extends InteractionHandler {
       });
 
       return interaction.followUp({
-        content: `✅ Request sent to host!`,
+        content: '✅ Your join request has been sent to the host.',
         ephemeral: true,
       });
     } catch {
       return interaction.followUp({
-        content: '❌ Host DM is closed.',
+        content:
+          '❌ The host could not receive your request by direct message.',
         ephemeral: true,
       });
     }

@@ -13,7 +13,7 @@ import {
   InteractionHandlerTypes,
 } from '@sapphire/framework';
 import { ButtonInteraction } from 'discord.js';
-import { activePolls } from '../lib/pollData.js';
+import { recordVote } from '../lib/pollSession.js';
 
 export class PollButtonHandler extends InteractionHandler {
   public constructor(
@@ -36,26 +36,33 @@ export class PollButtonHandler extends InteractionHandler {
 
     const [_, authorId, indexStr] = interaction.customId.split('_');
     const index = parseInt(indexStr, 10);
-    const poll = activePolls.get(authorId);
+    const result = await recordVote(
+      authorId,
+      interaction.message.id,
+      index,
+      interaction.user.id,
+    );
 
-    if (!poll) {
+    if (result === 'closed') {
       return interaction.editReply({
-        content: '❌ This poll is no longer active.',
+        content: '❌ This poll is no longer accepting votes.',
       });
     }
 
-    poll.voters ??= new Set<string>();
-
-    if (poll.voters.has(interaction.user.id)) {
+    if (result === 'invalid') {
       return interaction.editReply({
-        content: '⚠️ You already voted on this poll.',
+        content: '❌ This poll option is invalid.',
       });
     }
 
-    poll.voters.add(interaction.user.id);
-    const currentVotes = poll.votes.get(index) || 0;
-    poll.votes.set(index, currentVotes + 1);
+    if (result === 'duplicate') {
+      return interaction.editReply({
+        content: '⚠️ You have already voted in this poll.',
+      });
+    }
 
-    await interaction.editReply({ content: `✅ Voted for option ${index}` });
+    await interaction.editReply({
+      content: `✅ Your vote for option ${index} has been recorded.`,
+    });
   }
 }
