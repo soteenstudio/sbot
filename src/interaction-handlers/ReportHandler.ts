@@ -13,7 +13,7 @@ import {
   InteractionHandlerTypes,
 } from '@sapphire/framework';
 import { ButtonInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
-import { HONEYPOT_APPEAL_TITLE } from '../lib/honeypotAppeal.js';
+import { isHoneypotAppealTitle } from '../lib/honeypotAppeal.js';
 
 export class ReportHandler extends InteractionHandler {
   public constructor(
@@ -28,7 +28,7 @@ export class ReportHandler extends InteractionHandler {
 
   public override parse(interaction: ButtonInteraction) {
     return interaction.customId.startsWith('report_done_') &&
-      interaction.message.embeds[0]?.title !== HONEYPOT_APPEAL_TITLE
+      !isHoneypotAppealTitle(interaction.message.embeds[0]?.title)
       ? this.some()
       : this.none();
   }

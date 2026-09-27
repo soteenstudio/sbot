@@ -8,7 +8,15 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-export const HONEYPOT_APPEAL_TITLE = '🚨 Honeypot Ban Appeal (Passed Captcha)';
+export const HONEYPOT_APPEAL_TITLE = '🚨 Honeypot Appeal';
+export const LEGACY_HONEYPOT_APPEAL_TITLE =
+  '🚨 Honeypot Ban Appeal (Passed Captcha)';
+
+export function isHoneypotAppealTitle(title: string | null | undefined) {
+  return (
+    title === HONEYPOT_APPEAL_TITLE || title === LEGACY_HONEYPOT_APPEAL_TITLE
+  );
+}
 
 export const handledAppeals = new Set<string>();
 export const modalOpenTimes = new Map<string, number>();

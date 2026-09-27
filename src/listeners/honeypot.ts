@@ -54,17 +54,17 @@ export class HoneypotListener extends Listener {
 
         const timeoutDuration = 3 * 60 * 60 * 1000;
         await member
-          .timeout(timeoutDuration, 'Caught by Honeypot system (Under Review)')
+          .timeout(timeoutDuration, 'Honeypot restriction pending appeal')
           .catch(() => {});
 
         const embed = new EmbedBuilder()
-          .setTitle('🛡️ Security Notice: Action Required')
+          .setTitle('⚠️ Honeypot Restriction')
           .setDescription(
-            `You have been temporarily restricted in **${message.guild.name}** for sending a message in a restricted honeypot channel.\n\n` +
-              'Your member role has been temporarily removed and your account is muted. If you believe this was a mistake, please click the button below to submit an appeal immediately.\n\n' +
-              '*(Note: If no appeal is submitted, you will be automatically banned after 3 hours.)*',
+            `You were temporarily restricted in **${message.guild.name}** for posting in a honeypot channel. Your member role was removed and you were timed out.\n\n` +
+              'If this was a mistake, use the button below to appeal. You will be banned in 3 hours if you do not submit an appeal.',
           )
           .setColor(0xffa500)
+          .setFooter({ text: 'Submit an appeal within 3 hours.' })
           .setTimestamp();
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -73,14 +73,14 @@ export class HoneypotListener extends Listener {
               `honeypot_appeal_${message.author.id}_${message.guild.id}`,
             )
             .setLabel('Appeal Restriction')
-            .setStyle(ButtonStyle.Danger),
+            .setStyle(ButtonStyle.Primary),
         );
 
         try {
           await message.author.send({ embeds: [embed], components: [row] });
-        } catch (dmError) {
+        } catch {
           console.log(
-            `[Honeypot] Gagal kirim DM ke ${message.author.tag} (kemungkinan DM ditutup/di-block).`,
+            `[Honeypot] Could not DM ${message.author.tag}; direct messages may be closed.`,
           );
         }
 
@@ -94,11 +94,10 @@ export class HoneypotListener extends Listener {
               .catch(() => null);
             if (guild) {
               await guild.members.ban(message.author.id, {
-                reason:
-                  'Ignored Honeypot restriction / Failed to appeal in time',
+                reason: 'Honeypot appeal not submitted within 3 hours',
               });
               console.log(
-                `[Honeypot] Auto-banned ${message.author.tag} after appeal timeout.`,
+                `[Honeypot] Banned ${message.author.tag} after the 3-hour appeal deadline.`,
               );
             }
           } catch (err) {
