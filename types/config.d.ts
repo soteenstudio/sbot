@@ -1,22 +1,27 @@
+import 'dotenv/config';
 export declare const Roles: {
+    readonly MEMBER: {
+        readonly id: string | undefined;
+        readonly weight: 0;
+    };
     readonly DONATUR: {
-        readonly id: "1105064080756187188";
+        readonly id: string | undefined;
         readonly weight: 1;
     };
     readonly BILLION: {
-        readonly id: "1105063987361620069";
+        readonly id: string | undefined;
         readonly weight: 2;
     };
     readonly RICHMAN: {
-        readonly id: "1105063774446161960";
+        readonly id: string | undefined;
         readonly weight: 3;
     };
     readonly DEPUTY: {
-        readonly id: "1105707883338928178";
+        readonly id: string | undefined;
         readonly weight: 4;
     };
     readonly FOUNDER: {
-        readonly id: "1105061451049226312";
+        readonly id: string | undefined;
         readonly weight: 5;
     };
 };
