@@ -20,6 +20,8 @@ import {
 } from 'discord.js';
 import 'dotenv/config';
 
+const handledAppeals = new Set<string>();
+
 export class HoneypotAppealListener extends Listener {
   public constructor(context: Listener.Context, options: Listener.Options) {
     super(context, {
@@ -44,71 +46,90 @@ export class HoneypotAppealListener extends Listener {
       return;
     }
 
-    const reportChannelId = process.env.REPORT_CHANNEL;
-
-    const guild = await interaction.client.guilds
-      .fetch(targetGuildId)
-      .catch(() => null);
-    const reportChannel =
-      reportChannelId && guild
-        ? await guild.channels.fetch(reportChannelId).catch(() => null)
-        : undefined;
-
-    if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
+    const messageId = interaction.message.id;
+    if (handledAppeals.has(messageId)) {
       await interaction.reply({
         content:
-          '❌ Your appeal could not be sent because the staff channel is not configured properly.',
+          'Your appeal is already being processed or has been submitted.',
         ephemeral: true,
       });
       return;
     }
 
-    const user = await interaction.client.users
-      .fetch(targetUserId)
-      .catch(() => null);
-
-    const embed = new EmbedBuilder()
-      .setTitle('🚨 Honeypot Ban Appeal')
-      .setDescription(
-        `User **${user ? user.tag : targetUserId}** has submitted an appeal regarding their ban from the honeypot channel.`,
-      )
-      .addFields(
-        {
-          name: 'User Details',
-          value: `${user ? user.tag : 'Unknown'} (${targetUserId})`,
-          inline: true,
-        },
-        {
-          name: 'Submitted',
-          value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
-          inline: true,
-        },
-      )
-      .setColor(0xffa500)
-      .setTimestamp();
-
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`report_done_${targetUserId}`)
-        .setLabel('Mark as Resolved')
-        .setStyle(ButtonStyle.Success),
-    );
-
+    handledAppeals.add(messageId);
+    let submitted = false;
     try {
-      await reportChannel.send({ embeds: [embed], components: [row] });
-
       await interaction.update({
+        content: 'Submitting your appeal to the server staff…',
+        components: [],
+      });
+
+      const reportChannelId = process.env.REPORT_CHANNEL;
+
+      const guild = await interaction.client.guilds
+        .fetch(targetGuildId)
+        .catch(() => null);
+      const reportChannel =
+        reportChannelId && guild
+          ? await guild.channels.fetch(reportChannelId).catch(() => null)
+          : undefined;
+
+      if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
+        await interaction.followUp({
+          content:
+            '❌ Your appeal could not be sent because the staff channel is not configured properly.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const user = await interaction.client.users
+        .fetch(targetUserId)
+        .catch(() => null);
+
+      const embed = new EmbedBuilder()
+        .setTitle('🚨 Honeypot Ban Appeal')
+        .setDescription(
+          `User **${user ? user.tag : targetUserId}** has submitted an appeal regarding their ban from the honeypot channel.`,
+        )
+        .addFields(
+          {
+            name: 'User Details',
+            value: `${user ? user.tag : 'Unknown'} (${targetUserId})`,
+            inline: true,
+          },
+          {
+            name: 'Submitted',
+            value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
+            inline: true,
+          },
+        )
+        .setColor(0xffa500)
+        .setTimestamp();
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`report_done_${targetUserId}`)
+          .setLabel('Mark as Resolved')
+          .setStyle(ButtonStyle.Success),
+      );
+
+      await reportChannel.send({ embeds: [embed], components: [row] });
+      submitted = true;
+
+      await interaction.editReply({
         content:
           '✅ Your appeal has been successfully submitted to the server staff. Please wait for their response.',
         components: [],
       });
     } catch (error) {
-      console.error('Failed to send honeypot appeal to channel:', error);
+      console.error('Failed to process honeypot appeal:', error);
 
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
-          content:
-            '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
+          content: submitted
+            ? 'Your appeal was submitted, but the confirmation could not be updated.'
+            : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
           ephemeral: true,
         });
       } else {
@@ -118,6 +139,8 @@ export class HoneypotAppealListener extends Listener {
           ephemeral: true,
         });
       }
+    } finally {
+      if (!submitted) handledAppeals.delete(messageId);
     }
   }
 }

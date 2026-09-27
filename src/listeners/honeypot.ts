@@ -34,8 +34,14 @@ export class HoneypotListener extends Listener {
     if (!honeypotChannelId) return;
 
     if (message.channelId === honeypotChannelId) {
+      if (!message.member?.bannable) return;
+
       try {
-        await message.delete();
+        try {
+          await message.delete();
+        } catch (error) {
+          console.error('[Honeypot Error] Failed to delete message:', error);
+        }
 
         const embed = new EmbedBuilder()
           .setTitle('🛡️ You Have Been Banned')
