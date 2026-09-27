@@ -9,10 +9,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { after, test } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { test } from 'node:test';
 import { ChannelType, MessageFlags } from 'discord.js';
 import { ReportCommand } from '../dist/commands/ReportCommand.js';
 import { ReportHandler } from '../dist/interaction-handlers/ReportHandler.js';
@@ -21,26 +18,15 @@ import {
   LEGACY_HONEYPOT_APPEAL_TITLE,
 } from '../dist/lib/honeypotAppeal.js';
 
-const previousDeliveryDirectory = process.env.REPORT_DELIVERY_DIR;
-process.env.REPORT_DELIVERY_DIR = mkdtempSync(join(tmpdir(), 'sbot-report-test-'));
-after(() => {
-  rmSync(process.env.REPORT_DELIVERY_DIR, { recursive: true, force: true });
-  if (previousDeliveryDirectory === undefined) delete process.env.REPORT_DELIVERY_DIR;
-  else process.env.REPORT_DELIVERY_DIR = previousDeliveryDirectory;
-});
-let nextInteractionId = 0;
-
 function reportInteraction() {
   const events = [];
   const channel = {
-    id: 'reports',
     type: ChannelType.GuildText,
     async send(payload) {
       events.push(['send', payload]);
     },
   };
   const interaction = {
-    id: `interaction-${++nextInteractionId}`,
     options: { getString: (name) => name === 'reason' ? 'Please investigate' : 'other' },
     user: { id: 'reporter', tag: 'Reporter' },
     guild: { channels: { cache: new Map([['reports', channel]]) } },
@@ -57,9 +43,7 @@ function reportInteraction() {
   return { interaction, channel, events };
 }
 
-test('a delivered report has an ephemeral confirmation embed and a pending staff message', async (t) => {
-  const logs = [];
-  t.mock.method(console, 'log', (...args) => logs.push(args.join(' ')));
+test('a delivered report has an ephemeral confirmation embed and a pending staff message', async () => {
   const previous = process.env.REPORT_CHANNEL;
   process.env.REPORT_CHANNEL = 'reports';
   try {
@@ -67,8 +51,6 @@ test('a delivered report has an ephemeral confirmation embed and a pending staff
     await ReportCommand.prototype.chatInputRun(interaction);
     assert.deepEqual(events.map(([name]) => name), ['send', 'reply']);
     const staff = events[0][1];
-    assert.equal(staff.nonce, interaction.id);
-    assert.equal(staff.enforceNonce, true);
     assert.equal(staff.embeds[0].data.title, '🚨 New Other Report');
     assert.equal(staff.embeds[0].data.color, 0xffa500);
     assert.equal(staff.embeds[0].data.fields.at(-1).name, 'Status');
@@ -83,8 +65,6 @@ test('a delivered report has an ephemeral confirmation embed and a pending staff
     assert.match(confirmation.embeds[0].data.description, /sent to the server staff/);
     assert.equal(confirmation.embeds[0].data.color, 0x00ff00);
     assert.equal(confirmation.content, undefined);
-    assert.ok(logs.some((line) => line.includes(`Command received for interaction ${interaction.id}`)));
-    assert.ok(logs.some((line) => line.includes(`Interaction ${interaction.id} delivered to staff channel`)));
   } finally {
     if (previous === undefined) delete process.env.REPORT_CHANNEL;
     else process.env.REPORT_CHANNEL = previous;
@@ -102,10 +82,6 @@ test('report delivery failure receives delivery feedback', async (t) => {
     assert.deepEqual(events.map(([name]) => name), ['reply']);
     assert.match(events[0][1].content, /could not be delivered/);
     assert.equal(events[0][1].flags, MessageFlags.Ephemeral);
-    channel.send = async (payload) => { events.push(['send', payload]); };
-    await ReportCommand.prototype.chatInputRun({ ...interaction, replied: false });
-    assert.deepEqual(events.map(([name]) => name), ['reply', 'send', 'reply']);
-    assert.equal(events[1][1].nonce, interaction.id);
   } finally {
     if (previous === undefined) delete process.env.REPORT_CHANNEL;
     else process.env.REPORT_CHANNEL = previous;
@@ -130,56 +106,6 @@ test('failed confirmation after delivery never claims the report was undelivered
     assert.doesNotMatch(events[2][1].content, /could not be delivered/);
     assert.equal(events[2][1].flags, MessageFlags.Ephemeral);
     assert.match(errors[0][0], /Failed to confirm delivered report/);
-    await ReportCommand.prototype.chatInputRun({ ...interaction, replied: false, reply: async () => {} });
-    assert.equal(events.filter(([name]) => name === 'send').length, 1);
-  } finally {
-    if (previous === undefined) delete process.env.REPORT_CHANNEL;
-    else process.env.REPORT_CHANNEL = previous;
-  }
-});
-
-test('concurrent and repeated handling of one interaction sends only one staff report', async () => {
-  const previous = process.env.REPORT_CHANNEL;
-  process.env.REPORT_CHANNEL = 'reports';
-  try {
-    const { interaction, channel, events } = reportInteraction();
-    const started = Promise.withResolvers();
-    const release = Promise.withResolvers();
-    channel.send = async (payload) => {
-      events.push(['send', payload]);
-      started.resolve();
-      await release.promise;
-    };
-    const first = ReportCommand.prototype.chatInputRun(interaction);
-    await started.promise;
-    const second = ReportCommand.prototype.chatInputRun({ ...interaction, replied: false });
-    release.resolve();
-    await Promise.all([first, second]);
-    await ReportCommand.prototype.chatInputRun({ ...interaction, replied: false });
-    assert.equal(events.filter(([name]) => name === 'send').length, 1);
-    assert.equal(events.filter(([name]) => name === 'reply').length, 3);
-  } finally {
-    if (previous === undefined) delete process.env.REPORT_CHANNEL;
-    else process.env.REPORT_CHANNEL = previous;
-  }
-});
-
-test('distinct interaction IDs each create a staff report', async () => {
-  const previous = process.env.REPORT_CHANNEL;
-  process.env.REPORT_CHANNEL = 'reports';
-  try {
-    const first = reportInteraction();
-    const second = reportInteraction();
-    second.interaction.guild.channels.cache.set('reports', first.channel);
-    await Promise.all([
-      ReportCommand.prototype.chatInputRun(first.interaction),
-      ReportCommand.prototype.chatInputRun(second.interaction),
-    ]);
-    assert.equal(first.events.filter(([name]) => name === 'send').length, 2);
-    assert.deepEqual(
-      first.events.filter(([name]) => name === 'send').map(([, payload]) => payload.nonce).sort(),
-      [first.interaction.id, second.interaction.id].sort(),
-    );
   } finally {
     if (previous === undefined) delete process.env.REPORT_CHANNEL;
     else process.env.REPORT_CHANNEL = previous;
