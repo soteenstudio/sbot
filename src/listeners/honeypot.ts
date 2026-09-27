@@ -19,6 +19,8 @@ import {
 } from 'discord.js';
 import 'dotenv/config';
 
+export const pendingHoneypotBans = new Map<string, NodeJS.Timeout>();
+
 export class HoneypotListener extends Listener {
   public constructor(context: Listener.Context, options: Listener.Options) {
     super(context, {
@@ -43,13 +45,26 @@ export class HoneypotListener extends Listener {
           console.error('[Honeypot Error] Failed to delete message:', error);
         }
 
+        const member = message.member;
+        const memberRoleId = process.env.ROLE_MEMBER;
+
+        if (memberRoleId && member.roles.cache.has(memberRoleId)) {
+          await member.roles.remove(memberRoleId).catch(() => {});
+        }
+
+        const timeoutDuration = 3 * 60 * 60 * 1000;
+        await member
+          .timeout(timeoutDuration, 'Caught by Honeypot system (Under Review)')
+          .catch(() => {});
+
         const embed = new EmbedBuilder()
-          .setTitle('🛡️ You Have Been Banned')
+          .setTitle('🛡️ Security Notice: Action Required')
           .setDescription(
-            `You were automatically banned from **${message.guild.name}** for sending a message in a restricted honeypot channel.\n\n` +
-              'If you believe this was a mistake or you entered the channel by accident, please click the button below to submit an appeal to the staff.',
+            `You have been temporarily restricted in **${message.guild.name}** for sending a message in a restricted honeypot channel.\n\n` +
+              'Your member role has been temporarily removed and your account is muted. If you believe this was a mistake, please click the button below to submit an appeal immediately.\n\n' +
+              '*(Note: If no appeal is submitted, you will be automatically banned after 3 hours.)*',
           )
-          .setColor(0xff0000)
+          .setColor(0xffa500)
           .setTimestamp();
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -57,7 +72,7 @@ export class HoneypotListener extends Listener {
             .setCustomId(
               `honeypot_appeal_${message.author.id}_${message.guild.id}`,
             )
-            .setLabel('Appeal Ban')
+            .setLabel('Appeal Restriction')
             .setStyle(ButtonStyle.Danger),
         );
 
@@ -69,12 +84,34 @@ export class HoneypotListener extends Listener {
           );
         }
 
-        await message.guild.members.ban(message.author.id, {
-          reason: 'Caught by Honeypot system (Spammer/Bot Detected)',
-        });
+        const banTimeout = setTimeout(async () => {
+          try {
+            const guild = await message.client.guilds
+              .fetch(message.guild!.id)
+              .catch(() => null);
+            if (guild) {
+              await guild.members.ban(message.author.id, {
+                reason:
+                  'Ignored Honeypot restriction / Failed to appeal in time',
+              });
+              console.log(
+                `[Honeypot] Auto-banned ${message.author.tag} after appeal timeout.`,
+              );
+            }
+          } catch (err) {
+            console.error(
+              `[Honeypot Error] Failed to auto-ban ${message.author.tag}:`,
+              err,
+            );
+          } finally {
+            pendingHoneypotBans.delete(message.author.id);
+          }
+        }, timeoutDuration);
+
+        pendingHoneypotBans.set(message.author.id, banTimeout);
 
         console.log(
-          `[Honeypot] Successfully banned ${message.author.tag} after sending appeal DM.`,
+          `[Honeypot] Restricted ${message.author.tag} and scheduled auto-ban in 3 hours.`,
         );
       } catch (error) {
         console.error('[Honeypot Error] Failed to action member:', error);

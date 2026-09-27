@@ -22,6 +22,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
+import { pendingHoneypotBans } from '../listeners/honeypot.js';
 
 const handledAppeals = new Set<string>();
 
@@ -37,13 +38,130 @@ export class HoneypotAppealHandler extends InteractionHandler {
   }
 
   public override parse(interaction: ButtonInteraction) {
-    if (interaction.customId.startsWith('honeypot_appeal_')) {
+    if (
+      interaction.customId.startsWith('honeypot_appeal_') ||
+      interaction.customId.startsWith('report_done_') ||
+      interaction.customId.startsWith('report_ban_')
+    ) {
       return this.some();
     }
     return this.none();
   }
 
   public async run(interaction: ButtonInteraction) {
+    if (
+      interaction.customId.startsWith('report_done_') ||
+      interaction.customId.startsWith('report_ban_')
+    ) {
+      const parts = interaction.customId.split('_');
+      const action = parts[1];
+      const targetUserId = parts[2];
+      const guildId = interaction.guildId;
+
+      await interaction.deferUpdate();
+
+      try {
+        const user = await interaction.client.users
+          .fetch(targetUserId)
+          .catch(() => null);
+
+        const oldEmbed = interaction.message.embeds[0]
+          ? EmbedBuilder.from(interaction.message.embeds[0])
+          : new EmbedBuilder();
+
+        const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`report_done_${targetUserId}`)
+            .setLabel('Mark as Resolved')
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(true),
+          new ButtonBuilder()
+            .setCustomId(`report_ban_${targetUserId}`)
+            .setLabel('Reject & Ban')
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(true),
+        );
+
+        if (action === 'done') {
+          if (guildId) {
+            const guildObj = await interaction.client.guilds
+              .fetch(guildId)
+              .catch(() => null);
+            const guildMember = guildObj
+              ? await guildObj.members.fetch(targetUserId).catch(() => null)
+              : null;
+            if (guildMember) {
+              await guildMember
+                .timeout(null, 'Honeypot appeal approved by staff')
+                .catch(() => {});
+              if (process.env.ROLE_MEMBER) {
+                await guildMember.roles
+                  .add(process.env.ROLE_MEMBER)
+                  .catch(() => {});
+              }
+            }
+          }
+
+          if (user) {
+            await user
+              .send({
+                content:
+                  '✅ **Good news!** Your honeypot ban appeal has been reviewed and approved by the staff. Your restriction is fully lifted.',
+              })
+              .catch(() => {});
+          }
+
+          oldEmbed.setColor(0x00ff00).addFields({
+            name: 'Status',
+            value: `✅ Resolved by <@${interaction.user.id}>`,
+          });
+
+          await interaction.message.edit({
+            embeds: [oldEmbed],
+            components: [disabledRow],
+          });
+        } else if (action === 'ban') {
+          if (user) {
+            await user
+              .send({
+                content:
+                  '❌ **Your honeypot ban appeal has been rejected by the staff.** You have now been permanently banned from the server.',
+              })
+              .catch(() => {});
+          }
+
+          if (guildId) {
+            const guild = await interaction.client.guilds
+              .fetch(guildId)
+              .catch(() => null);
+            if (guild) {
+              await guild.members
+                .ban(targetUserId, {
+                  reason: `Honeypot appeal rejected by ${interaction.user.tag}`,
+                })
+                .catch(() => {});
+            }
+          }
+
+          oldEmbed.setColor(0xff0000).addFields({
+            name: 'Status',
+            value: `❌ Rejected & Banned by <@${interaction.user.id}>`,
+          });
+
+          await interaction.message.edit({
+            embeds: [oldEmbed],
+            components: [disabledRow],
+          });
+        }
+      } catch (err) {
+        console.error(
+          '[Honeypot Appeal Handler] Failed to process staff action:',
+          err,
+        );
+      }
+      return;
+    }
+
     console.log(
       `[Honeypot Appeal Handler] Triggered with customId: ${interaction.customId}`,
     );
@@ -81,12 +199,25 @@ export class HoneypotAppealHandler extends InteractionHandler {
 
     try {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      step = 'canceling timer';
+
+      const activeTimer = pendingHoneypotBans.get(targetUserId);
+      if (activeTimer) {
+        clearTimeout(activeTimer);
+        pendingHoneypotBans.delete(targetUserId);
+      }
+
       step = 'staff-channel delivery';
 
       const reportChannelId = process.env.REPORT_CHANNEL;
-      const guild = await interaction.client.guilds
+      const guildObj = await interaction.client.guilds
         .fetch(targetGuildId)
         .catch(() => null);
+      const guild =
+        guildObj ??
+        (await interaction.client.guilds
+          .fetch(targetGuildId)
+          .catch(() => null));
 
       const reportChannel =
         reportChannelId && guild
@@ -108,7 +239,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
       const embed = new EmbedBuilder()
         .setTitle('🚨 Honeypot Ban Appeal')
         .setDescription(
-          `User **${user ? user.tag : targetUserId}** has submitted an appeal regarding their ban from the honeypot channel.`,
+          `User **${user ? user.tag : targetUserId}** has submitted an appeal regarding their restriction from the honeypot channel.`,
         )
         .addFields(
           {
@@ -130,6 +261,10 @@ export class HoneypotAppealHandler extends InteractionHandler {
           .setCustomId(`report_done_${targetUserId}`)
           .setLabel('Mark as Resolved')
           .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`report_ban_${targetUserId}`)
+          .setLabel('Reject & Ban')
+          .setStyle(ButtonStyle.Danger),
       );
 
       await reportChannel.send({ embeds: [embed], components: [row] });
@@ -137,7 +272,15 @@ export class HoneypotAppealHandler extends InteractionHandler {
       step = 'DM button update';
 
       try {
-        await interaction.message.edit({ components: [] });
+        const disabledDmRow =
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`honeypot_appeal_${targetUserId}_${targetGuildId}`)
+              .setLabel('Appeal Submitted')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true),
+          );
+        await interaction.message.edit({ components: [disabledDmRow] });
       } catch (error) {
         console.error(
           '[Honeypot Appeal Handler] Failed to update DM button:',
@@ -149,7 +292,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
 
       await interaction.editReply({
         content:
-          '✅ Your appeal has been successfully submitted to the server staff. Please wait for their response.',
+          '✅ Your appeal has been successfully submitted to the server staff. Please wait while staff reviews your case.',
       });
     } catch (error) {
       console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
