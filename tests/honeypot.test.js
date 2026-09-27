@@ -10,12 +10,14 @@
 
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
-import { ChannelType } from 'discord.js';
+import { join } from 'node:path';
+import { SapphireClient } from '@sapphire/framework';
+import { ChannelType, GatewayIntentBits } from 'discord.js';
 import { HoneypotListener } from '../dist/listeners/honeypot.js';
-import { HoneypotAppealListener } from '../dist/listeners/honeypotAppeal.js';
+import { HoneypotAppealHandler } from '../dist/interaction-handlers/honeypotAppeal.js';
 
 const runAppeal = (interaction) =>
-  HoneypotAppealListener.prototype.run(interaction);
+  HoneypotAppealHandler.prototype.run(interaction);
 let nextMessageId = 0;
 const originalEnvironment = {
   REPORT_CHANNEL: process.env.REPORT_CHANNEL,
@@ -31,7 +33,9 @@ after(() => {
 });
 
 function appeal(t) {
-  t.mock.method(console, 'error', () => {});
+  t.mock.method(console, 'log', () => {});
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
   const events = [];
   const channel = {
     type: ChannelType.GuildText,
@@ -88,8 +92,46 @@ function appeal(t) {
       events.push(['followUp', value]);
     },
   };
-  return { interaction, events, channel };
+  return { interaction, events, channel, errors };
 }
+
+test('Sapphire loads and routes a DM appeal button to the handler', async (t) => {
+  const client = new SapphireClient({
+    intents: [GatewayIntentBits.Guilds],
+    baseUserDirectory: join(process.cwd(), 'dist'),
+  });
+  t.after(() => client.destroy());
+  client.stores.registerPath(client.options.baseUserDirectory);
+  await client.stores.get('interaction-handlers').loadAll();
+  await client.stores.get('listeners').loadAll();
+
+  const handlers = client.stores.get('interaction-handlers');
+  assert.equal(
+    handlers.get('honeypotAppeal')?.location.full,
+    join(process.cwd(), 'dist', 'interaction-handlers', 'honeypotAppeal.js'),
+  );
+  const coreListener = client.stores.get('listeners').get('CoreInteractionCreate');
+  assert.ok(coreListener);
+
+  const { interaction, events } = appeal(t);
+  Object.assign(interaction, {
+    isChatInputCommand: () => false,
+    isContextMenuCommand: () => false,
+    isAutocomplete: () => false,
+    isMessageComponent: () => true,
+    isModalSubmit: () => false,
+  });
+  await coreListener.run(interaction);
+  assert.ok(events.includes('deferUpdate'));
+  assert.ok(events.includes('send'));
+});
+
+test('appeal parse accepts its button and ignores other buttons', () => {
+  const parse = HoneypotAppealHandler.prototype.parse;
+  const handler = { some: () => 'matched', none: () => 'ignored' };
+  assert.equal(parse.call(handler, { customId: 'honeypot_appeal_user_guild' }), 'matched');
+  assert.equal(parse.call(handler, { customId: 'report_done_user' }), 'ignored');
+});
 
 for (const member of [null, { bannable: false }, { bannable: true }]) {
   test(`honeypot actions require a bannable member: ${JSON.stringify(member)}`, async (t) => {
@@ -192,9 +234,43 @@ test('confirmation failure retains the guard and reports successful delivery', a
   assert.equal(events.filter((event) => event === 'send').length, 1);
 });
 
+test('failed error response is logged and leaves the appeal available for retry', async (t) => {
+  const { interaction, events, channel, errors } = appeal(t);
+  const send = channel.send;
+  channel.send = async () => {
+    throw new Error('Send failed');
+  };
+  interaction.followUp = async () => {
+    throw new Error('Response failed');
+  };
+  await runAppeal(interaction);
+  assert.equal(errors.length, 2);
+  assert.match(errors[0][0], /staff-channel delivery/);
+  assert.match(errors[1][0], /Failed to respond/);
+  assert.deepEqual(interaction.message.components, ['appeal button']);
+  channel.send = send;
+  await runAppeal({ ...interaction, deferred: false });
+  assert.equal(events.filter((event) => event === 'send').length, 1);
+});
+
+test('failed acknowledgment and failed fallback reply are both logged', async (t) => {
+  const { interaction, events, errors } = appeal(t);
+  interaction.deferUpdate = async () => {
+    throw new Error('Acknowledgment failed');
+  };
+  interaction.reply = async () => {
+    throw new Error('Reply failed');
+  };
+  await runAppeal(interaction);
+  assert.match(errors[0][0], /acknowledgment/);
+  assert.match(errors[1][0], /Failed to respond/);
+  assert.deepEqual(interaction.message.components, ['appeal button']);
+  assert.equal(events.includes('send'), false);
+});
+
 for (const failure of ['configuration', 'send', 'acknowledgment']) {
   test(`appeal ${failure} failure responds appropriately and releases the guard`, async (t) => {
-    const { interaction, events, channel } = appeal(t);
+    const { interaction, events, channel, errors } = appeal(t);
     const deferUpdate = interaction.deferUpdate;
     const send = channel.send;
     if (failure === 'configuration') channel.type = ChannelType.GuildVoice;
@@ -207,6 +283,12 @@ for (const failure of ['configuration', 'send', 'acknowledgment']) {
         throw new Error('Acknowledgment failed');
       };
     await runAppeal(interaction);
+    if (failure === 'acknowledgment' || failure === 'send') {
+      assert.match(
+        errors[0][0],
+        failure === 'acknowledgment' ? /acknowledgment/ : /staff-channel delivery/,
+      );
+    }
     assert.equal(events.includes('send'), false);
     assert.equal(
       events.at(-1)[0],
