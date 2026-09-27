@@ -84,6 +84,9 @@ export class HoneypotListener extends Listener {
           );
         }
 
+        const existingTimer = pendingHoneypotBans.get(message.author.id);
+        if (existingTimer) clearTimeout(existingTimer);
+
         const banTimeout = setTimeout(async () => {
           try {
             const guild = await message.client.guilds
@@ -104,7 +107,9 @@ export class HoneypotListener extends Listener {
               err,
             );
           } finally {
-            pendingHoneypotBans.delete(message.author.id);
+            if (pendingHoneypotBans.get(message.author.id) === banTimeout) {
+              pendingHoneypotBans.delete(message.author.id);
+            }
           }
         }, timeoutDuration);
 
