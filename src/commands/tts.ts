@@ -192,8 +192,6 @@ export class TssCommand extends Command {
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      // Commit before delivering audio. A failed storage write must not deliver
-      // a generation whose quota cannot be tracked.
       const committed = await finishTTSUsage(
         userId,
         reservation.usage.lastReset,
@@ -237,7 +235,6 @@ export class TssCommand extends Command {
             true,
           );
         } catch (refundError) {
-          // The pending reservation expires automatically if storage is unavailable.
           console.error(refundError);
         }
       }

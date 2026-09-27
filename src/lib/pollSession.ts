@@ -151,7 +151,7 @@ async function updatePolls<T>(
         });
       }
     }
-    // Keep the in-memory cache in step with the committed state while locked.
+
     activePolls.clear();
     for (const poll of Object.values(records.polls))
       activePolls.set(poll.authorId, toActivePoll(poll));

@@ -9,16 +9,16 @@
  */
 
 export type ActiveLFGSession = {
-    game: string;
-    rank: string;
-    maxPlayers: number;
-    author: string;
-    authorId: string;
-    channelId: string;
-    messageId: string;
-    vcId: string;
-    participantIds: Set<string>;
-    kickedIds: Set<string>;
+  game: string;
+  rank: string;
+  maxPlayers: number;
+  author: string;
+  authorId: string;
+  channelId: string;
+  messageId: string;
+  vcId: string;
+  participantIds: Set<string>;
+  kickedIds: Set<string>;
 };
 
 /** Active sessions are keyed by their host's user ID. */

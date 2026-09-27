@@ -1,5 +1,9 @@
 # SBot
 
+## Honeypot storage
+
+Honeypot ban deadlines, verification challenges, and appeal review status are stored in `data/honeypot.json` by default. Set `HONEYPOT_DATA_FILE` to use a different path. The bot needs read and write access to the file and its directory. If multiple bot processes run, configure every process to use the same shared, durable storage path so file locking and appeal state work across processes. A local file on each instance will not coordinate them.
+
 ## Party voice channels
 
 Use `/party create game:<game> [max_players:<number>]` to create a private voice channel for a game. The chosen game's role can join, and the command pings that role. Each game has a default player limit; set `max_players` from 1 to 10 to override it for one party. Only one active party can exist per host. The channel is not deleted automatically.

@@ -12,7 +12,15 @@ import {
   InteractionHandler,
   InteractionHandlerTypes,
 } from '@sapphire/framework';
-import { ButtonInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonInteraction,
+  ButtonStyle,
+  EmbedBuilder,
+  MessageFlags,
+} from 'discord.js';
+import { isHoneypotAppealTitle } from '../lib/honeypotAppeal.js';
 
 export class ReportHandler extends InteractionHandler {
   public constructor(
@@ -26,7 +34,8 @@ export class ReportHandler extends InteractionHandler {
   }
 
   public override parse(interaction: ButtonInteraction) {
-    return interaction.customId.startsWith('report_done_')
+    return interaction.customId.startsWith('report_done_') &&
+      !isHoneypotAppealTitle(interaction.message.embeds[0]?.title)
       ? this.some()
       : this.none();
   }
@@ -39,9 +48,26 @@ export class ReportHandler extends InteractionHandler {
 
     const resolvedEmbed = EmbedBuilder.from(originalEmbed)
       .setColor(0x00ff00)
+      .setFields(
+        ...(originalEmbed.fields ?? []).filter(
+          (field) => field.name !== 'Status',
+        ),
+        { name: 'Status', value: `✅ Resolved by <@${interaction.user.id}>` },
+      )
       .setFooter({ text: `Resolved by ${interaction.user.tag}` });
 
-    await interaction.message.edit({ embeds: [resolvedEmbed], components: [] });
+    const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(interaction.customId)
+        .setLabel('Mark as Resolved')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(true),
+    );
+
+    await interaction.message.edit({
+      embeds: [resolvedEmbed],
+      components: [disabledRow],
+    });
 
     const dmEmbed = new EmbedBuilder()
       .setTitle('✅ Your Report Has Been Resolved')
@@ -67,8 +93,14 @@ export class ReportHandler extends InteractionHandler {
     }
 
     await interaction.editReply({
-      content:
-        '✅ The report has been marked as resolved. A notification was sent to the reporter if direct messages were available.',
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('✅ Report Resolved')
+          .setDescription(
+            'The report has been marked as resolved. The reporter was notified if direct messages were available.',
+          )
+          .setColor(0x00ff00),
+      ],
     });
   }
 }
