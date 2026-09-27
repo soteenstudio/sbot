@@ -9,8 +9,15 @@
  */
 
 import { Listener, Events as SapphireEvents } from '@sapphire/framework';
-import { Client, TextChannel, EmbedBuilder } from 'discord.js';
+import { ChannelType, Client, TextChannel, EmbedBuilder } from 'discord.js';
 import 'dotenv/config';
+
+const WARNING_TITLE = '⚠️ Honeypot Channel';
+const LEGACY_WARNING_TITLE = '⚠️ Restricted Area / Honeypot';
+const WARNING_DESCRIPTION =
+  'Do not send messages in this channel. Posting here will remove your member role and time you out. If you do not submit an appeal, you will be banned after 3 hours.';
+const WARNING_COLOR = 0xff0000;
+const WARNING_FOOTER = 'SoTeen Studio • Honeypot';
 
 export class HoneypotSetupListener extends Listener {
   public constructor(context: Listener.Context, options: Listener.Options) {
@@ -29,7 +36,7 @@ export class HoneypotSetupListener extends Listener {
       const channel = await client.channels
         .fetch(honeypotChannelId)
         .catch(() => null);
-      if (!channel || channel.type !== 0) return;
+      if (!channel || channel.type !== ChannelType.GuildText) return;
 
       const textChannel = channel as TextChannel;
 
@@ -37,33 +44,39 @@ export class HoneypotSetupListener extends Listener {
         .fetch({ limit: 10 })
         .catch(() => null);
 
-      const botAlreadySent = messages?.some(
-        (msg) => msg.author.id === client.user?.id,
+      const warning = messages?.find(
+        (msg) =>
+          msg.author.id === client.user?.id &&
+          (msg.embeds[0]?.title === WARNING_TITLE ||
+            msg.embeds[0]?.title === LEGACY_WARNING_TITLE),
       );
 
-      if (botAlreadySent) {
-        console.log(
-          '[Honeypot Setup] Pesan peringatan/peringkat sudah ada di channel, melewati pengiriman ulang.',
-        );
+      const embed = new EmbedBuilder()
+        .setTitle(WARNING_TITLE)
+        .setDescription(WARNING_DESCRIPTION)
+        .setColor(WARNING_COLOR)
+        .setFooter({ text: WARNING_FOOTER })
+        .setTimestamp();
+
+      if (warning) {
+        const current = warning.embeds[0];
+        if (
+          current.title !== WARNING_TITLE ||
+          current.description !== WARNING_DESCRIPTION ||
+          current.color !== WARNING_COLOR ||
+          current.footer?.text !== WARNING_FOOTER
+        ) {
+          await warning.edit({ embeds: [embed] });
+          console.log('[Honeypot Setup] Updated the honeypot warning.');
+        }
         return;
       }
 
-      const embed = new EmbedBuilder()
-        .setTitle('⚠️ Restricted Area / Honeypot')
-        .setDescription(
-          'Dilarang keras mengirim pesan apa pun di channel ini!\n' +
-            'Kirim pesan di sini akan mengakibatkan role member kamu dicabut dan akunmu di-timeout secara otomatis.',
-        )
-        .setColor(0xff0000)
-        .setTimestamp();
-
       await textChannel.send({ embeds: [embed] });
-      console.log(
-        '[Honeypot Setup] Berhasil mengirim pesan peringatan ke channel honeypot.',
-      );
+      console.log('[Honeypot Setup] Posted the honeypot warning.');
     } catch (error) {
       console.error(
-        '[Honeypot Setup Error] Gagal mengecek atau mengirim pesan ke channel honeypot:',
+        '[Honeypot Setup Error] Could not check or post the honeypot warning:',
         error,
       );
     }

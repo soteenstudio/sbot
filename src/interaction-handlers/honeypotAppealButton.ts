@@ -28,7 +28,7 @@ import {
   activeCaptchas,
   modalOpenTimes,
   handledAppeals,
-  HONEYPOT_APPEAL_TITLE,
+  isHoneypotAppealTitle,
 } from '../lib/honeypotAppeal.js';
 
 export class HoneypotAppealButtonHandler extends InteractionHandler {
@@ -48,7 +48,7 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
       interaction.customId.startsWith('honeypot_appeal_') ||
       ((interaction.customId.startsWith('report_done_') ||
         interaction.customId.startsWith('report_ban_')) &&
-        interaction.message.embeds[0]?.title === HONEYPOT_APPEAL_TITLE)
+        isHoneypotAppealTitle(interaction.message.embeds[0]?.title))
     ) {
       return this.some();
     }
@@ -113,15 +113,18 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
             await user
               .send({
                 content:
-                  '✅ **Good news!** Your honeypot ban appeal has been reviewed and approved by the staff. Your restriction is fully lifted.',
+                  '✅ Your honeypot appeal was approved. Your restriction has been lifted.',
               })
               .catch(() => {});
           }
 
-          oldEmbed.setColor(0x00ff00).addFields({
-            name: 'Status',
-            value: `✅ Resolved by <@${interaction.user.id}>`,
-          });
+          oldEmbed
+            .setColor(0x00ff00)
+            .addFields({
+              name: 'Status',
+              value: `✅ Approved by <@${interaction.user.id}>`,
+            })
+            .setFooter({ text: `Approved by ${interaction.user.tag}` });
 
           await interaction.message.edit({
             embeds: [oldEmbed],
@@ -133,7 +136,7 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
             await user
               .send({
                 content:
-                  '❌ **Your honeypot ban appeal has been rejected by the staff.** You have now been permanently banned from the server.',
+                  '❌ Your honeypot appeal was rejected. You have been banned from the server.',
               })
               .catch(() => {});
           }
@@ -151,10 +154,13 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
             }
           }
 
-          oldEmbed.setColor(0xff0000).addFields({
-            name: 'Status',
-            value: `❌ Rejected & Banned by <@${interaction.user.id}>`,
-          });
+          oldEmbed
+            .setColor(0xff0000)
+            .addFields({
+              name: 'Status',
+              value: `❌ Rejected and banned by <@${interaction.user.id}>`,
+            })
+            .setFooter({ text: `Rejected by ${interaction.user.tag}` });
 
           await interaction.message.edit({
             embeds: [oldEmbed],
@@ -178,7 +184,7 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
 
       if (interaction.user.id !== targetUserId) {
         return interaction.reply({
-          content: '❌ Only the banned user can submit this appeal.',
+          content: '❌ Only the affected user can submit this appeal.',
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -199,20 +205,20 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
 
       const modal = new ModalBuilder()
         .setCustomId(`honeypot_modal_submit_${targetUserId}_${targetGuildId}`)
-        .setTitle('🛡️ Anti-Bot Security Verification');
+        .setTitle('Honeypot Appeal Verification');
 
       const mathInput = new TextInputBuilder()
         .setCustomId('captcha_math')
-        .setLabel(`Berapa hasil dari: ${num1} + ${num2} ?`)
+        .setLabel(`What is ${num1} + ${num2}?`)
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Masukkan angka jawaban...')
+        .setPlaceholder('Enter the answer')
         .setRequired(true);
 
       const stringInput = new TextInputBuilder()
         .setCustomId('captcha_string')
-        .setLabel(`Ketik ulang teks acak berikut: ${randomString}`)
+        .setLabel(`Type this code: ${randomString}`)
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Masukkan teks di atas...')
+        .setPlaceholder('Enter the code above')
         .setRequired(true);
 
       modal.addComponents(

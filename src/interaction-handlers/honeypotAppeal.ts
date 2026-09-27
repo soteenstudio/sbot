@@ -60,7 +60,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
 
       if (interaction.user.id !== targetUserId) {
         return interaction.reply({
-          content: '❌ Invalid user session.',
+          content: '❌ This appeal belongs to another user.',
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -79,7 +79,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
       if (elapsedTime < MIN_ALLOWED_SECONDS) {
         return interaction.reply({
           content:
-            '❌ **Appeal Rejected:** Your submission was detected as automated behavior (too fast). Appeal process blocked.',
+            '❌ Verification failed. Please wait a moment before submitting your appeal.',
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -99,7 +99,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
       ) {
         return interaction.reply({
           content:
-            '❌ **Verification Failed:** Jawaban captcha matematika atau teks acak salah. Silakan klik tombol appeal ulang.',
+            '❌ Verification failed. Check both answers and click Appeal Restriction to try again.',
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -133,7 +133,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
         if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
           await interaction.editReply({
             content:
-              '❌ Your appeal could not be sent because the staff channel is not configured properly.',
+              '❌ Your appeal could not be sent. Please contact a server administrator.',
           });
           return;
         }
@@ -145,11 +145,11 @@ export class HoneypotAppealHandler extends InteractionHandler {
         const embed = new EmbedBuilder()
           .setTitle(HONEYPOT_APPEAL_TITLE)
           .setDescription(
-            `User **${user ? user.tag : targetUserId}** has passed the security verification and submitted an appeal.`,
+            `**${user ? user.tag : targetUserId}** passed verification and submitted a honeypot appeal.`,
           )
           .addFields(
             {
-              name: 'User Details',
+              name: 'User',
               value: `${user ? user.tag : 'Unknown'} (${targetUserId})`,
               inline: true,
             },
@@ -159,23 +159,23 @@ export class HoneypotAppealHandler extends InteractionHandler {
               inline: true,
             },
             {
-              name: 'Security Check',
-              value:
-                '✅ Passed Math & String Captcha\n✅ Passed Time Validation',
+              name: 'Verification',
+              value: '✅ Challenge and time check passed',
               inline: false,
             },
           )
           .setColor(0xffa500)
+          .setFooter({ text: 'Review this appeal before taking action.' })
           .setTimestamp();
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(`report_done_${targetUserId}`)
-            .setLabel('Mark as Resolved')
+            .setLabel('Approve Appeal')
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
             .setCustomId(`report_ban_${targetUserId}`)
-            .setLabel('Reject & Ban')
+            .setLabel('Reject and Ban')
             .setStyle(ButtonStyle.Danger),
         );
 
@@ -199,7 +199,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
                   .setCustomId(
                     `honeypot_appeal_${targetUserId}_${targetGuildId}`,
                   )
-                  .setLabel('Appeal Submitted & Verified')
+                  .setLabel('Appeal Submitted')
                   .setStyle(ButtonStyle.Secondary)
                   .setDisabled(true),
               );
@@ -216,7 +216,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
 
         await interaction.editReply({
           content:
-            '✅ **Verification Successful!** Your appeal has been securely submitted to the server staff. Please wait while staff reviews your case.',
+            '✅ Your appeal was submitted to staff. You will be notified after review.',
         });
       } catch (error) {
         console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
@@ -224,7 +224,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
         const response = {
           content: submitted
             ? 'Your appeal was submitted, but the confirmation could not be displayed.'
-            : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
+            : '❌ Your appeal could not be sent. Please contact a server administrator.',
         };
         try {
           if (interaction.deferred || interaction.replied) {
