@@ -231,7 +231,11 @@ test('Sapphire loads and routes a DM appeal button to the handler', async (t) =>
     isModalSubmit: () => false,
     isButton: () => true,
     deferred: false,
-    message: { embeds: [{ title: 'Ordinary report' }], async edit(value) { assert.deepEqual(value.components, []); } },
+    message: { embeds: [{ title: 'Ordinary report' }], async edit(value) {
+      assert.equal(value.embeds[0].data.fields.at(-1).name, 'Status');
+      assert.match(value.embeds[0].data.fields.at(-1).value, /Resolved by/);
+      assert.equal(value.components[0].components[0].data.disabled, true);
+    } },
   };
   await coreListener.run(ordinary);
   assert.equal(ordinary.deferred, true);
@@ -319,7 +323,10 @@ test('DM appeal keeps the button until staff delivery succeeds', async (t) => {
   assert.equal(events[0][1].flags, MessageFlags.Ephemeral);
   assert.equal(interaction.message.components[0].components[0].data.disabled, true);
   assert.equal(events.at(-2)[1].components[0].components[0].data.disabled, true);
-  assert.match(events.at(-1)[1].content, /submitted to staff/);
+  assert.equal(events.at(-1)[1].embeds[0].data.title, '✅ Appeal Submitted');
+  assert.match(events.at(-1)[1].embeds[0].data.description, /submitted to staff/);
+  assert.equal(events.at(-1)[1].embeds[0].data.color, 0x00ff00);
+  assert.equal(events.at(-1)[1].content, undefined);
   assert.equal(events.at(-1)[1].components, undefined);
 });
 
@@ -428,7 +435,7 @@ test('DM button update failure still confirms delivery and blocks duplicate clic
   await runAppeal(interaction);
   assert.equal(events.filter((event) => event === 'send').length, 1);
   assert.equal(events.at(-1)[0], 'editReply');
-  assert.match(events.at(-1)[1].content, /submitted to staff/);
+  assert.match(events.at(-1)[1].embeds[0].data.description, /submitted to staff/);
   assert.match(errors[0][0], /Failed to update DM button/);
   assert.deepEqual(interaction.message.components, ['appeal button']);
   await runAppeal({ ...interaction, deferred: false, replied: false });

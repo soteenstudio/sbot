@@ -16,6 +16,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
 
@@ -93,8 +94,14 @@ export class ReportCommand extends Subcommand {
           value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
           inline: true,
         },
+        {
+          name: 'Status',
+          value: '⏳ Awaiting staff review',
+          inline: false,
+        },
       )
-      .setColor(0xff0000)
+      .setColor(0xffa500)
+      .setFooter({ text: 'Review this report before taking action.' })
       .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -106,18 +113,48 @@ export class ReportCommand extends Subcommand {
 
     try {
       await reportChannel.send({ embeds: [embed], components: [row] });
-      await interaction.reply({
-        content: '✅ Your report has been sent to the server staff. Thank you.',
-        ephemeral: true,
-      });
     } catch (error) {
       console.error('Failed to send report to channel:', error);
 
       await interaction.reply({
         content:
           '❌ Your report could not be delivered. Please contact a server administrator directly.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
+      return;
+    }
+
+    const confirmation = new EmbedBuilder()
+      .setTitle('✅ Report Submitted')
+      .setDescription(
+        'Your report has been sent to the server staff. Thank you.',
+      )
+      .setColor(0x00ff00);
+
+    try {
+      await interaction.reply({
+        embeds: [confirmation],
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (error) {
+      console.error('Failed to confirm delivered report:', error);
+      try {
+        const response = {
+          content:
+            'Your report was delivered, but the confirmation could not be displayed.',
+          flags: MessageFlags.Ephemeral,
+        } as const;
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp(response);
+        } else {
+          await interaction.reply(response);
+        }
+      } catch (responseError) {
+        console.error(
+          'Failed to respond after report confirmation error:',
+          responseError,
+        );
+      }
     }
   }
 }
