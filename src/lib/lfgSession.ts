@@ -22,7 +22,10 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { activeLFG, type ActiveLFGSession } from './lfg-data.js';
 
-export type LFGSession = Omit<ActiveLFGSession, 'participantIds' | 'kickedIds'> & {
+export type LFGSession = Omit<
+  ActiveLFGSession,
+  'participantIds' | 'kickedIds'
+> & {
   participantIds: string[];
   kickedIds: string[];
 };
@@ -144,8 +147,7 @@ async function updateLFG<T>(
       )
         throw error;
     }
-    if (Date.now() - started > 35_000)
-      throw new Error('LFG storage is busy');
+    if (Date.now() - started > 35_000) throw new Error('LFG storage is busy');
     await new Promise((done) => setTimeout(done, 25));
   }
 
@@ -179,7 +181,9 @@ async function updateLFG<T>(
   }
 }
 
-export async function getLFGSession(hostId: string): Promise<LFGSession | null> {
+export async function getLFGSession(
+  hostId: string,
+): Promise<LFGSession | null> {
   const records = await readLFG(lfgPath());
   return records[hostId] ?? null;
 }

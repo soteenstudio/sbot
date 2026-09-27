@@ -29,7 +29,7 @@ export type TTSUsage = {
 type UsageRecords = Record<string, TTSUsage>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Both remote requests have 60-second timeouts. Allow another minute for local work.
+
 export const RESERVATION_TTL_MS = 3 * 60 * 1000;
 const usagePath = () =>
   resolve(process.env.TTS_USAGE_FILE ?? 'data/tts-usage.json');
