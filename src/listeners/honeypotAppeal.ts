@@ -38,9 +38,17 @@ export class HoneypotAppealListener extends Listener {
     const targetUserId = parts[2];
     const targetGuildId = parts[3];
 
-    if (!targetUserId || !targetGuildId) {
+    if (parts.length !== 4 || !targetUserId || !targetGuildId) {
       await interaction.reply({
         content: '❌ Invalid appeal data detected.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (interaction.user.id !== targetUserId) {
+      await interaction.reply({
+        content: '❌ Only the banned user can submit this appeal.',
         ephemeral: true,
       });
       return;
@@ -59,10 +67,7 @@ export class HoneypotAppealListener extends Listener {
     handledAppeals.add(messageId);
     let submitted = false;
     try {
-      await interaction.update({
-        content: 'Submitting your appeal to the server staff…',
-        components: [],
-      });
+      await interaction.deferUpdate();
 
       const reportChannelId = process.env.REPORT_CHANNEL;
 

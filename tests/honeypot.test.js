@@ -50,7 +50,9 @@ function appeal(t) {
   const interaction = {
     isButton: () => true,
     customId: 'honeypot_appeal_user_guild',
-    message: { id: String(++nextMessageId) },
+    user: { id: 'user' },
+    message: { id: String(++nextMessageId), components: ['appeal button'] },
+    deferred: false,
     replied: false,
     client: {
       guilds: {
@@ -66,10 +68,10 @@ function appeal(t) {
         },
       },
     },
-    async update(value) {
-      assert.equal(this.replied, false);
-      this.replied = true;
-      events.push(['update', value]);
+    async deferUpdate() {
+      assert.equal(this.deferred, false);
+      this.deferred = true;
+      events.push('deferUpdate');
     },
     async reply(value) {
       assert.equal(this.replied, false);
@@ -77,11 +79,12 @@ function appeal(t) {
       events.push(['reply', value]);
     },
     async editReply(value) {
-      assert.equal(this.replied, true);
+      assert.equal(this.deferred, true);
       events.push(['editReply', value]);
+      if (value.components) this.message.components = value.components;
     },
     async followUp(value) {
-      assert.equal(this.replied, true);
+      assert.equal(this.deferred, true);
       events.push(['followUp', value]);
     },
   };
@@ -132,24 +135,35 @@ for (const member of [null, { bannable: false }, { bannable: true }]) {
   });
 }
 
-test('appeal acknowledges and removes buttons before lookups; edits after sending', async (t) => {
+test('DM appeal keeps the button until staff delivery succeeds', async (t) => {
   const { interaction, events } = appeal(t);
   await runAppeal(interaction);
   assert.deepEqual(
     events.map((event) => (Array.isArray(event) ? event[0] : event)),
-    ['update', 'guild', 'channel', 'user', 'send', 'editReply'],
+    ['deferUpdate', 'guild', 'channel', 'user', 'send', 'editReply'],
   );
-  assert.deepEqual(events[0][1].components, []);
+  assert.deepEqual(interaction.message.components, []);
   assert.deepEqual(events.at(-1)[1].components, []);
+});
+
+test('only the user named in the DM button can submit an appeal', async (t) => {
+  const { interaction, events } = appeal(t);
+  await runAppeal({ ...interaction, user: { id: 'someone_else' } });
+  assert.deepEqual(events.map((event) => event[0]), ['reply']);
+  assert.equal(events[0][1].ephemeral, true);
+  assert.match(events[0][1].content, /Only the banned user/);
+
+  await runAppeal(interaction);
+  assert.equal(events.includes('send'), true);
 });
 
 test('concurrent and later clicks on the same message send only one appeal', async (t) => {
   const { interaction, events } = appeal(t);
   const duplicate = { ...interaction };
   const { promise, resolve } = Promise.withResolvers();
-  const update = interaction.update;
-  interaction.update = async function (value) {
-    await update.call(this, value);
+  const deferUpdate = interaction.deferUpdate;
+  interaction.deferUpdate = async function () {
+    await deferUpdate.call(this);
     await promise;
   };
   const pending = runAppeal(interaction);
@@ -157,7 +171,7 @@ test('concurrent and later clicks on the same message send only one appeal', asy
   assert.equal(events.includes('guild'), false);
   resolve();
   await pending;
-  await runAppeal({ ...interaction, replied: false });
+  await runAppeal({ ...interaction, deferred: false, replied: false });
   assert.equal(events.filter((event) => event === 'send').length, 1);
   assert.equal(events.filter((event) => event[0] === 'reply').length, 2);
 
@@ -174,14 +188,14 @@ test('confirmation failure retains the guard and reports successful delivery', a
   await runAppeal(interaction);
   assert.equal(events.at(-1)[0], 'followUp');
   assert.match(events.at(-1)[1].content, /appeal was submitted/);
-  await runAppeal({ ...interaction, replied: false });
+  await runAppeal({ ...interaction, deferred: false, replied: false });
   assert.equal(events.filter((event) => event === 'send').length, 1);
 });
 
 for (const failure of ['configuration', 'send', 'acknowledgment']) {
   test(`appeal ${failure} failure responds appropriately and releases the guard`, async (t) => {
     const { interaction, events, channel } = appeal(t);
-    const update = interaction.update;
+    const deferUpdate = interaction.deferUpdate;
     const send = channel.send;
     if (failure === 'configuration') channel.type = ChannelType.GuildVoice;
     if (failure === 'send')
@@ -189,8 +203,8 @@ for (const failure of ['configuration', 'send', 'acknowledgment']) {
         throw new Error('Send failed');
       };
     if (failure === 'acknowledgment')
-      interaction.update = async () => {
-        throw new Error('Update failed');
+      interaction.deferUpdate = async () => {
+        throw new Error('Acknowledgment failed');
       };
     await runAppeal(interaction);
     assert.equal(events.includes('send'), false);
@@ -199,9 +213,30 @@ for (const failure of ['configuration', 'send', 'acknowledgment']) {
       failure === 'acknowledgment' ? 'reply' : 'followUp',
     );
     assert.equal(events.at(-1)[1].ephemeral, true);
+    assert.deepEqual(interaction.message.components, ['appeal button']);
     channel.type = ChannelType.GuildText;
     channel.send = send;
-    await runAppeal({ ...interaction, update, replied: false });
+    await runAppeal({ ...interaction, deferUpdate, deferred: false, replied: false });
     assert.equal(events.filter((event) => event === 'send').length, 1);
+    assert.deepEqual(interaction.message.components, []);
   });
 }
+
+test('missing REPORT_CHANNEL keeps the DM button available for retry', async (t) => {
+  const { interaction, events } = appeal(t);
+  const reportChannel = process.env.REPORT_CHANNEL;
+  delete process.env.REPORT_CHANNEL;
+  try {
+    await runAppeal(interaction);
+  } finally {
+    process.env.REPORT_CHANNEL = reportChannel;
+  }
+  assert.deepEqual(
+    events.map((event) => (Array.isArray(event) ? event[0] : event)),
+    ['deferUpdate', 'guild', 'followUp'],
+  );
+  assert.deepEqual(interaction.message.components, ['appeal button']);
+  await runAppeal({ ...interaction, deferred: false });
+  assert.equal(events.filter((event) => event === 'send').length, 1);
+  assert.deepEqual(interaction.message.components, []);
+});
