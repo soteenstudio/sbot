@@ -21,6 +21,7 @@ import {
 } from 'discord.js';
 import { activeLFG } from '../lib/lfg-data.js';
 import { isUnknownChannel } from '../lib/party-data.js';
+import { deleteLFGSession } from '../lib/lfgSession.js';
 
 export class EndSessionHandler extends InteractionHandler {
   public constructor(
@@ -66,6 +67,7 @@ export class EndSessionHandler extends InteractionHandler {
       }
     }
 
+    await deleteLFGSession(hostId);
     activeLFG.delete(hostId);
     const origin = await interaction.client.channels
       .fetch(session.channelId)

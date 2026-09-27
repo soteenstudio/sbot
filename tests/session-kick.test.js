@@ -9,7 +9,10 @@
  */
 
 import assert from 'node:assert/strict';
-import { beforeEach, test } from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, beforeEach, test } from 'node:test';
 import { ChannelType, EmbedBuilder } from 'discord.js';
 import { PartyCommand } from '../dist/commands/party.js';
 import { LFGCommand } from '../dist/commands/lfg-pro.js';
@@ -18,6 +21,11 @@ import { EndSessionHandler } from '../dist/interaction-handlers/LFGEndSession.js
 import { JoinButtonHandler } from '../dist/interaction-handlers/LFGJoin.js';
 import { activeParties } from '../dist/lib/party-data.js';
 import { activeLFG } from '../dist/lib/lfg-data.js';
+import {
+  getLFGSession,
+  restoreLFGSessions,
+  saveLFGSession,
+} from '../dist/lib/lfgSession.js';
 
 const hostId = '123456789012345678';
 const participantId = '234567890123456789';
@@ -26,9 +34,14 @@ const guildId = '456789012345678901';
 const voiceId = '567890123456789012';
 const originId = '678901234567890123';
 
-beforeEach(() => {
+const storageDirectory = await mkdtemp(join(tmpdir(), 'lfg-session-test-'));
+process.env.LFG_DATA_FILE = join(storageDirectory, 'sessions.json');
+after(() => rm(storageDirectory, { recursive: true, force: true }));
+
+beforeEach(async () => {
   activeParties.clear();
   activeLFG.clear();
+  await rm(process.env.LFG_DATA_FILE, { force: true });
 });
 
 function voiceChannel(connected = true) {
@@ -178,6 +191,8 @@ test('LFG host kicks an accepted participant, including when disconnected', asyn
   assert.equal(channel.disconnects, 0);
   assert.equal(session.participantIds.has(participantId), false);
   assert.equal(session.kickedIds.has(participantId), true);
+  assert.deepEqual((await getLFGSession(hostId)).participantIds, []);
+  assert.deepEqual((await getLFGSession(hostId)).kickedIds, [participantId]);
 });
 
 test('LFG connected participant is disconnected, and unauthorized targets are rejected', async () => {
@@ -292,6 +307,8 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
   assert.match(reply.content, /Join request accepted/);
   assert.equal(session.vcId, voiceId);
   assert.equal(session.participantIds.has(participantId), true);
+  assert.deepEqual((await getLFGSession(hostId)).participantIds, [participantId]);
+  assert.equal((await getLFGSession(hostId)).vcId, voiceId);
 
   session.participantIds.delete(participantId);
   session.kickedIds.add(participantId);
@@ -309,12 +326,16 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
 });
 
 test('an old LFG join button cannot request access to a later session', async () => {
+  const oldSession = lfgSession([]);
+  await saveLFGSession(oldSession);
   const session = lfgSession([]);
-  activeLFG.set(hostId, session);
+  session.messageId = '890123456789012345';
+  await saveLFGSession(session);
+  await restoreLFGSessions();
   const reply = await JoinButtonHandler.prototype.run({
     customId: `lfg_pro_join_${hostId}`,
     user: { id: participantId },
-    message: { id: 'old-message' },
+    message: { id: oldSession.messageId },
     async deferUpdate() {},
     async followUp(value) {
       return value;
@@ -322,12 +343,14 @@ test('an old LFG join button cannot request access to a later session', async ()
   });
   assert.match(reply.content, /no longer active/);
   assert.equal(session.participantIds.size, 0);
+  assert.equal(activeLFG.get(hostId).messageId, session.messageId);
 });
 
 test('LFG close deletes the channel and discards session-specific access state', async () => {
   const session = lfgSession([]);
   session.kickedIds.add(participantId);
   activeLFG.set(hostId, session);
+  await saveLFGSession(session);
   const channel = voiceChannel();
   const reply = await LFGCommand.prototype.close.call({}, {
     user: { id: hostId },
@@ -340,12 +363,15 @@ test('LFG close deletes the channel and discards session-specific access state',
   assert.match(reply.content, /has been closed/);
   assert.equal(channel.deletes, 1);
   assert.equal(activeLFG.has(hostId), false);
+  assert.equal(await getLFGSession(hostId), null);
   assert.equal(lfgSession([]).kickedIds.size, 0);
 });
 
 test('LFG close retains the session when channel deletion fails for a retry', async (t) => {
   t.mock.method(console, 'error', () => {});
-  activeLFG.set(hostId, lfgSession());
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
   const channel = voiceChannel();
   channel.delete = async () => {
     throw { code: 50013 };
@@ -359,12 +385,14 @@ test('LFG close retains the session when channel deletion fails for a retry', as
   });
   assert.match(reply.content, /Could not close/);
   assert.equal(activeLFG.has(hostId), true);
+  assert.ok(await getLFGSession(hostId));
 });
 
 test('LFG end button requires its host and deletes the session channel', async () => {
   const session = lfgSession();
   session.kickedIds.add(outsiderId);
   activeLFG.set(hostId, session);
+  await saveLFGSession(session);
   const channel = voiceChannel();
   const guild = { channels: { fetch: async () => channel } };
   const client = { channels: { fetch: async () => null } };
@@ -384,4 +412,136 @@ test('LFG end button requires its host and deletes the session channel', async (
   assert.match(ended.content, /has ended/);
   assert.equal(channel.deletes, 1);
   assert.equal(activeLFG.has(hostId), false);
+  assert.equal(await getLFGSession(hostId), null);
+});
+
+test('LFG end button retains persisted state when channel deletion fails', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  const channel = voiceChannel();
+  channel.delete = async () => { throw { code: 50013 }; };
+  const reply = await EndSessionHandler.prototype.run({
+    customId: `lfg_pro_end_${voiceId}`,
+    user: { id: hostId },
+    guild: { channels: { fetch: async () => channel } },
+    async reply(value) { return value; },
+  });
+  assert.match(reply.content, /Could not end/);
+  assert.ok(await getLFGSession(hostId));
+  activeLFG.clear();
+  await restoreLFGSessions();
+  assert.equal(activeLFG.get(hostId).vcId, voiceId);
+});
+
+test('restart restores kicked participants and rejects their old join requests', async () => {
+  const session = lfgSession([]);
+  session.kickedIds.add(participantId);
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  activeLFG.clear();
+  await restoreLFGSessions();
+
+  assert.equal(activeLFG.get(hostId).kickedIds.has(participantId), true);
+  assert.ok(activeLFG.get(hostId).participantIds instanceof Set);
+  const reply = await JoinButtonHandler.prototype.run({
+    customId: `lfg_pro_join_${hostId}`,
+    user: { id: participantId },
+    message: { id: session.messageId },
+    async deferUpdate() {},
+    async followUp(value) { return value; },
+  });
+  assert.match(reply.content, /removed from this session/);
+});
+
+test('LFG creation removes join controls on save failure and registers saved sessions', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const path = process.env.LFG_DATA_FILE;
+  let edited;
+  const interaction = {
+    user: { id: hostId, tag: 'host' }, channelId: originId,
+    options: { getString: () => 'game', getInteger: () => null },
+    reply: async () => ({ id: 'message' }),
+    editReply: async (value) => { edited = value; },
+  };
+  try {
+    process.env.LFG_DATA_FILE = storageDirectory;
+    await LFGCommand.prototype.create(interaction);
+    assert.match(edited.content, /Could not create/);
+    assert.deepEqual(edited.components, []);
+    assert.deepEqual(edited.embeds, []);
+    assert.equal(activeLFG.has(hostId), false);
+  } finally { process.env.LFG_DATA_FILE = path; }
+  await LFGCommand.prototype.create(interaction);
+  assert.equal(activeLFG.get(hostId).messageId, 'message');
+  assert.equal((await getLFGSession(hostId)).messageId, 'message');
+});
+
+test('LFG failed kick save preserves in-memory and stored participants', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  const stored = await getLFGSession(hostId);
+  const channel = voiceChannel();
+  const path = process.env.LFG_DATA_FILE;
+  try {
+    process.env.LFG_DATA_FILE = storageDirectory;
+    const reply = await LFGCommand.prototype.kick(kickInteraction(hostId, participantId, {
+      id: guildId,
+      channels: { fetch: async () => channel },
+      members: { fetch: async () => channel.member },
+    }));
+    assert.match(reply.content, /Could not remove/);
+    assert.deepEqual([...session.participantIds], stored.participantIds);
+    assert.deepEqual([...session.kickedIds], stored.kickedIds);
+  } finally { process.env.LFG_DATA_FILE = path; }
+  assert.deepEqual(await getLFGSession(hostId), stored);
+});
+
+test('LFG failed accept save preserves participants and voice channel id', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  for (const vcId of ['', voiceId]) {
+    const session = lfgSession([]);
+    session.vcId = vcId;
+    activeLFG.set(hostId, session);
+    await saveLFGSession(session);
+    const stored = await getLFGSession(hostId);
+    const channel = voiceChannel(false);
+    const guild = {
+      id: guildId,
+      members: { fetch: async () => channel.member },
+      channels: { create: async () => channel, fetch: async () => channel },
+    };
+    const path = process.env.LFG_DATA_FILE;
+    try {
+      process.env.LFG_DATA_FILE = storageDirectory;
+      const reply = await RequestHandler.prototype.run({
+        customId: `lfg_pro_accept_${participantId}_${originId}_${session.messageId}_${hostId}`,
+        user: { id: hostId },
+        client: {
+          channels: { fetch: async () => ({ guild, isTextBased: () => false }) },
+          users: { fetch: async () => ({ id: hostId, username: 'host' }) },
+        },
+        async deferUpdate() {},
+        async followUp(value) { return value; },
+      });
+      assert.match(reply.content, /Could not add/);
+      assert.equal(session.vcId, vcId);
+      assert.equal(session.participantIds.size, 0);
+    } finally { process.env.LFG_DATA_FILE = path; }
+    assert.deepEqual(await getLFGSession(hostId), stored);
+  }
+});
+
+test('LFG storage rejects invalid roots and member collections without overwriting them', async () => {
+  const { writeFile, readFile } = await import('node:fs/promises');
+  for (const value of [null, [], 1, 'sessions', { host: null }, { host: {} }, { host: { participantIds: 'id', kickedIds: [] } }, { host: { participantIds: [], kickedIds: {} } }]) {
+    const raw = JSON.stringify(value);
+    await writeFile(process.env.LFG_DATA_FILE, raw);
+    await assert.rejects(restoreLFGSessions(), /Invalid LFG storage/);
+    await assert.rejects(saveLFGSession(lfgSession()), /Invalid LFG storage/);
+    assert.equal(await readFile(process.env.LFG_DATA_FILE, 'utf8'), raw);
+  }
 });

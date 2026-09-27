@@ -18,11 +18,16 @@ import {
   ComponentType,
   ChannelType,
 } from 'discord.js';
-import { activeLFG } from '../lib/lfg-data.js';
+import { Games } from '../games.js';
+import { activeLFG, type ActiveLFGSession } from '../lib/lfg-data.js';
 import { isUnknownChannel } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 import { kickFromSession } from '../lib/session-kick.js';
-import { Games } from '../games.js';
+import {
+  deleteLFGSession,
+  getAllLFGSessions,
+  saveLFGSession,
+} from '../lib/lfgSession.js';
 
 export class LFGCommand extends Subcommand {
   public constructor(
@@ -165,7 +170,7 @@ export class LFGCommand extends Subcommand {
       fetchReply: true,
     });
 
-    activeLFG.set(interaction.user.id, {
+    const session: ActiveLFGSession = {
       game,
       rank,
       maxPlayers,
@@ -176,7 +181,19 @@ export class LFGCommand extends Subcommand {
       vcId: '',
       participantIds: new Set(),
       kickedIds: new Set(),
-    });
+    };
+    try {
+      await saveLFGSession(session);
+    } catch (error) {
+      console.error('Could not save LFG session:', error);
+      await interaction.editReply({
+        content: '❌ Could not create the session. Please try again.',
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+    activeLFG.set(interaction.user.id, session);
   }
 
   public async close(interaction: ChatInputCommandInteraction) {
@@ -228,6 +245,7 @@ export class LFGCommand extends Subcommand {
       }
     }
 
+    await deleteLFGSession(interaction.user.id);
     activeLFG.delete(interaction.user.id);
 
     return interaction.reply({
@@ -271,8 +289,13 @@ export class LFGCommand extends Subcommand {
       }
       const member = await interaction.guild.members.fetch(participant.id);
       await kickFromSession(channel, member);
-      session.participantIds.delete(participant.id);
-      session.kickedIds.add(participant.id);
+      const participantIds = new Set(session.participantIds);
+      const kickedIds = new Set(session.kickedIds);
+      participantIds.delete(participant.id);
+      kickedIds.add(participant.id);
+      await saveLFGSession({ ...session, participantIds, kickedIds });
+      session.participantIds = participantIds;
+      session.kickedIds = kickedIds;
 
       try {
         const origin = await interaction.client.channels.fetch(
@@ -316,14 +339,15 @@ export class LFGCommand extends Subcommand {
   }
 
   public async list(interaction: ChatInputCommandInteraction) {
-    if (activeLFG.size === 0) {
+    const sessions = await getAllLFGSessions();
+    if (sessions.length === 0) {
       return interaction.reply({
         content: 'No premium sessions are currently active.',
         ephemeral: true,
       });
     }
 
-    const lines = Array.from(activeLFG.values()).map(
+    const lines = sessions.map(
       (session) =>
         `• ${session.game} | Required rank: ${session.rank} | Host: ${session.author}`,
     );

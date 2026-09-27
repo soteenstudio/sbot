@@ -12,6 +12,8 @@ import { SapphireClient, RegisterBehavior } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
 import 'dotenv/config';
 import { join } from 'path';
+import { restoreLFGSessions } from './lib/lfgSession.js';
+import { restorePolls } from './lib/pollSession.js';
 
 const client = new SapphireClient({
   intents: [
@@ -30,6 +32,8 @@ client.stores
 
 async function main() {
   try {
+    await restoreLFGSessions();
+    await restorePolls();
     await client.login(process.env.TOKEN);
     console.log('The bot is online! Ready to execute.');
 
