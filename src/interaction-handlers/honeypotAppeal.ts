@@ -215,8 +215,14 @@ export class HoneypotAppealHandler extends InteractionHandler {
         step = 'confirmation';
 
         await interaction.editReply({
-          content:
-            '✅ Your appeal was submitted to staff. You will be notified after review.',
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('✅ Appeal Submitted')
+              .setDescription(
+                'Your appeal was submitted to staff. You will be notified after review.',
+              )
+              .setColor(0x00ff00),
+          ],
         });
       } catch (error) {
         console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
