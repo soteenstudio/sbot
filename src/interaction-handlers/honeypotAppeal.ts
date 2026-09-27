@@ -8,84 +8,92 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { Listener } from '@sapphire/framework';
 import {
-  Interaction,
-  Events,
-  EmbedBuilder,
+  InteractionHandler,
+  InteractionHandlerTypes,
+} from '@sapphire/framework';
+import {
+  ButtonInteraction,
   ChannelType,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
 } from 'discord.js';
 import 'dotenv/config';
 
 const handledAppeals = new Set<string>();
 
-export class HoneypotAppealListener extends Listener {
-  public constructor(context: Listener.Context, options: Listener.Options) {
+export class HoneypotAppealHandler extends InteractionHandler {
+  public constructor(
+    context: InteractionHandler.LoaderContext,
+    options: InteractionHandler.Options,
+  ) {
     super(context, {
       ...options,
-      event: Events.InteractionCreate,
+      interactionHandlerType: InteractionHandlerTypes.Button,
     });
   }
 
-  public async run(interaction: Interaction) {
-    if (!interaction.isButton()) return;
-    if (!interaction.customId.startsWith('honeypot_appeal_')) return;
+  public override parse(interaction: ButtonInteraction) {
+    // Filter tombol khusus honeypot appeal
+    if (interaction.customId.startsWith('honeypot_appeal_')) {
+      return this.some();
+    }
+    return this.none();
+  }
+
+  public async run(interaction: ButtonInteraction) {
+    console.log(`[Honeypot Appeal Handler] Triggered with customId: ${interaction.customId}`);
 
     const parts = interaction.customId.split('_');
+    // Format: honeypot_appeal_<userId>_<guildId>
     const targetUserId = parts[2];
     const targetGuildId = parts[3];
 
-    if (parts.length !== 4 || !targetUserId || !targetGuildId) {
-      await interaction.reply({
+    if (!targetUserId || !targetGuildId) {
+      return interaction.reply({
         content: '❌ Invalid appeal data detected.',
         ephemeral: true,
       });
-      return;
     }
 
     if (interaction.user.id !== targetUserId) {
-      await interaction.reply({
+      return interaction.reply({
         content: '❌ Only the banned user can submit this appeal.',
         ephemeral: true,
       });
-      return;
     }
 
     const messageId = interaction.message.id;
     if (handledAppeals.has(messageId)) {
-      await interaction.reply({
-        content:
-          'Your appeal is already being processed or has been submitted.',
+      return interaction.reply({
+        content: 'Your appeal is already being processed or has been submitted.',
         ephemeral: true,
       });
-      return;
     }
 
     handledAppeals.add(messageId);
     let submitted = false;
+
     try {
       await interaction.deferUpdate();
 
       const reportChannelId = process.env.REPORT_CHANNEL;
-
       const guild = await interaction.client.guilds
         .fetch(targetGuildId)
         .catch(() => null);
+      
       const reportChannel =
         reportChannelId && guild
           ? await guild.channels.fetch(reportChannelId).catch(() => null)
           : undefined;
 
       if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
-        await interaction.followUp({
-          content:
-            '❌ Your appeal could not be sent because the staff channel is not configured properly.',
+        return interaction.followUp({
+          content: '❌ Your appeal could not be sent because the staff channel is not configured properly.',
           ephemeral: true,
         });
-        return;
       }
 
       const user = await interaction.client.users
@@ -122,28 +130,19 @@ export class HoneypotAppealListener extends Listener {
       await reportChannel.send({ embeds: [embed], components: [row] });
       submitted = true;
 
-      await interaction.editReply({
-        content:
-          '✅ Your appeal has been successfully submitted to the server staff. Please wait for their response.',
+      return interaction.editReply({
+        content: '✅ Your appeal has been successfully submitted to the server staff. Please wait for their response.',
         components: [],
       });
     } catch (error) {
       console.error('Failed to process honeypot appeal:', error);
 
-      if (interaction.deferred || interaction.replied) {
-        await interaction.followUp({
-          content: submitted
-            ? 'Your appeal was submitted, but the confirmation could not be updated.'
-            : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
-          ephemeral: true,
-        });
-      } else {
-        await interaction.reply({
-          content:
-            '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
-          ephemeral: true,
-        });
-      }
+      return interaction.followUp({
+        content: submitted
+          ? 'Your appeal was submitted, but the confirmation could not be updated.'
+          : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
+        ephemeral: true,
+      });
     } finally {
       if (!submitted) handledAppeals.delete(messageId);
     }
