@@ -14,17 +14,28 @@ import {
 } from '@sapphire/framework';
 import {
   ButtonInteraction,
+  ModalSubmitInteraction,
   ChannelType,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js';
 import 'dotenv/config';
 import { pendingHoneypotBans } from '../listeners/honeypot.js';
 
 const handledAppeals = new Set<string>();
+
+const modalOpenTimes = new Map<string, number>();
+
+const activeCaptchas = new Map<
+  string,
+  { answer: number; stringCode: string }
+>();
 
 export class HoneypotAppealHandler extends InteractionHandler {
   public constructor(
@@ -33,13 +44,17 @@ export class HoneypotAppealHandler extends InteractionHandler {
   ) {
     super(context, {
       ...options,
-      interactionHandlerType: InteractionHandlerTypes.Button,
+
+      interactionHandlerType: InteractionHandlerTypes.ModalSubmit,
     });
   }
 
-  public override parse(interaction: ButtonInteraction) {
+  public override parse(
+    interaction: ButtonInteraction | ModalSubmitInteraction,
+  ) {
     if (
       interaction.customId.startsWith('honeypot_appeal_') ||
+      interaction.customId.startsWith('honeypot_modal_submit_') ||
       interaction.customId.startsWith('report_done_') ||
       interaction.customId.startsWith('report_ban_')
     ) {
@@ -48,11 +63,12 @@ export class HoneypotAppealHandler extends InteractionHandler {
     return this.none();
   }
 
-  public async run(interaction: ButtonInteraction) {
+  public async run(interaction: ButtonInteraction | ModalSubmitInteraction) {
     if (
       interaction.customId.startsWith('report_done_') ||
       interaction.customId.startsWith('report_ban_')
     ) {
+      if (!interaction.isButton()) return;
       const parts = interaction.customId.split('_');
       const action = parts[1];
       const targetUserId = parts[2];
@@ -162,170 +178,264 @@ export class HoneypotAppealHandler extends InteractionHandler {
       return;
     }
 
-    console.log(
-      `[Honeypot Appeal Handler] Triggered with customId: ${interaction.customId}`,
-    );
+    if (
+      interaction.isButton() &&
+      interaction.customId.startsWith('honeypot_appeal_')
+    ) {
+      const parts = interaction.customId.split('_');
+      const targetUserId = parts[2];
+      const targetGuildId = parts[3];
 
-    const parts = interaction.customId.split('_');
-    const targetUserId = parts[2];
-    const targetGuildId = parts[3];
-
-    if (!targetUserId || !targetGuildId) {
-      return interaction.reply({
-        content: '❌ Invalid appeal data detected.',
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    if (interaction.user.id !== targetUserId) {
-      return interaction.reply({
-        content: '❌ Only the banned user can submit this appeal.',
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    const messageId = interaction.message.id;
-    if (handledAppeals.has(messageId)) {
-      return interaction.reply({
-        content:
-          'Your appeal is already being processed or has been submitted.',
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-
-    handledAppeals.add(messageId);
-    let submitted = false;
-    let step = 'acknowledgment';
-
-    try {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      step = 'canceling timer';
-
-      const activeTimer = pendingHoneypotBans.get(targetUserId);
-      if (activeTimer) {
-        clearTimeout(activeTimer);
-        pendingHoneypotBans.delete(targetUserId);
-      }
-
-      step = 'staff-channel delivery';
-
-      const reportChannelId = process.env.REPORT_CHANNEL;
-      const guildObj = await interaction.client.guilds
-        .fetch(targetGuildId)
-        .catch(() => null);
-      const guild =
-        guildObj ??
-        (await interaction.client.guilds
-          .fetch(targetGuildId)
-          .catch(() => null));
-
-      const reportChannel =
-        reportChannelId && guild
-          ? await guild.channels.fetch(reportChannelId).catch(() => null)
-          : undefined;
-
-      if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
-        await interaction.editReply({
-          content:
-            '❌ Your appeal could not be sent because the staff channel is not configured properly.',
+      if (interaction.user.id !== targetUserId) {
+        return interaction.reply({
+          content: '❌ Only the banned user can submit this appeal.',
+          flags: MessageFlags.Ephemeral,
         });
-        return;
       }
 
-      const user = await interaction.client.users
-        .fetch(targetUserId)
-        .catch(() => null);
+      const num1 = Math.floor(Math.random() * 10) + 1;
+      const num2 = Math.floor(Math.random() * 10) + 1;
+      const mathAnswer = num1 + num2;
+      const randomString = Math.random()
+        .toString(36)
+        .substring(2, 8)
+        .toUpperCase();
 
-      const embed = new EmbedBuilder()
-        .setTitle('🚨 Honeypot Ban Appeal')
-        .setDescription(
-          `User **${user ? user.tag : targetUserId}** has submitted an appeal regarding their restriction from the honeypot channel.`,
-        )
-        .addFields(
-          {
-            name: 'User Details',
-            value: `${user ? user.tag : 'Unknown'} (${targetUserId})`,
-            inline: true,
-          },
-          {
-            name: 'Submitted',
-            value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
-            inline: true,
-          },
-        )
-        .setColor(0xffa500)
-        .setTimestamp();
+      activeCaptchas.set(targetUserId, {
+        answer: mathAnswer,
+        stringCode: randomString,
+      });
+      modalOpenTimes.set(targetUserId, Date.now());
 
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`report_done_${targetUserId}`)
-          .setLabel('Mark as Resolved')
-          .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(`report_ban_${targetUserId}`)
-          .setLabel('Reject & Ban')
-          .setStyle(ButtonStyle.Danger),
+      const modal = new ModalBuilder()
+        .setCustomId(`honeypot_modal_submit_${targetUserId}_${targetGuildId}`)
+        .setTitle('🛡️ Anti-Bot Security Verification');
+
+      const mathInput = new TextInputBuilder()
+        .setCustomId('captcha_math')
+        .setLabel(`Berapa hasil dari: ${num1} + ${num2} ?`)
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Masukkan angka jawaban...')
+        .setRequired(true);
+
+      const stringInput = new TextInputBuilder()
+        .setCustomId('captcha_string')
+        .setLabel(`Ketik ulang teks acak berikut: ${randomString}`)
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Masukkan teks di atas...')
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(mathInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(stringInput),
       );
 
-      await reportChannel.send({ embeds: [embed], components: [row] });
-      submitted = true;
-      step = 'DM button update';
+      await interaction.showModal(modal);
+      return;
+    }
 
-      try {
-        const disabledDmRow =
-          new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`honeypot_appeal_${targetUserId}_${targetGuildId}`)
-              .setLabel('Appeal Submitted')
-              .setStyle(ButtonStyle.Secondary)
-              .setDisabled(true),
-          );
-        await interaction.message.edit({ components: [disabledDmRow] });
-      } catch (error) {
-        console.error(
-          '[Honeypot Appeal Handler] Failed to update DM button:',
-          error,
-        );
+    if (
+      interaction.isModalSubmit() &&
+      interaction.customId.startsWith('honeypot_modal_submit_')
+    ) {
+      const parts = interaction.customId.split('_');
+      const targetUserId = parts[3];
+      const targetGuildId = parts[4];
+
+      if (interaction.user.id !== targetUserId) {
+        return interaction.reply({
+          content: '❌ Invalid user session.',
+          flags: MessageFlags.Ephemeral,
+        });
       }
 
-      step = 'confirmation';
+      const messageId = interaction.message?.id ?? '';
+      if (handledAppeals.has(targetUserId)) {
+        return interaction.reply({
+          content: 'Your appeal has already been submitted.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
 
-      await interaction.editReply({
-        content:
-          '✅ Your appeal has been successfully submitted to the server staff. Please wait while staff reviews your case.',
-      });
-    } catch (error) {
-      console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
+      const openTime = modalOpenTimes.get(targetUserId) || 0;
+      const elapsedTime = (Date.now() - openTime) / 1000;
+      const MIN_ALLOWED_SECONDS = 3;
 
-      const response = {
-        content: submitted
-          ? 'Your appeal was submitted, but the confirmation could not be displayed.'
-          : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
-      };
+      if (elapsedTime < MIN_ALLOWED_SECONDS) {
+        return interaction.reply({
+          content:
+            '❌ **Appeal Rejected:** Your submission was detected as automated behavior (too fast). Appeal process blocked.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const userMathInput = interaction.fields
+        .getTextInputValue('captcha_math')
+        .trim();
+      const userStringInput = interaction.fields
+        .getTextInputValue('captcha_string')
+        .trim();
+      const storedCaptcha = activeCaptchas.get(targetUserId);
+
+      if (
+        !storedCaptcha ||
+        parseInt(userMathInput, 10) !== storedCaptcha.answer ||
+        userStringInput !== storedCaptcha.stringCode
+      ) {
+        return interaction.reply({
+          content:
+            '❌ **Verification Failed:** Jawaban captcha matematika atau teks acak salah. Silakan klik tombol appeal ulang.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      activeCaptchas.delete(targetUserId);
+      modalOpenTimes.delete(targetUserId);
+      handledAppeals.add(targetUserId);
+
+      let submitted = false;
+      let step = 'acknowledgment';
+
       try {
-        if (interaction.deferred || interaction.replied) {
-          if (step === 'confirmation') {
-            await interaction.followUp({
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        step = 'canceling timer';
+
+        const activeTimer = pendingHoneypotBans.get(targetUserId);
+        if (activeTimer) {
+          clearTimeout(activeTimer);
+          pendingHoneypotBans.delete(targetUserId);
+        }
+
+        step = 'staff-channel delivery';
+
+        const reportChannelId = process.env.REPORT_CHANNEL;
+        const guildObj = await interaction.client.guilds
+          .fetch(targetGuildId)
+          .catch(() => null);
+        const guild =
+          guildObj ??
+          (await interaction.client.guilds
+            .fetch(targetGuildId)
+            .catch(() => null));
+
+        const reportChannel =
+          reportChannelId && guild
+            ? await guild.channels.fetch(reportChannelId).catch(() => null)
+            : undefined;
+
+        if (!reportChannel || reportChannel.type !== ChannelType.GuildText) {
+          await interaction.editReply({
+            content:
+              '❌ Your appeal could not be sent because the staff channel is not configured properly.',
+          });
+          return;
+        }
+
+        const user = await interaction.client.users
+          .fetch(targetUserId)
+          .catch(() => null);
+
+        const embed = new EmbedBuilder()
+          .setTitle('🚨 Honeypot Ban Appeal (Passed Captcha)')
+          .setDescription(
+            `User **${user ? user.tag : targetUserId}** has passed the security verification and submitted an appeal.`,
+          )
+          .addFields(
+            {
+              name: 'User Details',
+              value: `${user ? user.tag : 'Unknown'} (${targetUserId})`,
+              inline: true,
+            },
+            {
+              name: 'Submitted',
+              value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
+              inline: true,
+            },
+            {
+              name: 'Security Check',
+              value:
+                '✅ Passed Math & String Captcha\n✅ Passed Time Validation',
+              inline: false,
+            },
+          )
+          .setColor(0xffa500)
+          .setTimestamp();
+
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`report_done_${targetUserId}`)
+            .setLabel('Mark as Resolved')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`report_ban_${targetUserId}`)
+            .setLabel('Reject & Ban')
+            .setStyle(ButtonStyle.Danger),
+        );
+
+        await reportChannel.send({ embeds: [embed], components: [row] });
+        submitted = true;
+        step = 'DM button update';
+
+        try {
+          if (interaction.message) {
+            const disabledDmRow =
+              new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(
+                    `honeypot_appeal_${targetUserId}_${targetGuildId}`,
+                  )
+                  .setLabel('Appeal Submitted & Verified')
+                  .setStyle(ButtonStyle.Secondary)
+                  .setDisabled(true),
+              );
+            await interaction.message.edit({ components: [disabledDmRow] });
+          }
+        } catch (error) {
+          console.error(
+            '[Honeypot Appeal Handler] Failed to update DM button:',
+            error,
+          );
+        }
+
+        step = 'confirmation';
+
+        await interaction.editReply({
+          content:
+            '✅ **Verification Successful!** Your appeal has been securely submitted to the server staff. Please wait while staff reviews your case.',
+        });
+      } catch (error) {
+        console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
+
+        const response = {
+          content: submitted
+            ? 'Your appeal was submitted, but the confirmation could not be displayed.'
+            : '❌ Failed to deliver your appeal. Please contact a server administrator directly.',
+        };
+        try {
+          if (interaction.deferred || interaction.replied) {
+            if (step === 'confirmation') {
+              await interaction.followUp({
+                ...response,
+                flags: MessageFlags.Ephemeral,
+              });
+            } else {
+              await interaction.editReply(response);
+            }
+          } else {
+            await interaction.reply({
               ...response,
               flags: MessageFlags.Ephemeral,
             });
-          } else {
-            await interaction.editReply(response);
           }
-        } else {
-          await interaction.reply({
-            ...response,
-            flags: MessageFlags.Ephemeral,
-          });
+        } catch (responseError) {
+          console.error(
+            '[Honeypot Appeal Handler] Failed to respond:',
+            responseError,
+          );
         }
-      } catch (responseError) {
-        console.error(
-          '[Honeypot Appeal Handler] Failed to respond:',
-          responseError,
-        );
+      } finally {
+        if (!submitted) handledAppeals.delete(targetUserId);
       }
-    } finally {
-      if (!submitted) handledAppeals.delete(messageId);
     }
   }
 }
