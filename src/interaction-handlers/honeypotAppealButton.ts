@@ -24,6 +24,7 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import 'dotenv/config';
+import { meetsRoleLevel } from '../lib/role-utils.js';
 import {
   activeCaptchas,
   modalOpenTimes,
@@ -60,6 +61,14 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
       interaction.customId.startsWith('report_done_') ||
       interaction.customId.startsWith('report_ban_')
     ) {
+      if (!meetsRoleLevel(interaction.member, 'DEPUTY')) {
+        return interaction.reply({
+          content:
+            '❌ You need the Deputy role or higher to review honeypot appeals.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       const parts = interaction.customId.split('_');
       const action = parts[1];
       const targetUserId = parts[2];

@@ -40,11 +40,9 @@ export class HoneypotSetupListener extends Listener {
 
       const textChannel = channel as TextChannel;
 
-      const messages = await textChannel.messages
-        .fetch({ limit: 10 })
-        .catch(() => null);
+      const messages = await textChannel.messages.fetch({ limit: 10 });
 
-      const warning = messages?.find(
+      const warning = messages.find(
         (msg) =>
           msg.author.id === client.user?.id &&
           (msg.embeds[0]?.title === WARNING_TITLE ||

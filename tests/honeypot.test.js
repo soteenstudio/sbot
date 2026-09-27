@@ -16,6 +16,7 @@ import { ChannelType, GatewayIntentBits, MessageFlags } from 'discord.js';
 import { HoneypotListener, pendingHoneypotBans } from '../dist/listeners/honeypot.js';
 import { HoneypotSetupListener } from '../dist/listeners/honeypotSetup.js';
 import { HoneypotAppealHandler } from '../dist/interaction-handlers/honeypotAppeal.js';
+import { Roles } from '../dist/config.js';
 
 import { HoneypotAppealButtonHandler } from '../dist/interaction-handlers/honeypotAppealButton.js';
 import { activeCaptchas, modalOpenTimes, handledAppeals, HONEYPOT_APPEAL_TITLE, LEGACY_HONEYPOT_APPEAL_TITLE } from '../dist/lib/honeypotAppeal.js';
@@ -119,6 +120,14 @@ function appeal(t) {
 }
 
 test('Sapphire loads and routes a DM appeal button to the handler', async (t) => {
+  const originalDeputyId = Roles.DEPUTY.id;
+  const originalFounderId = Roles.FOUNDER.id;
+  Roles.DEPUTY.id = 'deputy';
+  Roles.FOUNDER.id = 'founder';
+  t.after(() => {
+    Roles.DEPUTY.id = originalDeputyId;
+    Roles.FOUNDER.id = originalFounderId;
+  });
   const client = new SapphireClient({
     intents: [GatewayIntentBits.Guilds],
     baseUserDirectory: join(process.cwd(), 'dist'),
@@ -196,6 +205,7 @@ test('Sapphire loads and routes a DM appeal button to the handler', async (t) =>
       ...interaction,
       customId: `report_${action}_user`,
       guildId: 'guild',
+      member: { roles: title === HONEYPOT_APPEAL_TITLE ? ['deputy'] : { cache: new Map([['founder', {}]]) } },
       user: { id: 'staff', tag: 'Staff' },
       isMessageComponent: () => true,
       isModalSubmit: () => false,
@@ -239,6 +249,30 @@ test('Sapphire loads and routes a DM appeal button to the handler', async (t) =>
   };
   await coreListener.run(ordinary);
   assert.equal(ordinary.deferred, true);
+});
+
+test('honeypot staff actions deny unauthorized members before any processing', async (t) => {
+  const originalRichmanId = Roles.RICHMAN.id;
+  Roles.RICHMAN.id = 'richman';
+  t.after(() => { Roles.RICHMAN.id = originalRichmanId; });
+  for (const action of ['done', 'ban']) {
+    for (const member of [null, undefined, { roles: [] }, { roles: ['richman'] }, { roles: { cache: new Map([['richman', {}]]) } }]) {
+      const replies = [];
+      handledAppeals.add('user');
+      await HoneypotAppealButtonHandler.prototype.run({
+        customId: `report_${action}_user`,
+        member,
+        async reply(payload) { replies.push(payload); },
+        async deferUpdate() { assert.fail('Unauthorized action was deferred'); },
+        get client() { assert.fail('Unauthorized action accessed the client'); },
+        get message() { assert.fail('Unauthorized action accessed the message'); },
+      });
+      assert.equal(replies.length, 1);
+      assert.equal(replies[0].flags, MessageFlags.Ephemeral);
+      assert.match(replies[0].content, /Deputy role or higher/);
+      assert.equal(handledAppeals.has('user'), true);
+    }
+  }
 });
 
 test('appeal handlers parse only their own interaction IDs', () => {
@@ -361,6 +395,24 @@ test('honeypot setup refreshes only bot-owned warning messages', async (t) => {
   await HoneypotSetupListener.prototype.run(client);
   assert.equal(events[1][0], 'send');
   assert.equal(events[1][1].title, '⚠️ Honeypot Channel');
+});
+
+test('honeypot setup logs a message lookup failure without posting a warning', async (t) => {
+  const failure = new Error('Message lookup failed');
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => errors.push(args));
+  const channel = {
+    type: ChannelType.GuildText,
+    messages: { async fetch() { throw failure; } },
+    async send() { assert.fail('A failed lookup must not post a warning'); },
+  };
+  await HoneypotSetupListener.prototype.run({
+    user: { id: 'bot' },
+    channels: { async fetch() { return channel; } },
+  });
+  assert.equal(errors.length, 1);
+  assert.match(errors[0][0], /Could not check or post the honeypot warning/);
+  assert.equal(errors[0][1], failure);
 });
 
 test('only the user named in the DM button can submit an appeal', async (t) => {
