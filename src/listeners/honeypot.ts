@@ -16,10 +16,89 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  type Client,
 } from 'discord.js';
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
+import {
+  getAllHoneypotRecords,
+  updateHoneypotRecord,
+  type HoneypotRecord,
+} from '../lib/honeypotStore.js';
 
 export const pendingHoneypotBans = new Map<string, NodeJS.Timeout>();
+const banKey = (guildId: string, userId: string) => `${guildId}:${userId}`;
+const BAN_DELAY = 3 * 60 * 60 * 1000;
+
+export function cancelHoneypotBan(guildId: string, userId: string): void {
+  const key = banKey(guildId, userId);
+  const timer = pendingHoneypotBans.get(key);
+  if (timer) clearTimeout(timer);
+  pendingHoneypotBans.delete(key);
+}
+
+export function scheduleHoneypotBan(
+  client: Client,
+  record: HoneypotRecord,
+): void {
+  if (record.status !== 'pending' || record.deadline === null) return;
+  const key = banKey(record.guildId, record.userId);
+  cancelHoneypotBan(record.guildId, record.userId);
+  const timer = setTimeout(
+    async () => {
+      try {
+        await updateHoneypotRecord(
+          record.guildId,
+          record.userId,
+          async (current) => {
+            if (
+              !current ||
+              current.status !== 'pending' ||
+              current.deadline === null ||
+              current.token !== record.token ||
+              current.deadline !== record.deadline ||
+              Date.now() < current.deadline
+            )
+              return [current, false];
+            const guild = await client.guilds.fetch(record.guildId);
+            await guild.members.ban(record.userId, {
+              reason: 'Honeypot appeal not submitted within 3 hours',
+            });
+            return [
+              { ...current, status: 'banned', deadline: null, challenge: null },
+              true,
+            ];
+          },
+        );
+      } catch (error) {
+        console.error(
+          `[Honeypot Error] Failed to auto-ban ${record.userId}:`,
+          error,
+        );
+        if (pendingHoneypotBans.get(key) === timer) {
+          pendingHoneypotBans.delete(key);
+          const retry = setTimeout(
+            () => scheduleHoneypotBan(client, record),
+            60_000,
+          );
+          retry.unref();
+          pendingHoneypotBans.set(key, retry);
+        }
+        return;
+      }
+      if (pendingHoneypotBans.get(key) === timer)
+        pendingHoneypotBans.delete(key);
+    },
+    Math.max(0, record.deadline - Date.now()),
+  );
+  timer.unref();
+  pendingHoneypotBans.set(key, timer);
+}
+
+export async function restoreHoneypotBans(client: Client): Promise<void> {
+  for (const record of await getAllHoneypotRecords())
+    scheduleHoneypotBan(client, record);
+}
 
 export class HoneypotListener extends Listener {
   public constructor(context: Listener.Context, options: Listener.Options) {
@@ -39,6 +118,24 @@ export class HoneypotListener extends Listener {
       if (!message.member?.bannable) return;
 
       try {
+        const record = await updateHoneypotRecord(
+          message.guild.id,
+          message.author.id,
+          (current) => {
+            if (current && current.status !== 'pending') return [current, null];
+            const next: HoneypotRecord = {
+              guildId: message.guild!.id,
+              userId: message.author.id,
+              deadline: Date.now() + BAN_DELAY,
+              token: randomUUID(),
+              status: 'pending',
+              challenge: null,
+            };
+            return [next, next];
+          },
+        );
+        if (!record) return;
+        scheduleHoneypotBan(message.client, record);
         try {
           await message.delete();
         } catch (error) {
@@ -52,7 +149,7 @@ export class HoneypotListener extends Listener {
           await member.roles.remove(memberRoleId).catch(() => {});
         }
 
-        const timeoutDuration = 3 * 60 * 60 * 1000;
+        const timeoutDuration = BAN_DELAY;
         await member
           .timeout(timeoutDuration, 'Honeypot restriction pending appeal')
           .catch(() => {});
@@ -83,36 +180,6 @@ export class HoneypotListener extends Listener {
             `[Honeypot] Could not DM ${message.author.tag}; direct messages may be closed.`,
           );
         }
-
-        const existingTimer = pendingHoneypotBans.get(message.author.id);
-        if (existingTimer) clearTimeout(existingTimer);
-
-        const banTimeout = setTimeout(async () => {
-          try {
-            const guild = await message.client.guilds
-              .fetch(message.guild!.id)
-              .catch(() => null);
-            if (guild) {
-              await guild.members.ban(message.author.id, {
-                reason: 'Honeypot appeal not submitted within 3 hours',
-              });
-              console.log(
-                `[Honeypot] Banned ${message.author.tag} after the 3-hour appeal deadline.`,
-              );
-            }
-          } catch (err) {
-            console.error(
-              `[Honeypot Error] Failed to auto-ban ${message.author.tag}:`,
-              err,
-            );
-          } finally {
-            if (pendingHoneypotBans.get(message.author.id) === banTimeout) {
-              pendingHoneypotBans.delete(message.author.id);
-            }
-          }
-        }, timeoutDuration);
-
-        pendingHoneypotBans.set(message.author.id, banTimeout);
 
         console.log(
           `[Honeypot] Restricted ${message.author.tag} and scheduled auto-ban in 3 hours.`,
