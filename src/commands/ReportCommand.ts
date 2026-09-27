@@ -19,6 +19,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
+import { deliverReportOnce } from '../lib/reportDelivery.js';
 
 export class ReportCommand extends Subcommand {
   public constructor(
@@ -63,6 +64,7 @@ export class ReportCommand extends Subcommand {
   public async chatInputRun(
     interaction: ChatInputCommandInteraction,
   ): Promise<void> {
+    console.log(`[Report] Command received for interaction ${interaction.id}`);
     const reason = interaction.options.getString('reason', true);
     const category = interaction.options.getString('category', true);
     const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
@@ -112,9 +114,26 @@ export class ReportCommand extends Subcommand {
     );
 
     try {
-      await reportChannel.send({ embeds: [embed], components: [row] });
+      const sent = await deliverReportOnce(interaction.id, async () => {
+        console.log(
+          `[Report] Sending interaction ${interaction.id} to staff channel ${reportChannel.id}`,
+        );
+        await reportChannel.send({
+          embeds: [embed],
+          components: [row],
+          nonce: interaction.id,
+          enforceNonce: true,
+        });
+      });
+      console.log(
+        `[Report] Interaction ${interaction.id} ${sent ? 'delivered to staff channel' : 'already delivered to staff channel'}`,
+      );
+      if (!sent && (interaction.replied || interaction.deferred)) return;
     } catch (error) {
-      console.error('Failed to send report to channel:', error);
+      console.error(
+        `[Report] Failed to deliver interaction ${interaction.id}:`,
+        error,
+      );
 
       await interaction.reply({
         content:
