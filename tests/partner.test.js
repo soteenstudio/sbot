@@ -51,10 +51,35 @@ function handlerStore() {
   return { store, errors };
 }
 
+function assertPartnerEmbed(embed, mode, expectedMember = 'Member') {
+  const { data } = embed;
+  assert.equal(data.title, '🎲 Partner Selection');
+  assert.equal(data.description, 'A partner has been selected.');
+  assert.equal(data.color, 0x0099ff);
+  assert.equal(data.footer.text, 'SoTeen Studio | Session ID: wner');
+  assert.ok(data.timestamp);
+  assert.deepEqual(data.fields.map(({ name, inline }) => ({ name, inline })), [
+    { name: 'Partner', inline: true },
+    { name: 'Category', inline: true },
+    { name: 'Details', inline: false },
+  ]);
+  if (mode === 'fic') {
+    assert.ok(data.fields[0].value);
+    assert.match(data.fields[1].value, / Fiction · (Common|Uncommon|Rare|Epic|Mythic|Legendary)$/);
+    assert.match(data.fields[2].value, /Draw rate: \d+\.\d%\nSuggestions\? Select Feedback below\.$/);
+  } else {
+    assert.equal(data.fields[0].value, expectedMember);
+    assert.equal(data.fields[1].value, '👤 Server member');
+    assert.equal(data.fields[2].value, 'Selected for <@owner>.');
+  }
+}
+
 for (const mode of ['fic', 'user']) {
-  test(`${mode} collector only acknowledges its reroll, leaving feedback for the handler`, async () => {
+  test(`${mode} uses the shared response and collector, leaving feedback for the handler`, async () => {
     let options;
     const listeners = {};
+    const events = [];
+    let initialPayload;
     const response = {
       createMessageComponentCollector(value) {
         options = value;
@@ -63,12 +88,32 @@ for (const mode of ['fic', 'user']) {
     };
     const command = {
       user: { id: 'owner' },
-      guild: { members: { fetch: async () => new Map([['member', { user: { bot: false, username: 'Member' } }]]) } },
-      reply: async () => response,
-      deferReply: async () => {},
-      editReply: async () => response,
+      guild: { members: { fetch: async () => new Map([
+        ['member', { user: { bot: false, username: 'Member' } }],
+        ['bot', { user: { bot: true, username: 'Bot' } }],
+      ]) } },
+      reply: async () => assert.fail('both partner modes must use the deferred reply'),
+      deferReply: async () => { events.push('defer'); },
+      editReply: async (payload) => {
+        events.push('edit');
+        if (!initialPayload) initialPayload = payload;
+        else assert.deepEqual(payload.components, []);
+        return response;
+      },
     };
     await PartnerCommand.prototype[mode].call(PartnerCommand.prototype, command);
+    assert.deepEqual(events, ['defer', 'edit']);
+    assertPartnerEmbed(initialPayload.embeds[0], mode);
+    assert.equal(initialPayload.components.length, 1);
+    const buttons = initialPayload.components[0].components.map(({ data }) => ({
+      id: data.custom_id,
+      label: data.label,
+    }));
+    assert.deepEqual(buttons, [
+      { id: `roll_again_${mode}`, label: '🎲 Roll Again' },
+      { id: 'partner_feedback_btn', label: '💡 Feedback' },
+    ]);
+    assert.equal(options.time, 60_000);
     const { store, errors } = handlerStore();
     for (const user of ['owner', 'visitor']) {
       const feedback = component('button', 'partner_feedback_btn', user);
@@ -83,17 +128,62 @@ for (const mode of ['fic', 'user']) {
       assert.equal(replies, 1);
       const reroll = component('button', `roll_again_${mode}`, user);
       let action;
-      reroll.reply = async (payload) => { action = 'denied'; assert.equal(payload.ephemeral, true); };
-      reroll.update = async () => { action = 'updated'; };
+      reroll.reply = async (payload) => {
+        action = 'denied';
+        assert.equal(payload.ephemeral, true);
+        assert.equal(payload.content, '❌ This partner session belongs to another user.');
+      };
+      reroll.update = async (payload) => {
+        action = 'updated';
+        assertPartnerEmbed(payload.embeds[0], mode);
+        assert.equal(payload.components[0], initialPayload.components[0]);
+      };
       assert.equal(options.filter(reroll), true);
       await listeners.collect(reroll);
       assert.equal(action, user === 'owner' ? 'updated' : 'denied');
       assert.equal(await store.run(reroll), false);
     }
     assert.equal(options.filter(component('button', `roll_again_${mode === 'fic' ? 'user' : 'fic'}`)), false);
+    await listeners.end();
+    assert.deepEqual(events, ['defer', 'edit', 'edit']);
     assert.deepEqual(errors, []);
   });
 }
+
+test('user reroll selects from the members fetched when the session starts', async (t) => {
+  const draws = [0, 0.9];
+  t.mock.method(Math, 'random', () => draws.shift());
+  const members = new Map([
+    ['first', { user: { bot: false, username: 'First' } }],
+    ['second', { user: { bot: false, username: 'Second' } }],
+    ['bot', { user: { bot: true, username: 'Bot' } }],
+  ]);
+  let fetches = 0;
+  let initial;
+  let collect;
+  const response = {
+    createMessageComponentCollector() {
+      return { on(event, listener) { if (event === 'collect') collect = listener; } };
+    },
+  };
+  const interaction = {
+    user: { id: 'owner' },
+    guild: { members: { fetch: async () => { fetches++; return members; } } },
+    deferReply: async () => {},
+    editReply: async (payload) => { initial = payload; return response; },
+  };
+
+  await PartnerCommand.prototype.user.call(PartnerCommand.prototype, interaction);
+  assert.equal(initial.embeds[0].data.fields[0].value, 'First');
+  let rerolled;
+  await collect({
+    user: { id: 'owner' },
+    update: async (payload) => { rerolled = payload; },
+  });
+  assertPartnerEmbed(rerolled.embeds[0], 'user', 'Second');
+  assert.equal(rerolled.embeds[0].data.fields[0].value, 'Second');
+  assert.equal(fetches, 1);
+});
 
 for (const category of ['general_feedback', 'new_character']) {
   test(`${category} select and modal dispatch through Sapphire and deliver before confirming`, async (t) => {

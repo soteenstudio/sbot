@@ -10,34 +10,29 @@
 
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import {
-  EmbedBuilder,
-  ChatInputCommandInteraction,
-  ButtonBuilder,
-  ButtonStyle,
   ActionRowBuilder,
+  ButtonBuilder,
   ButtonInteraction,
+  ButtonStyle,
+  ChatInputCommandInteraction,
+  EmbedBuilder,
   GuildMember,
 } from 'discord.js';
 
 import { RARITY_TIERS } from '../config/rarities.js';
+import { EmbedFactory } from '../engine/SEmbed.js';
 
-function getRarityStyle(tierName: string) {
-  const lower = tierName.toLowerCase();
+type PartnerMode = 'fic' | 'user';
 
-  if (lower.includes('legendary') || lower.includes('mythic')) {
-    return { color: 0xf59e0b, emoji: '🌟' };
-  }
-  if (lower.includes('epic')) {
-    return { color: 0xa855f7, emoji: '💜' };
-  }
-  if (lower.includes('rare')) {
-    return { color: 0x3b82f6, emoji: '💙' };
-  }
-  if (lower.includes('uncommon')) {
-    return { color: 0x10b981, emoji: '💚' };
-  }
+function rarityEmoji(tierName: string): string {
+  const tier = tierName.toLowerCase();
 
-  return { color: 0x6b7280, emoji: '⚪' };
+  if (tier.includes('legendary') || tier.includes('mythic')) return '🌟';
+  if (tier.includes('epic')) return '💜';
+  if (tier.includes('rare')) return '💙';
+  if (tier.includes('uncommon')) return '💚';
+
+  return '⚪';
 }
 
 export class PartnerCommand extends Subcommand {
@@ -50,14 +45,8 @@ export class PartnerCommand extends Subcommand {
       name: 'partner',
       description: 'SoTeen partner management system.',
       subcommands: [
-        {
-          name: 'fic',
-          chatInputRun: 'fic',
-        },
-        {
-          name: 'user',
-          chatInputRun: 'user',
-        },
+        { name: 'fic', chatInputRun: 'fic' },
+        { name: 'user', chatInputRun: 'user' },
       ],
     });
   }
@@ -81,9 +70,28 @@ export class PartnerCommand extends Subcommand {
     );
   }
 
-  private generateFicEmbed(userId: string) {
+  private createPartnerEmbed(
+    userId: string,
+    partner: string,
+    category: string,
+    details: string,
+  ): EmbedBuilder {
+    return EmbedFactory.createFlexible({
+      title: '🎲 Partner Selection',
+      description: 'A partner has been selected.',
+      fields: [
+        { name: 'Partner', value: partner, inline: true },
+        { name: 'Category', value: category, inline: true },
+        { name: 'Details', value: details, inline: false },
+      ],
+    }).setFooter({
+      text: `SoTeen Studio | Session ID: ${userId.slice(-4)}`,
+    });
+  }
+
+  private generateFicEmbed(userId: string): EmbedBuilder {
     const totalWeight = RARITY_TIERS.reduce(
-      (sum, item) => sum + item.weight,
+      (sum, tier) => sum + tier.weight,
       0,
     );
     let random = Math.random() * totalWeight;
@@ -100,30 +108,31 @@ export class PartnerCommand extends Subcommand {
     const selectedChar =
       selectedTier.chars[Math.floor(Math.random() * selectedTier.chars.length)];
     const rate = ((selectedTier.weight / totalWeight) * 100).toFixed(1);
-    const style = getRarityStyle(selectedTier.tier);
 
-    const embed = new EmbedBuilder()
-      .setTitle(`${style.emoji} Partner Fiction Registry`)
-      .setDescription(
-        `**Partner:** ${selectedChar.name}\n` +
-          `**Rarity:** ${selectedTier.tier.toUpperCase()}\n` +
-          `**Rate:** ${rate}%\n\n` +
-          `> ${selectedChar.desc}`,
-      )
-      .setColor(style.color)
-      .setFooter({
-        text: `Session ID: ${userId.slice(-4)} | Fun gacha to appreciate Indonesian culture, no disrespect intended. Click feedback for suggestions.`,
-      });
-
-    return embed;
+    return this.createPartnerEmbed(
+      userId,
+      selectedChar.name,
+      `${rarityEmoji(selectedTier.tier)} Fiction · ${selectedTier.tier}`,
+      `${selectedChar.desc}\n\nDraw rate: ${rate}%\nSuggestions? Select Feedback below.`,
+    );
   }
 
-  public async fic(interaction: ChatInputCommandInteraction) {
-    const embed = this.generateFicEmbed(interaction.user.id);
+  private generateUserEmbed(
+    userId: string,
+    member: GuildMember,
+  ): EmbedBuilder {
+    return this.createPartnerEmbed(
+      userId,
+      member.user.username,
+      '👤 Server member',
+      `Selected for <@${userId}>.`,
+    );
+  }
 
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+  private createButtons(mode: PartnerMode): ActionRowBuilder<ButtonBuilder> {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId('roll_again_fic')
+        .setCustomId(`roll_again_${mode}`)
         .setLabel('🎲 Roll Again')
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
@@ -131,30 +140,37 @@ export class PartnerCommand extends Subcommand {
         .setLabel('💡 Feedback')
         .setStyle(ButtonStyle.Primary),
     );
+  }
 
-    const response = await interaction.reply({
-      embeds: [embed],
+  private async startSession(
+    interaction: ChatInputCommandInteraction,
+    mode: PartnerMode,
+    generateEmbed: () => EmbedBuilder,
+  ): Promise<void> {
+    const row = this.createButtons(mode);
+    const response = await interaction.editReply({
+      embeds: [generateEmbed()],
       components: [row],
     });
 
     const collector = response.createMessageComponentCollector({
-      filter: (i) => i.customId === 'roll_again_fic',
-      time: 60000,
+      filter: (button) => button.customId === `roll_again_${mode}`,
+      time: 60_000,
     });
 
-    collector.on('collect', async (i: ButtonInteraction) => {
-      if (i.user.id !== interaction.user.id) {
-        await i.reply({
-          content: "❌ This isn't your gacha session!",
+    collector.on('collect', async (button: ButtonInteraction) => {
+      if (button.user.id !== interaction.user.id) {
+        await button.reply({
+          content: '❌ This partner session belongs to another user.',
           ephemeral: true,
         });
         return;
       }
 
-      if (i.customId === 'roll_again_fic') {
-        const newEmbed = this.generateFicEmbed(i.user.id);
-        await i.update({ embeds: [newEmbed], components: [row] });
-      }
+      await button.update({
+        embeds: [generateEmbed()],
+        components: [row],
+      });
     });
 
     collector.on('end', async () => {
@@ -162,89 +178,54 @@ export class PartnerCommand extends Subcommand {
     });
   }
 
-  public async user(interaction: ChatInputCommandInteraction) {
+  public async fic(interaction: ChatInputCommandInteraction): Promise<void> {
     await interaction.deferReply();
+
+    try {
+      await this.startSession(interaction, 'fic', () =>
+        this.generateFicEmbed(interaction.user.id),
+      );
+    } catch (error) {
+      await interaction.editReply({
+        content: '❌ Could not select a partner. Please try again.',
+        embeds: [],
+        components: [],
+      });
+    }
+  }
+
+  public async user(interaction: ChatInputCommandInteraction): Promise<void> {
+    await interaction.deferReply();
+
     try {
       const members = await interaction.guild?.members.fetch();
       if (!members) {
-        return interaction.editReply({
-          content: '❌ Could not fetch members.',
+        await interaction.editReply({
+          content: '❌ Could not fetch server members. Please try again.',
         });
+        return;
       }
 
-      const memberArray = Array.from(members.values()).filter(
-        (m) => !m.user.bot,
+      const eligibleMembers = Array.from(members.values()).filter(
+        (member) => !member.user.bot,
       );
-      if (memberArray.length === 0) {
-        return interaction.editReply({
-          content: '❌ No non-bot members found.',
+      if (eligibleMembers.length === 0) {
+        await interaction.editReply({
+          content: '❌ No eligible server members are available.',
         });
+        return;
       }
 
-      const randomMember =
-        memberArray[Math.floor(Math.random() * memberArray.length)];
-
-      const embed = new EmbedBuilder()
-        .setTitle('👤 Partner User Selection')
-        .setDescription(
-          `Today's selected partner for ${interaction.user} is: **${randomMember.user.username}**`,
-        )
-        .setColor(0x00ff9d)
-        .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) });
-
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId('roll_again_user')
-          .setLabel('🎲 Spin Again')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId('partner_feedback_btn')
-          .setLabel('💡 Feedback')
-          .setStyle(ButtonStyle.Primary),
-      );
-
-      const response = await interaction.editReply({
-        embeds: [embed],
-        components: [row],
-      });
-
-      const collector = response.createMessageComponentCollector({
-        filter: (i) => i.customId === 'roll_again_user',
-        time: 60000,
-      });
-
-      collector.on('collect', async (i: ButtonInteraction) => {
-        if (i.user.id !== interaction.user.id) {
-          await i.reply({
-            content: "❌ This isn't your session!",
-            ephemeral: true,
-          });
-          return;
-        }
-
-        if (i.customId === 'roll_again_user') {
-          const freshMember =
-            memberArray[Math.floor(Math.random() * memberArray.length)];
-          const newEmbed = new EmbedBuilder()
-            .setTitle('👤 Partner User Selection')
-            .setDescription(
-              `Today's selected partner for ${i.user} is: **${freshMember.user.username}**`,
-            )
-            .setColor(0x00ff9d)
-            .setFooter({
-              text: 'Session ID: ' + interaction.user.id.slice(-4),
-            });
-
-          await i.update({ embeds: [newEmbed], components: [row] });
-        }
-      });
-
-      collector.on('end', async () => {
-        await interaction.editReply({ components: [] }).catch(() => {});
+      await this.startSession(interaction, 'user', () => {
+        const member =
+          eligibleMembers[Math.floor(Math.random() * eligibleMembers.length)];
+        return this.generateUserEmbed(interaction.user.id, member);
       });
     } catch (error) {
-      return interaction.editReply({
-        content: '❌ Failed to select a partner.',
+      await interaction.editReply({
+        content: '❌ Could not select a partner. Please try again.',
+        embeds: [],
+        components: [],
       });
     }
   }
