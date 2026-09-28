@@ -27,19 +27,59 @@ export const activeLFG = new Map<string, ActiveLFGSession>();
 export const pendingLFGInitialSaves = new WeakSet<ActiveLFGSession>();
 
 const declineCooldowns = new WeakMap<ActiveLFGSession, Map<string, number>>();
-export const LFG_DECLINE_COOLDOWN_MS = 60_000;
+const pendingRequestCooldowns = new WeakMap<
+  ActiveLFGSession,
+  Map<string, number>
+>();
+const sendingRequests = new WeakMap<ActiveLFGSession, Set<string>>();
+export const LFG_DECLINE_COOLDOWN_MS = 180_000;
+export const LFG_PENDING_REQUEST_COOLDOWN_MS = 60_000;
+
+function cooldownRemaining(
+  cooldowns: WeakMap<ActiveLFGSession, Map<string, number>>,
+  session: ActiveLFGSession,
+  joinerId: string,
+  now: number,
+): number {
+  const entries = cooldowns.get(session);
+  if (entries) {
+    for (const [id, deadline] of entries) {
+      if (deadline <= now) entries.delete(id);
+    }
+  }
+  const expiresAt = entries?.get(joinerId) ?? 0;
+  if (expiresAt <= now) {
+    entries?.delete(joinerId);
+    if (entries?.size === 0) cooldowns.delete(session);
+    return 0;
+  }
+  return expiresAt - now;
+}
+
+function recordCooldown(
+  cooldowns: WeakMap<ActiveLFGSession, Map<string, number>>,
+  session: ActiveLFGSession,
+  joinerId: string,
+  duration: number,
+  now: number,
+): void {
+  let entries = cooldowns.get(session);
+  if (!entries) {
+    entries = new Map();
+    cooldowns.set(session, entries);
+  }
+  for (const [id, deadline] of entries) {
+    if (deadline <= now) entries.delete(id);
+  }
+  entries.set(joinerId, now + duration);
+}
 
 export function declineCooldownRemaining(
   session: ActiveLFGSession,
   joinerId: string,
   now = Date.now(),
 ): number {
-  const expiresAt = declineCooldowns.get(session)?.get(joinerId) ?? 0;
-  if (expiresAt <= now) {
-    declineCooldowns.get(session)?.delete(joinerId);
-    return 0;
-  }
-  return expiresAt - now;
+  return cooldownRemaining(declineCooldowns, session, joinerId, now);
 }
 
 export function recordLFGDecline(
@@ -47,10 +87,62 @@ export function recordLFGDecline(
   joinerId: string,
   now = Date.now(),
 ): void {
-  let cooldowns = declineCooldowns.get(session);
-  if (!cooldowns) {
-    cooldowns = new Map();
-    declineCooldowns.set(session, cooldowns);
+  recordCooldown(
+    declineCooldowns,
+    session,
+    joinerId,
+    LFG_DECLINE_COOLDOWN_MS,
+    now,
+  );
+}
+
+export function pendingRequestCooldownRemaining(
+  session: ActiveLFGSession,
+  joinerId: string,
+  now = Date.now(),
+): number {
+  return cooldownRemaining(pendingRequestCooldowns, session, joinerId, now);
+}
+
+export function startLFGRequestSend(
+  session: ActiveLFGSession,
+  joinerId: string,
+): boolean {
+  if (pendingRequestCooldownRemaining(session, joinerId)) return false;
+  let senders = sendingRequests.get(session);
+  if (!senders) {
+    senders = new Set();
+    sendingRequests.set(session, senders);
   }
-  cooldowns.set(joinerId, now + LFG_DECLINE_COOLDOWN_MS);
+  if (senders.has(joinerId)) return false;
+  senders.add(joinerId);
+  return true;
+}
+
+export function finishLFGRequestSend(
+  session: ActiveLFGSession,
+  joinerId: string,
+  sent: boolean,
+  now = Date.now(),
+): void {
+  if (sent)
+    recordCooldown(
+      pendingRequestCooldowns,
+      session,
+      joinerId,
+      LFG_PENDING_REQUEST_COOLDOWN_MS,
+      now,
+    );
+  const senders = sendingRequests.get(session);
+  senders?.delete(joinerId);
+  if (senders?.size === 0) sendingRequests.delete(session);
+}
+
+export function clearPendingLFGRequest(
+  session: ActiveLFGSession,
+  joinerId: string,
+): void {
+  const entries = pendingRequestCooldowns.get(session);
+  entries?.delete(joinerId);
+  if (entries?.size === 0) pendingRequestCooldowns.delete(session);
 }
