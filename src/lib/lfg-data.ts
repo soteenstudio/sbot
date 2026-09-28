@@ -35,6 +35,19 @@ const sendingRequests = new WeakMap<ActiveLFGSession, Set<string>>();
 export const LFG_DECLINE_COOLDOWN_MS = 180_000;
 export const LFG_PENDING_REQUEST_COOLDOWN_MS = 60_000;
 
+export function formatLFGCooldown(remainingMs: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  const minuteText = `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+  const secondText = `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
+
+  if (minutes === 0) return secondText;
+  if (seconds === 0) return minuteText;
+  return `${minuteText} ${secondText}`;
+}
+
 function cooldownRemaining(
   cooldowns: WeakMap<ActiveLFGSession, Map<string, number>>,
   session: ActiveLFGSession,

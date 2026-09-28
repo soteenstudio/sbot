@@ -25,6 +25,7 @@ export declare const activeLFG: Map<string, ActiveLFGSession>;
 export declare const pendingLFGInitialSaves: WeakSet<ActiveLFGSession>;
 export declare const LFG_DECLINE_COOLDOWN_MS = 180000;
 export declare const LFG_PENDING_REQUEST_COOLDOWN_MS = 60000;
+export declare function formatLFGCooldown(remainingMs: number): string;
 export declare function declineCooldownRemaining(session: ActiveLFGSession, joinerId: string, now?: number): number;
 export declare function recordLFGDecline(session: ActiveLFGSession, joinerId: string, now?: number): void;
 export declare function pendingRequestCooldownRemaining(session: ActiveLFGSession, joinerId: string, now?: number): number;

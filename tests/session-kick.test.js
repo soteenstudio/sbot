@@ -20,7 +20,7 @@ import { RequestHandler } from '../dist/interaction-handlers/LFGRequestHandler.j
 import { EndSessionHandler } from '../dist/interaction-handlers/LFGEndSession.js';
 import { JoinButtonHandler } from '../dist/interaction-handlers/LFGJoin.js';
 import { activeParties } from '../dist/lib/party-data.js';
-import { activeLFG, declineCooldownRemaining, pendingLFGInitialSaves, pendingRequestCooldownRemaining } from '../dist/lib/lfg-data.js';
+import { activeLFG, declineCooldownRemaining, formatLFGCooldown, pendingLFGInitialSaves, pendingRequestCooldownRemaining } from '../dist/lib/lfg-data.js';
 import {
   getLFGSession,
   restoreLFGSessions,
@@ -450,6 +450,15 @@ test('a host request disables both buttons and ignores concurrent and repeated c
   assert.match((await RequestHandler.prototype.run(decline)).content, /already been handled/);
 });
 
+test('LFG cooldowns display rounded minutes and seconds', () => {
+  assert.equal(formatLFGCooldown(157_000), '2 minutes 37 seconds');
+  assert.equal(formatLFGCooldown(60_000), '1 minute');
+  assert.equal(formatLFGCooldown(61_000), '1 minute 1 second');
+  assert.equal(formatLFGCooldown(45_000), '45 seconds');
+  assert.equal(formatLFGCooldown(1), '1 second');
+  assert.equal(formatLFGCooldown(60_001), '1 minute 1 second');
+});
+
 test('decline cooldown expires after 3 minutes and is scoped to the session', async (t) => {
   let now = 1_000_000;
   t.mock.method(Date, 'now', () => now);
@@ -466,7 +475,7 @@ test('decline cooldown expires after 3 minutes and is scoped to the session', as
     message: { id: session.messageId }, client,
     async deferUpdate() {}, async followUp(value) { return value; },
   });
-  assert.match((await join()).content, /wait 180 seconds/);
+  assert.match((await join()).content, /wait 3 minutes/);
   const replacement = lfgSession([]);
   replacement.messageId = 'replacement-message';
   activeLFG.set(hostId, replacement);
@@ -501,7 +510,7 @@ test('pending request cooldown starts after host DM, expires, and stays with its
   releaseDM();
   assert.match((await first).content, /sent to the host/);
   assert.equal(pendingRequestCooldownRemaining(session, participantId), 60_000);
-  assert.match((await JoinButtonHandler.prototype.run(joinInteraction(session, client))).content, /wait 60 seconds/);
+  assert.match((await JoinButtonHandler.prototype.run(joinInteraction(session, client))).content, /wait 1 minute/);
   const replacement = lfgSession([]);
   replacement.messageId = 'replacement-message';
   activeLFG.set(hostId, replacement);
@@ -540,7 +549,7 @@ test('a pending cooldown created during host fetch prevents another host DM', as
     users: { fetch: async () => host },
   }))).content, /sent to the host/);
   releaseFetch(host);
-  assert.match((await delayed).content, /wait 60 seconds/);
+  assert.match((await delayed).content, /wait 1 minute/);
   assert.equal(hostDMs, 1);
 });
 
@@ -553,7 +562,7 @@ test('decline clears pending request and starts the longer decline cooldown', as
   await RequestHandler.prototype.run(decisionInteraction(session, 'decline', requestMessage(session), client));
   assert.equal(pendingRequestCooldownRemaining(session, participantId), 0);
   assert.ok(declineCooldownRemaining(session, participantId) > 0);
-  assert.match((await JoinButtonHandler.prototype.run(joinInteraction(session, client))).content, /wait 180 seconds/);
+  assert.match((await JoinButtonHandler.prototype.run(joinInteraction(session, client))).content, /wait 3 minutes/);
 });
 
 test('a decline while the joiner fetches the host blocks the pending request DM', async () => {
