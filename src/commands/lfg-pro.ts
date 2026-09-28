@@ -186,7 +186,7 @@ export class LFGCommand extends Subcommand {
       participantIds: new Set(),
       kickedIds: new Set(),
     };
-    // Another create may have completed while the announcement was being sent.
+
     if (activeLFG.has(interaction.user.id)) {
       await interaction.editReply({
         content:

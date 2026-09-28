@@ -284,6 +284,15 @@ export class PartyCommand extends Subcommand {
       }
 
       await kickFromSession(channel, member);
+
+      try {
+        await participant.send({
+          content: `❌ You have been removed from the party voice channel by the host.`,
+        });
+      } catch (dmError) {
+        console.error('Could not send kick notification DM:', dmError);
+      }
+
       return interaction.editReply({
         content: `✅ <@${participant.id}> has been removed from this party.`,
         allowedMentions: { users: [] },

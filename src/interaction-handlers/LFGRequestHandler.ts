@@ -162,9 +162,7 @@ export class RequestHandler extends InteractionHandler {
           await joiner.send(
             `Your request to join ${session.game} was declined. You can try again in ${formatLFGCooldown(LFG_DECLINE_COOLDOWN_MS)}.`,
           );
-        } catch {
-          // The host's decision is complete even when the joiner cannot receive DMs.
-        }
+        } catch {}
         return acknowledgement;
       }
 
