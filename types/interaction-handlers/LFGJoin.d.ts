@@ -12,5 +12,5 @@ import { ButtonInteraction } from 'discord.js';
 export declare class JoinButtonHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
     parse(interaction: ButtonInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
-    run(interaction: ButtonInteraction): Promise<import("discord.js").Message<boolean>>;
+    run(interaction: ButtonInteraction): Promise<import("discord.js").Message<boolean> | undefined>;
 }

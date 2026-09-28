@@ -48,7 +48,27 @@ export class JoinButtonHandler extends InteractionHandler {
   }
 
   public async run(interaction: ButtonInteraction) {
-    await interaction.deferUpdate();
+    const acknowledgementStarted = Date.now();
+    const createdTimestamp =
+      interaction.createdTimestamp ?? acknowledgementStarted;
+    try {
+      await interaction.deferUpdate();
+    } catch (error) {
+      console.error('Could not acknowledge LFG join interaction:', {
+        interactionId: interaction.id,
+        dispatchAgeMs: acknowledgementStarted - createdTimestamp,
+        ageMs: Date.now() - createdTimestamp,
+        acknowledgementMs: Date.now() - acknowledgementStarted,
+        error,
+      });
+      return;
+    }
+    console.debug('LFG join interaction acknowledged:', {
+      interactionId: interaction.id,
+      dispatchAgeMs: acknowledgementStarted - createdTimestamp,
+      ageMs: Date.now() - createdTimestamp,
+      acknowledgementMs: Date.now() - acknowledgementStarted,
+    });
 
     const parts = interaction.customId.split('_');
     const hostId = parts[parts.length - 1];
