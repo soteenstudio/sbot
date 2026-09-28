@@ -38,10 +38,14 @@ export class PartnerFeedbackModalHandler extends InteractionHandler {
   }
 
   public async run(interaction: ModalSubmitInteraction) {
-    const feedbackText = interaction.fields.getTextInputValue(
-      'feedback_input_text',
-    );
     const isNewChar = interaction.customId === 'partner_modal_new_character';
+    const feedbackText = isNewChar
+      ? [
+          `Character name: ${interaction.fields.getTextInputValue('char_name_input')}`,
+          `Region / culture: ${interaction.fields.getTextInputValue('char_region_input')}`,
+          `Description: ${interaction.fields.getTextInputValue('char_desc_input')}`,
+        ].join('\n')
+      : interaction.fields.getTextInputValue('feedback_input_text');
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
