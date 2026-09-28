@@ -137,7 +137,10 @@ export class PartnerCommand extends Subcommand {
       components: [row],
     });
 
-    const collector = response.createMessageComponentCollector({ time: 60000 });
+    const collector = response.createMessageComponentCollector({
+      filter: (i) => i.customId === 'roll_again_fic',
+      time: 60000,
+    });
 
     collector.on('collect', async (i: ButtonInteraction) => {
       if (i.user.id !== interaction.user.id) {
@@ -206,6 +209,7 @@ export class PartnerCommand extends Subcommand {
       });
 
       const collector = response.createMessageComponentCollector({
+        filter: (i) => i.customId === 'roll_again_user',
         time: 60000,
       });
 
