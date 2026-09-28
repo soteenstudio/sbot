@@ -20,7 +20,16 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
-import { activeLFG, pendingLFGInitialSaves } from '../lib/lfg-data.js';
+import {
+  activeLFG,
+  declineCooldownRemaining,
+  pendingLFGInitialSaves,
+} from '../lib/lfg-data.js';
+
+function cooldownNotice(remaining: number): string {
+  const seconds = Math.ceil(remaining / 1000);
+  return `❌ Please wait ${seconds} ${seconds === 1 ? 'second' : 'seconds'} before requesting to join this session again.`;
+}
 
 export class JoinButtonHandler extends InteractionHandler {
   public constructor(
@@ -79,6 +88,13 @@ export class JoinButtonHandler extends InteractionHandler {
         ephemeral: true,
       });
 
+    const remaining = declineCooldownRemaining(session, interaction.user.id);
+    if (remaining)
+      return interaction.followUp({
+        content: cooldownNotice(remaining),
+        ephemeral: true,
+      });
+
     const host = await interaction.client.users.fetch(hostId);
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -105,6 +121,22 @@ export class JoinButtonHandler extends InteractionHandler {
       .setThumbnail(interaction.user.displayAvatarURL())
       .setTimestamp()
       .setFooter({ text: 'SoTeen Studio • Looking for group' });
+
+    if (activeLFG.get(hostId) !== session)
+      return interaction.followUp({
+        content: '❌ This session is no longer active.',
+        ephemeral: true,
+      });
+
+    const latestRemaining = declineCooldownRemaining(
+      session,
+      interaction.user.id,
+    );
+    if (latestRemaining)
+      return interaction.followUp({
+        content: cooldownNotice(latestRemaining),
+        ephemeral: true,
+      });
 
     try {
       await host.send({

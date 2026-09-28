@@ -92,7 +92,9 @@ async function readLFG(path: string): Promise<LFGRecords> {
       throw new Error('Invalid LFG storage: expected an object');
     for (const [hostId, record] of Object.entries(records)) {
       if (!isLFGSession(record) || record.authorId !== hostId)
-        throw new Error('Invalid LFG storage: expected complete session records');
+        throw new Error(
+          'Invalid LFG storage: expected complete session records',
+        );
     }
     return records as LFGRecords;
   } catch (error) {
@@ -211,6 +213,22 @@ export async function saveLFGSession(session: ActiveLFGSession): Promise<void> {
   await updateLFG((records) => {
     records[session.authorId] = toLFGSession(session);
     return [undefined, true];
+  });
+}
+
+/** Persist an acceptance only while it still belongs to the same active session. */
+export async function saveLFGAcceptance(
+  expected: ActiveLFGSession,
+  updated: ActiveLFGSession,
+): Promise<boolean> {
+  return updateLFG((records) => {
+    if (
+      activeLFG.get(expected.authorId) !== expected ||
+      records[expected.authorId]?.messageId !== expected.messageId
+    )
+      return [false, false];
+    records[expected.authorId] = toLFGSession(updated);
+    return [true, true];
   });
 }
 

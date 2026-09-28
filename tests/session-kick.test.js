@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
-import { ChannelType, EmbedBuilder } from 'discord.js';
+import { ButtonStyle, ChannelType, ComponentType, EmbedBuilder } from 'discord.js';
 import { PartyCommand } from '../dist/commands/party.js';
 import { LFGCommand } from '../dist/commands/lfg-pro.js';
 import { RequestHandler } from '../dist/interaction-handlers/LFGRequestHandler.js';
@@ -50,7 +50,7 @@ function voiceChannel(connected = true) {
   let deletes = 0;
   const member = {
     id: participantId,
-    user: { bot: false },
+    user: { bot: false, async send() {} },
     voice: {
       channelId: connected ? voiceId : null,
       async disconnect() {
@@ -84,6 +84,32 @@ function voiceChannel(connected = true) {
     toString() {
       return `<#${voiceId}>`;
     },
+  };
+}
+
+let requestNumber = 0;
+function requestMessage(session, joinerId = participantId) {
+  const accept = `lfg_pro_accept_${joinerId}_${session.channelId}_${session.messageId}_${hostId}`;
+  const decline = `lfg_pro_decline_${joinerId}_${session.channelId}_${session.messageId}_${hostId}`;
+  const message = {
+    id: `request-${++requestNumber}`,
+    components: [{ type: ComponentType.ActionRow, components: [
+      { type: ComponentType.Button, custom_id: accept, label: 'Accept Request', style: ButtonStyle.Success, disabled: false },
+      { type: ComponentType.Button, custom_id: decline, label: 'Decline Request', style: ButtonStyle.Danger, disabled: false },
+    ] }],
+    edits: [],
+    async edit(value) { this.edits.push(value); this.components = value.components.map((row) => row.toJSON()); },
+  };
+  return message;
+}
+
+function decisionInteraction(session, action, message, client, joinerId = participantId) {
+  return {
+    customId: `lfg_pro_${action}_${joinerId}_${session.channelId}_${session.messageId}_${hostId}`,
+    user: { id: hostId }, message, client,
+    async update(value) { message.components = value.components.map((row) => row.toJSON()); return value; },
+    async followUp(value) { return value; },
+    async reply(value) { return value; },
   };
 }
 
@@ -292,7 +318,10 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
   const session = lfgSession([]);
   session.vcId = '';
   activeLFG.set(hostId, session);
+  await saveLFGSession(session);
   const channel = voiceChannel(false);
+  let joinerDM;
+  channel.member.user.send = async (content) => { joinerDM = content; };
   let announcementEdit;
   const announcement = {
     embeds: [new EmbedBuilder().setDescription('**Game:** 3/4 Quest\n**Required rank:** 1/2 Gold\n**Players:** 1/4')],
@@ -312,8 +341,9 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
   const interaction = {
     customId: `lfg_pro_accept_${participantId}_${originId}_${session.messageId}_${hostId}`,
     user: { id: hostId },
+    message: requestMessage(session),
     client,
-    async deferUpdate() {},
+    async update(value) { this.message.components = value.components.map((row) => row.toJSON()); },
     async followUp(value) {
       return value;
     },
@@ -327,12 +357,13 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
   assert.equal(session.participantIds.has(participantId), true);
   assert.deepEqual((await getLFGSession(hostId)).participantIds, [participantId]);
   assert.equal((await getLFGSession(hostId)).vcId, voiceId);
+  assert.match(joinerDM, /Minecraft.*Gold.*<#567890123456789012>/);
   assert.equal(announcementEdit.embeds[0].data.description, '**Game:** 3/4 Quest\n**Required rank:** 1/2 Gold\n**Players:** 2/4');
 
   session.participantIds.delete(participantId);
   session.kickedIds.add(participantId);
   const refused = await RequestHandler.prototype.run(interaction);
-  assert.match(refused.content, /removed from this session/);
+  assert.match(refused.content, /already been handled/);
   assert.equal(activeLFG.get(hostId), session);
 
   const next = lfgSession([]);
@@ -342,6 +373,161 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
   const stale = await RequestHandler.prototype.run(interaction);
   assert.match(stale.content, /no longer active/);
   assert.equal(next.kickedIds.size, 0);
+});
+
+test('a host request disables both buttons and ignores concurrent and repeated clicks', async () => {
+  const session = lfgSession([]);
+  activeLFG.set(hostId, session);
+  const message = requestMessage(session);
+  let releaseNotification;
+  const notification = new Promise((resolve) => { releaseNotification = resolve; });
+  let declineDM;
+  const client = { users: { fetch: async () => ({ send: async (content) => { declineDM = content; return notification; } }) } };
+  const decline = decisionInteraction(session, 'decline', message, client);
+  const first = RequestHandler.prototype.run(decline);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(message.components[0].components.map((button) => button.disabled), [true, true]);
+  const duplicate = await RequestHandler.prototype.run(decisionInteraction(session, 'accept', message, client));
+  assert.match(duplicate.content, /already been handled/);
+  releaseNotification();
+  assert.match((await first).content, /declined/);
+  assert.match(declineDM, /declined.*60 seconds/);
+  assert.match((await RequestHandler.prototype.run(decline)).content, /already been handled/);
+});
+
+test('decline cooldown expires after 60 seconds and is scoped to the session', async (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+  const session = lfgSession([]);
+  activeLFG.set(hostId, session);
+  const messages = [];
+  const host = { async send(value) { messages.push(value); } };
+  const client = { users: { fetch: async (id) => id === hostId ? host : { async send() {} } } };
+  const decline = decisionInteraction(session, 'decline', requestMessage(session), client);
+  assert.match((await RequestHandler.prototype.run(decline)).content, /declined/);
+  const join = () => JoinButtonHandler.prototype.run({
+    customId: `lfg_pro_join_${hostId}`,
+    user: { id: participantId, toString: () => `<@${participantId}>`, displayAvatarURL: () => 'https://example.com/avatar.png' },
+    message: { id: session.messageId }, client,
+    async deferUpdate() {}, async followUp(value) { return value; },
+  });
+  assert.match((await join()).content, /wait 60 seconds/);
+  const replacement = lfgSession([]);
+  replacement.messageId = 'replacement-message';
+  activeLFG.set(hostId, replacement);
+  assert.match((await JoinButtonHandler.prototype.run({
+    customId: `lfg_pro_join_${hostId}`,
+    user: { id: participantId, toString: () => `<@${participantId}>`, displayAvatarURL: () => 'https://example.com/avatar.png' },
+    message: { id: replacement.messageId }, client,
+    async deferUpdate() {}, async followUp(value) { return value; },
+  })).content, /sent to the host/);
+  activeLFG.set(hostId, session);
+  now += 59_000;
+  assert.match((await join()).content, /wait 1 second/);
+  assert.equal(messages.length, 1);
+  now += 1_000;
+  assert.match((await join()).content, /sent to the host/);
+  assert.equal(messages.length, 2);
+});
+
+test('a decline while the joiner fetches the host blocks the pending request DM', async () => {
+  const session = lfgSession([]);
+  activeLFG.set(hostId, session);
+  let releaseHost;
+  const hostFetched = new Promise((resolve) => { releaseHost = resolve; });
+  let hostDMs = 0;
+  const host = { async send() { hostDMs++; } };
+  const joining = JoinButtonHandler.prototype.run({
+    customId: `lfg_pro_join_${hostId}`,
+    user: { id: participantId, toString: () => `<@${participantId}>`, displayAvatarURL: () => 'https://example.com/avatar.png' },
+    message: { id: session.messageId },
+    client: { users: { fetch: async () => hostFetched } },
+    async deferUpdate() {}, async followUp(value) { return value; },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const decline = decisionInteraction(session, 'decline', requestMessage(session), {
+    users: { fetch: async () => ({ async send() {} }) },
+  });
+  await RequestHandler.prototype.run(decline);
+  releaseHost(host);
+  assert.match((await joining).content, /Please wait/);
+  assert.equal(hostDMs, 0);
+});
+
+test('closed and replaced sessions reject requests without changing the replacement', async () => {
+  const session = lfgSession([]);
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  const message = requestMessage(session);
+  const client = { channels: { fetch: async () => null } };
+  activeLFG.delete(hostId);
+  assert.match((await RequestHandler.prototype.run(decisionInteraction(session, 'accept', message, client))).content, /no longer active/);
+  activeLFG.set(hostId, session);
+  let releaseFetch;
+  const fetched = new Promise((resolve) => { releaseFetch = resolve; });
+  const inFlight = RequestHandler.prototype.run(decisionInteraction(session, 'accept', message, {
+    channels: { fetch: async () => fetched },
+  }));
+  await new Promise((resolve) => setImmediate(resolve));
+  const replacement = lfgSession([]);
+  replacement.messageId = 'replacement-message';
+  activeLFG.set(hostId, replacement);
+  await saveLFGSession(replacement);
+  releaseFetch({ guild: { members: { fetch: async () => ({ user: { bot: false } }) } } });
+  assert.match((await inFlight).content, /no longer valid/);
+  assert.equal(replacement.participantIds.size, 0);
+  assert.equal((await getLFGSession(hostId)).messageId, replacement.messageId);
+});
+
+test('failed acceptance restores buttons and a later click can retry', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const session = lfgSession([]);
+  session.vcId = '';
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  const message = requestMessage(session);
+  let attempts = 0;
+  const client = {
+    channels: { fetch: async () => ({ guild: {
+      id: guildId,
+      members: { fetch: async () => ({ user: { bot: false, async send() {} } }) },
+      channels: { create: async () => {
+        if (++attempts === 1) throw new Error('temporary failure');
+        return voiceChannel(false);
+      } },
+    }, isTextBased: () => false }) },
+    users: { fetch: async () => ({ id: hostId, username: 'host' }) },
+  };
+  assert.match((await RequestHandler.prototype.run(decisionInteraction(session, 'accept', message, client))).content, /Could not add/);
+  assert.deepEqual(message.components[0].components.map((button) => button.disabled), [false, false]);
+  assert.match((await RequestHandler.prototype.run(decisionInteraction(session, 'accept', message, client))).content, /Join request accepted/);
+  assert.deepEqual(message.components[0].components.map((button) => button.disabled), [true, true]);
+  assert.equal(session.participantIds.has(participantId), true);
+});
+
+test('a disabled joiner DM does not undo a host decision', async () => {
+  const session = lfgSession([]);
+  session.vcId = '';
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  const joiner = { bot: false, async send() { throw new Error('DM disabled'); } };
+  const channel = voiceChannel(false);
+  const client = {
+    channels: { fetch: async () => ({ guild: {
+      id: guildId,
+      members: { fetch: async () => ({ user: joiner }) },
+      channels: { create: async () => channel },
+    }, isTextBased: () => false }) },
+    users: { fetch: async (id) => id === hostId
+      ? { id: hostId, username: 'host' }
+      : { async send() { throw new Error('DM disabled'); } } },
+  };
+  const accepted = await RequestHandler.prototype.run(decisionInteraction(session, 'accept', requestMessage(session), client));
+  assert.match(accepted.content, /accepted.*could not be notified/);
+  assert.equal(session.participantIds.has(participantId), true);
+  const declined = await RequestHandler.prototype.run(decisionInteraction(session, 'decline', requestMessage(session, outsiderId), client, outsiderId));
+  assert.match(declined.content, /declined.*could not be notified/);
+  assert.equal(session.participantIds.has(participantId), true);
 });
 
 test('an old LFG join button cannot request access to a later session', async () => {
@@ -623,11 +809,12 @@ test('LFG failed accept save preserves participants and voice channel id', async
       const reply = await RequestHandler.prototype.run({
         customId: `lfg_pro_accept_${participantId}_${originId}_${session.messageId}_${hostId}`,
         user: { id: hostId },
+        message: requestMessage(session),
         client: {
           channels: { fetch: async () => ({ guild, isTextBased: () => false }) },
           users: { fetch: async () => ({ id: hostId, username: 'host' }) },
         },
-        async deferUpdate() {},
+        async update(value) { this.message.components = value.components.map((row) => row.toJSON()); },
         async followUp(value) { return value; },
       });
       assert.match(reply.content, /Could not add/);
