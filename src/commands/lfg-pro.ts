@@ -227,6 +227,8 @@ export class LFGCommand extends Subcommand {
       });
     }
 
+    await interaction.deferReply({ ephemeral: true });
+
     if (session.vcId) {
       try {
         if (!interaction.guild)
@@ -236,14 +238,24 @@ export class LFGCommand extends Subcommand {
       } catch (error) {
         if (!isUnknownChannel(error)) {
           console.error('Could not close LFG voice channel:', error);
-          return interaction.reply({
+          return interaction.editReply({
             content:
               '❌ Could not close the session voice channel. Please try again.',
-            ephemeral: true,
           });
         }
       }
     }
+
+    try {
+      await deleteLFGSession(interaction.user.id);
+    } catch (error) {
+      console.error('Could not delete LFG session:', error);
+      return interaction.editReply({
+        content: '❌ Could not close the session. Please try again.',
+      });
+    }
+    if (activeLFG.get(interaction.user.id) === session)
+      activeLFG.delete(interaction.user.id);
 
     const channel = await interaction.client.channels
       .fetch(session.channelId)
@@ -266,12 +278,8 @@ export class LFGCommand extends Subcommand {
       }
     }
 
-    await deleteLFGSession(interaction.user.id);
-    activeLFG.delete(interaction.user.id);
-
-    return interaction.reply({
+    return interaction.editReply({
       content: '✅ Your session has been closed.',
-      ephemeral: true,
     });
   }
 

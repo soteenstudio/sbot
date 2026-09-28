@@ -551,6 +551,73 @@ test('an old LFG join button cannot request access to a later session', async ()
   assert.equal(activeLFG.get(hostId).messageId, session.messageId);
 });
 
+test('LFG join acknowledges once before fetching the host', async (t) => {
+  const logs = [];
+  t.mock.method(console, 'debug', (...args) => { logs.push(args); });
+  const session = lfgSession([]);
+  activeLFG.set(hostId, session);
+  let acknowledged = false;
+  let acknowledgementCount = 0;
+  let hostDMs = 0;
+  const reply = await JoinButtonHandler.prototype.run({
+    id: 'join-interaction',
+    createdTimestamp: Date.now() - 100,
+    customId: `lfg_pro_join_${hostId}`,
+    user: {
+      id: participantId,
+      toString: () => `<@${participantId}>`,
+      displayAvatarURL: () => 'https://example.com/avatar.png',
+    },
+    message: { id: session.messageId },
+    client: { users: { fetch: async () => {
+      assert.equal(acknowledged, true);
+      return { async send() { hostDMs++; } };
+    } } },
+    async deferUpdate() { acknowledgementCount++; acknowledged = true; },
+    async followUp(value) { return value; },
+    async reply() { assert.fail('Join must use the deferred update'); },
+  });
+  assert.match(reply.content, /sent to the host/);
+  assert.equal(acknowledgementCount, 1);
+  assert.equal(hostDMs, 1);
+  assert.equal(logs.length, 1);
+  assert.ok(logs[0][1].ageMs >= 100);
+});
+
+test('LFG join stops when its first acknowledgement fails with 10062', async (t) => {
+  const errors = [];
+  t.mock.method(console, 'error', (...args) => { errors.push(args); });
+  const session = lfgSession([]);
+  activeLFG.set(hostId, session);
+  let acknowledgementCount = 0;
+  let hostFetches = 0;
+  let hostDMs = 0;
+  let followUps = 0;
+  const failure = { code: 10062 };
+  const result = await JoinButtonHandler.prototype.run({
+    id: 'expired-join-interaction',
+    createdTimestamp: Date.now() - 3_000,
+    customId: `lfg_pro_join_${hostId}`,
+    user: { id: participantId },
+    message: { id: session.messageId },
+    client: { users: { fetch: async () => {
+      hostFetches++;
+      return { async send() { hostDMs++; } };
+    } } },
+    async deferUpdate() { acknowledgementCount++; throw failure; },
+    async followUp() { followUps++; },
+  });
+  assert.equal(result, undefined);
+  assert.equal(acknowledgementCount, 1);
+  assert.equal(hostFetches, 0);
+  assert.equal(hostDMs, 0);
+  assert.equal(followUps, 0);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0][1].interactionId, 'expired-join-interaction');
+  assert.ok(errors[0][1].ageMs >= 3_000);
+  assert.equal(errors[0][1].error, failure);
+});
+
 test('LFG close deletes the channel and discards session-specific access state', async () => {
   const session = lfgSession([]);
   session.kickedIds.add(participantId);
@@ -561,7 +628,10 @@ test('LFG close deletes the channel and discards session-specific access state',
     user: { id: hostId },
     guild: { channels: { fetch: async () => channel } },
     client: { channels: { fetch: async () => null } },
-    async reply(value) {
+    async deferReply(value) {
+      assert.equal(value.ephemeral, true);
+    },
+    async editReply(value) {
       return value;
     },
   });
@@ -570,6 +640,45 @@ test('LFG close deletes the channel and discards session-specific access state',
   assert.equal(activeLFG.has(hostId), false);
   assert.equal(await getLFGSession(hostId), null);
   assert.equal(lfgSession([]).kickedIds.size, 0);
+});
+
+test('LFG close acknowledges before a slow voice channel deletion', async () => {
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  let releaseDeletion;
+  const deletion = new Promise((resolve) => { releaseDeletion = resolve; });
+  let deleting = false;
+  let acknowledged = false;
+  let edited = false;
+  const closing = LFGCommand.prototype.close({
+    user: { id: hostId },
+    guild: { channels: { fetch: async () => ({ async delete() {
+      deleting = true;
+      await deletion;
+    } }) } },
+    client: { channels: { fetch: async () => null } },
+    async deferReply(value) {
+      assert.equal(value.ephemeral, true);
+      assert.equal(deleting, false);
+      acknowledged = true;
+    },
+    async editReply(value) { edited = true; return value; },
+    async reply() { assert.fail('Close must use the deferred response'); },
+  });
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(acknowledged, true);
+    assert.equal(deleting, true);
+    assert.equal(edited, false);
+    assert.equal(activeLFG.get(hostId), session);
+    assert.ok(await getLFGSession(hostId));
+  } finally {
+    releaseDeletion();
+  }
+  assert.match((await closing).content, /has been closed/);
+  assert.equal(activeLFG.has(hostId), false);
+  assert.equal(await getLFGSession(hostId), null);
 });
 
 test('LFG close retains the session when channel deletion fails for a retry', async (t) => {
@@ -581,16 +690,54 @@ test('LFG close retains the session when channel deletion fails for a retry', as
   channel.delete = async () => {
     throw { code: 50013 };
   };
+  let acknowledged = false;
   const reply = await LFGCommand.prototype.close.call({}, {
     user: { id: hostId },
     guild: { channels: { fetch: async () => channel } },
-    async reply(value) {
+    async deferReply(value) {
+      assert.equal(value.ephemeral, true);
+      acknowledged = true;
+    },
+    async editReply(value) {
       return value;
     },
+    async reply() { assert.fail('Close must use the deferred response'); },
   });
+  assert.equal(acknowledged, true);
   assert.match(reply.content, /Could not close/);
-  assert.equal(activeLFG.has(hostId), true);
-  assert.ok(await getLFGSession(hostId));
+  assert.equal(activeLFG.get(hostId), session);
+  assert.equal((await getLFGSession(hostId)).messageId, session.messageId);
+});
+
+test('LFG close retains stored and in-memory state if JSON deletion fails', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const session = lfgSession();
+  activeLFG.set(hostId, session);
+  await saveLFGSession(session);
+  let announcementEdits = 0;
+  const voice = voiceChannel();
+  const interaction = {
+    user: { id: hostId },
+    guild: { channels: { fetch: async () => voice } },
+    client: { channels: { fetch: async () => ({
+      isTextBased: () => true,
+      messages: { fetch: async () => ({ async edit() { announcementEdits++; } }) },
+    }) } },
+    async deferReply(value) { assert.equal(value.ephemeral, true); },
+    async editReply(value) { return value; },
+  };
+  const originalPath = process.env.LFG_DATA_FILE;
+  try {
+    process.env.LFG_DATA_FILE = storageDirectory;
+    const reply = await LFGCommand.prototype.close(interaction);
+    assert.match(reply.content, /Could not close the session/);
+    assert.equal(activeLFG.get(hostId), session);
+    assert.equal(voice.deletes, 1);
+    assert.equal(announcementEdits, 0);
+  } finally {
+    process.env.LFG_DATA_FILE = originalPath;
+  }
+  assert.equal((await getLFGSession(hostId)).messageId, session.messageId);
 });
 
 test('LFG end button requires its host and deletes the session channel', async () => {
