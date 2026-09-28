@@ -18,12 +18,12 @@ import { PartnerFeedbackHandler } from '../dist/interaction-handlers/PartnerFeed
 import { PartnerFeedbackSelectHandler } from '../dist/interaction-handlers/PartnerFeedbackSelectHandler.js';
 import { PartnerFeedbackModalHandler } from '../dist/interaction-handlers/PartnerFeedbackModalHandler.js';
 
-function setReportChannel(t, value) {
-  const previous = process.env.REPORT_CHANNEL;
-  process.env.REPORT_CHANNEL = value;
+function setFeedbackChannel(t, value) {
+  const previous = process.env.FEEDBACK_CHANNEL;
+  process.env.FEEDBACK_CHANNEL = value;
   t.after(() => {
-    if (previous === undefined) delete process.env.REPORT_CHANNEL;
-    else process.env.REPORT_CHANNEL = previous;
+    if (previous === undefined) delete process.env.FEEDBACK_CHANNEL;
+    else process.env.FEEDBACK_CHANNEL = previous;
   });
 }
 
@@ -97,7 +97,7 @@ for (const mode of ['fic', 'user']) {
 
 for (const category of ['general_feedback', 'new_character']) {
   test(`${category} select and modal dispatch through Sapphire and deliver before confirming`, async (t) => {
-    setReportChannel(t, 'staff');
+    setFeedbackChannel(t, 'staff');
     const { store, errors } = handlerStore();
     const select = component('select', 'partner_feedback_select');
     select.values = [category];
@@ -105,12 +105,23 @@ for (const category of ['general_feedback', 'new_character']) {
     select.showModal = async (value) => { modal = value; };
     assert.equal(await store.run(select), true);
     assert.equal(modal.data.custom_id, `partner_modal_${category}`);
-    assert.equal(modal.components[0].components[0].data.custom_id, 'feedback_input_text');
+    const fieldValues = category === 'new_character'
+      ? {
+          char_name_input: 'Nyoman Sari',
+          char_region_input: 'Gianyar, Bali',
+          char_desc_input: 'A skilled traditional weaver @everyone',
+        }
+      : { feedback_input_text: 'My suggestion @everyone' };
+    const fieldIds = modal.components.map((row) => row.components[0].data.custom_id);
+    assert.deepEqual(fieldIds, Object.keys(fieldValues));
+    const expectedDescription = category === 'new_character'
+      ? 'Character name: Nyoman Sari\nRegion / culture: Gianyar, Bali\nDescription: A skilled traditional weaver @everyone'
+      : 'My suggestion @everyone';
     const submission = component('modal', modal.data.custom_id);
     const events = [];
     submission.fields = { getTextInputValue: (id) => {
-      assert.equal(id, 'feedback_input_text');
-      return 'My suggestion @everyone';
+      assert.ok(Object.hasOwn(fieldValues, id), `unexpected modal field: ${id}`);
+      return fieldValues[id];
     } };
     submission.deferReply = async (payload) => {
       events.push('defer');
@@ -124,7 +135,7 @@ for (const category of ['general_feedback', 'new_character']) {
       assert.equal(id, 'staff');
       return { type: ChannelType.GuildText, send: async (payload) => {
         events.push('send');
-        assert.equal(payload.embeds[0].data.description, 'My suggestion @everyone');
+        assert.equal(payload.embeds[0].data.description, expectedDescription);
         assert.equal(payload.embeds[0].data.fields[0].value, 'Submitter (owner)');
         assert.match(payload.embeds[0].data.title, category === 'new_character' ? /Character Proposal/ : /Feedback/);
         assert.deepEqual(payload.allowedMentions, { parse: [] });
@@ -150,7 +161,7 @@ for (const category of ['general_feedback', 'new_character']) {
 
 for (const failure of ['unconfigured', 'missing', 'wrong type', 'fetch', 'send', 'confirmation']) {
   test(`feedback handles ${failure} failure without false delivery status`, async (t) => {
-    setReportChannel(t, failure === 'unconfigured' ? '' : 'staff');
+    setFeedbackChannel(t, failure === 'unconfigured' ? '' : 'staff');
     t.mock.method(console, 'error', () => {});
     const submission = component('modal', 'partner_modal_general_feedback');
     const events = [];
