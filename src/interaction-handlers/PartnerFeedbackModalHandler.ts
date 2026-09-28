@@ -68,10 +68,7 @@ export class PartnerFeedbackModalHandler extends InteractionHandler {
         .setTitle(
           isNewChar ? '🌟 Partner Character Proposal' : '💬 Partner Feedback',
         )
-        .addFields({
-          name: 'Character',
-          value: feedbackText,
-        })
+        .setDescription(feedbackText)
         .addFields({
           name: 'Submitted by',
           value: `${interaction.user.tag} (${interaction.user.id})`,

@@ -109,13 +109,15 @@ for (const category of ['general_feedback', 'new_character']) {
       ? {
           char_name_input: 'Nyoman Sari',
           char_region_input: 'Gianyar, Bali',
+          char_culture_input: 'Balinese',
+          char_tradition_input: 'Weaving',
           char_desc_input: 'A skilled traditional weaver @everyone',
         }
       : { feedback_input_text: 'My suggestion @everyone' };
     const fieldIds = modal.components.map((row) => row.components[0].data.custom_id);
     assert.deepEqual(fieldIds, Object.keys(fieldValues));
     const expectedDescription = category === 'new_character'
-      ? 'Character name: Nyoman Sari\nRegion / culture: Gianyar, Bali\nDescription: A skilled traditional weaver @everyone'
+      ? '- **Name**: Nyoman Sari\n- **Region**: Gianyar, Bali\n- **Culture**: Balinese\n- **Tradition**: Weaving\n- **Description**: A skilled traditional weaver @everyone'
       : 'My suggestion @everyone';
     const submission = component('modal', modal.data.custom_id);
     const events = [];
@@ -158,6 +160,57 @@ for (const category of ['general_feedback', 'new_character']) {
     assert.equal(await store.run(component('select', 'unrelated')), false);
   });
 }
+
+test('maximum-length new-character submission delivers all five fields in the description', async (t) => {
+  setFeedbackChannel(t, 'staff');
+  const { store, errors } = handlerStore();
+  const select = component('select', 'partner_feedback_select');
+  select.values = ['new_character'];
+  let modal;
+  select.showModal = async (value) => { modal = value; };
+  assert.equal(await store.run(select), true);
+
+  const fieldValues = {
+    char_name_input: 'N'.repeat(100),
+    char_region_input: 'R'.repeat(100),
+    char_culture_input: 'C'.repeat(100),
+    char_tradition_input: 'T'.repeat(100),
+    char_desc_input: 'D'.repeat(1000),
+  };
+  for (const row of modal.components) {
+    const input = row.components[0].data;
+    assert.equal(fieldValues[input.custom_id].length, input.max_length);
+  }
+  const expectedDescription = [
+    `- **Name**: ${fieldValues.char_name_input}`,
+    `- **Region**: ${fieldValues.char_region_input}`,
+    `- **Culture**: ${fieldValues.char_culture_input}`,
+    `- **Tradition**: ${fieldValues.char_tradition_input}`,
+    `- **Description**: ${fieldValues.char_desc_input}`,
+  ].join('\n');
+
+  const submission = component('modal', modal.data.custom_id);
+  submission.fields = { getTextInputValue: (id) => {
+    assert.ok(Object.hasOwn(fieldValues, id), `unexpected modal field: ${id}`);
+    return fieldValues[id];
+  } };
+  submission.deferReply = async ({ flags }) => assert.equal(flags, MessageFlags.Ephemeral);
+  let deliveries = 0;
+  submission.guild = { channels: { fetch: async (id) => {
+    assert.equal(id, 'staff');
+    return { type: ChannelType.GuildText, send: async ({ embeds }) => {
+      deliveries++;
+      assert.equal(embeds[0].data.description, expectedDescription);
+    } };
+  } } };
+  let confirmation;
+  submission.editReply = async ({ content }) => { confirmation = content; };
+
+  assert.equal(await store.run(submission), true);
+  assert.equal(deliveries, 1);
+  assert.match(confirmation, /successfully submitted/);
+  assert.deepEqual(errors, []);
+});
 
 for (const failure of ['unconfigured', 'missing', 'wrong type', 'fetch', 'send', 'confirmation']) {
   test(`feedback handles ${failure} failure without false delivery status`, async (t) => {
