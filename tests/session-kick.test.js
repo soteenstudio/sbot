@@ -714,39 +714,73 @@ test('LFG join acknowledges once before fetching the host', async (t) => {
   assert.ok(logs[0][1].ageMs >= 100);
 });
 
-test('LFG join stops when its first acknowledgement fails with 10062', async (t) => {
-  const errors = [];
-  t.mock.method(console, 'error', (...args) => { errors.push(args); });
-  const session = lfgSession([]);
-  activeLFG.set(hostId, session);
-  let acknowledgementCount = 0;
-  let hostFetches = 0;
-  let hostDMs = 0;
-  let followUps = 0;
-  const failure = { code: 10062 };
-  const result = await JoinButtonHandler.prototype.run({
-    id: 'expired-join-interaction',
-    createdTimestamp: Date.now() - 3_000,
-    customId: `lfg_pro_join_${hostId}`,
-    user: { id: participantId },
-    message: { id: session.messageId },
-    client: { users: { fetch: async () => {
-      hostFetches++;
-      return { async send() { hostDMs++; } };
-    } } },
-    async deferUpdate() { acknowledgementCount++; throw failure; },
-    async followUp() { followUps++; },
+for (const state of ['deferred', 'replied']) {
+  test(`LFG join stops when the interaction is already ${state}`, async (t) => {
+    const warnings = [];
+    t.mock.method(console, 'warn', (...args) => { warnings.push(args); });
+    const session = lfgSession([]);
+    activeLFG.set(hostId, session);
+    let acknowledgementCount = 0;
+    let hostFetches = 0;
+    let hostDMs = 0;
+    let followUps = 0;
+    const interaction = joinInteraction(session, {
+      users: { fetch: async () => {
+        hostFetches++;
+        return { async send() { hostDMs++; } };
+      } },
+    });
+    interaction.id = `${state}-join-interaction`;
+    interaction[state] = true;
+    interaction.deferUpdate = async () => { acknowledgementCount++; };
+    interaction.followUp = async () => { followUps++; };
+
+    const result = await JoinButtonHandler.prototype.run(interaction);
+    assert.equal(result, undefined);
+    assert.equal(acknowledgementCount, 0);
+    assert.equal(hostFetches, 0);
+    assert.equal(hostDMs, 0);
+    assert.equal(followUps, 0);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0][1].interactionId, interaction.id);
   });
-  assert.equal(result, undefined);
-  assert.equal(acknowledgementCount, 1);
-  assert.equal(hostFetches, 0);
-  assert.equal(hostDMs, 0);
-  assert.equal(followUps, 0);
-  assert.equal(errors.length, 1);
-  assert.equal(errors[0][1].interactionId, 'expired-join-interaction');
-  assert.ok(errors[0][1].ageMs >= 3_000);
-  assert.equal(errors[0][1].error, failure);
-});
+}
+
+for (const code of [10062, 40060]) {
+  test(`LFG join stops when its first acknowledgement fails with ${code}`, async (t) => {
+    const errors = [];
+    t.mock.method(console, 'error', (...args) => { errors.push(args); });
+    const session = lfgSession([]);
+    activeLFG.set(hostId, session);
+    let acknowledgementCount = 0;
+    let hostFetches = 0;
+    let hostDMs = 0;
+    let followUps = 0;
+    const failure = { code };
+    const result = await JoinButtonHandler.prototype.run({
+      id: 'expired-join-interaction',
+      createdTimestamp: Date.now() - 3_000,
+      customId: `lfg_pro_join_${hostId}`,
+      user: { id: participantId },
+      message: { id: session.messageId },
+      client: { users: { fetch: async () => {
+        hostFetches++;
+        return { async send() { hostDMs++; } };
+      } } },
+      async deferUpdate() { acknowledgementCount++; throw failure; },
+      async followUp() { followUps++; },
+    });
+    assert.equal(result, undefined);
+    assert.equal(acknowledgementCount, 1);
+    assert.equal(hostFetches, 0);
+    assert.equal(hostDMs, 0);
+    assert.equal(followUps, 0);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0][1].interactionId, 'expired-join-interaction');
+    assert.ok(errors[0][1].ageMs >= 3_000);
+    assert.equal(errors[0][1].error, failure);
+  });
+}
 
 test('LFG close deletes the channel and discards session-specific access state', async () => {
   const session = lfgSession([]);
