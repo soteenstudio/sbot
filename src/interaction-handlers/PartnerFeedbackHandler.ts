@@ -41,14 +41,14 @@ export class PartnerFeedbackHandler extends InteractionHandler {
       .setPlaceholder('Select your feedback category...')
       .addOptions([
         {
-          label: 'General Feedback / Suggestion',
+          label: 'General Feedback',
           description:
             'Provide general thoughts or improvements for this feature.',
           value: 'general_feedback',
           emoji: '💬',
         },
         {
-          label: 'New Character / Culture Proposal',
+          label: 'New Character',
           description:
             'Suggest a new fictional character and regional background.',
           value: 'new_character',

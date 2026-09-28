@@ -61,9 +61,25 @@ export class PartnerFeedbackSelectHandler extends InteractionHandler {
 
       const regionInput = new TextInputBuilder()
         .setCustomId('char_region_input')
-        .setLabel('Region / Culture')
+        .setLabel('Region')
         .setStyle(TextInputStyle.Short)
         .setPlaceholder('e.g., Gianyar, Bali')
+        .setRequired(true)
+        .setMaxLength(100);
+
+      const cultureInput = new TextInputBuilder()
+        .setCustomId('char_culture_input')
+        .setLabel('Region')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('e.g., ----')
+        .setRequired(true)
+        .setMaxLength(100);
+
+      const traditionInput = new TextInputBuilder()
+        .setCustomId('char_tradition_input')
+        .setLabel('Tradition')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('e.g., ----')
         .setRequired(true)
         .setMaxLength(100);
 
@@ -80,6 +96,8 @@ export class PartnerFeedbackSelectHandler extends InteractionHandler {
       modal.addComponents(
         new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput),
         new ActionRowBuilder<TextInputBuilder>().addComponents(regionInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(cultureInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(traditionInput),
         new ActionRowBuilder<TextInputBuilder>().addComponents(descInput),
       );
     } else {

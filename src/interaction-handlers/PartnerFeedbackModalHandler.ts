@@ -41,9 +41,11 @@ export class PartnerFeedbackModalHandler extends InteractionHandler {
     const isNewChar = interaction.customId === 'partner_modal_new_character';
     const feedbackText = isNewChar
       ? [
-          `Character name: ${interaction.fields.getTextInputValue('char_name_input')}`,
-          `Region / culture: ${interaction.fields.getTextInputValue('char_region_input')}`,
-          `Description: ${interaction.fields.getTextInputValue('char_desc_input')}`,
+          `- **Name**: ${interaction.fields.getTextInputValue('char_name_input')}`,
+          `- **Region**: ${interaction.fields.getTextInputValue('char_region_input')}`,
+          `- **Culture**: ${interaction.fields.getTextInputValue('char_culture_input')}`,
+          `- **Tradition**: ${interaction.fields.getTextInputValue('char_tradition_input')}`,
+          `- **Description**: ${interaction.fields.getTextInputValue('char_desc_input')}`,
         ].join('\n')
       : interaction.fields.getTextInputValue('feedback_input_text');
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -66,7 +68,10 @@ export class PartnerFeedbackModalHandler extends InteractionHandler {
         .setTitle(
           isNewChar ? '🌟 Partner Character Proposal' : '💬 Partner Feedback',
         )
-        .setDescription(feedbackText)
+        .addFields({
+          name: 'Character',
+          value: feedbackText,
+        })
         .addFields({
           name: 'Submitted by',
           value: `${interaction.user.tag} (${interaction.user.id})`,
