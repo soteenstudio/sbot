@@ -20,7 +20,19 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
-import { activeLFG } from '../lib/lfg-data.js';
+import {
+  activeLFG,
+  declineCooldownRemaining,
+  finishLFGRequestSend,
+  formatLFGCooldown,
+  pendingLFGInitialSaves,
+  pendingRequestCooldownRemaining,
+  startLFGRequestSend,
+} from '../lib/lfg-data.js';
+
+function cooldownNotice(remainingMs: number): string {
+  return `❌ Please wait ${formatLFGCooldown(remainingMs)} before requesting to join this session again.`;
+}
 
 export class JoinButtonHandler extends InteractionHandler {
   public constructor(
@@ -39,7 +51,36 @@ export class JoinButtonHandler extends InteractionHandler {
   }
 
   public async run(interaction: ButtonInteraction) {
-    await interaction.deferUpdate();
+    if (interaction.deferred || interaction.replied) {
+      console.warn('LFG join interaction already acknowledged:', {
+        interactionId: interaction.id,
+        deferred: interaction.deferred,
+        replied: interaction.replied,
+      });
+      return;
+    }
+
+    const acknowledgementStarted = Date.now();
+    const createdTimestamp =
+      interaction.createdTimestamp ?? acknowledgementStarted;
+    try {
+      await interaction.deferUpdate();
+    } catch (error) {
+      console.error('Could not acknowledge LFG join interaction:', {
+        interactionId: interaction.id,
+        dispatchAgeMs: acknowledgementStarted - createdTimestamp,
+        ageMs: Date.now() - createdTimestamp,
+        acknowledgementMs: Date.now() - acknowledgementStarted,
+        error,
+      });
+      return;
+    }
+    console.debug('LFG join interaction acknowledged:', {
+      interactionId: interaction.id,
+      dispatchAgeMs: acknowledgementStarted - createdTimestamp,
+      ageMs: Date.now() - createdTimestamp,
+      acknowledgementMs: Date.now() - acknowledgementStarted,
+    });
 
     const parts = interaction.customId.split('_');
     const hostId = parts[parts.length - 1];
@@ -49,6 +90,12 @@ export class JoinButtonHandler extends InteractionHandler {
     if (!session || interaction.message.id !== session.messageId)
       return interaction.followUp({
         content: '❌ This session is no longer active.',
+        ephemeral: true,
+      });
+
+    if (pendingLFGInitialSaves.has(session))
+      return interaction.followUp({
+        content: '❌ This session is still being created. Please try again.',
         ephemeral: true,
       });
 
@@ -70,6 +117,23 @@ export class JoinButtonHandler extends InteractionHandler {
     if (session.participantIds.size + 1 >= session.maxPlayers)
       return interaction.followUp({
         content: '❌ This session is full.',
+        ephemeral: true,
+      });
+
+    const remaining = declineCooldownRemaining(session, interaction.user.id);
+    if (remaining)
+      return interaction.followUp({
+        content: cooldownNotice(remaining),
+        ephemeral: true,
+      });
+
+    const pendingRemaining = pendingRequestCooldownRemaining(
+      session,
+      interaction.user.id,
+    );
+    if (pendingRemaining)
+      return interaction.followUp({
+        content: cooldownNotice(pendingRemaining),
         ephemeral: true,
       });
 
@@ -100,22 +164,52 @@ export class JoinButtonHandler extends InteractionHandler {
       .setTimestamp()
       .setFooter({ text: 'SoTeen Studio • Looking for group' });
 
+    if (activeLFG.get(hostId) !== session)
+      return interaction.followUp({
+        content: '❌ This session is no longer active.',
+        ephemeral: true,
+      });
+
+    const latestRemaining = declineCooldownRemaining(
+      session,
+      interaction.user.id,
+    );
+    if (latestRemaining)
+      return interaction.followUp({
+        content: cooldownNotice(latestRemaining),
+        ephemeral: true,
+      });
+
+    const latestPending = pendingRequestCooldownRemaining(
+      session,
+      interaction.user.id,
+    );
+    if (latestPending || !startLFGRequestSend(session, interaction.user.id))
+      return interaction.followUp({
+        content: latestPending
+          ? cooldownNotice(latestPending)
+          : '❌ Your join request is already being sent. Please try again shortly.',
+        ephemeral: true,
+      });
+
     try {
       await host.send({
         embeds: [notificationEmbed],
         components: [row],
       });
-
-      return interaction.followUp({
-        content: '✅ Your join request has been sent to the host.',
-        ephemeral: true,
-      });
     } catch {
+      finishLFGRequestSend(session, interaction.user.id, false);
       return interaction.followUp({
         content:
           '❌ The host could not receive your request by direct message.',
         ephemeral: true,
       });
     }
+
+    finishLFGRequestSend(session, interaction.user.id, true);
+    return interaction.followUp({
+      content: '✅ Your join request has been sent to the host.',
+      ephemeral: true,
+    });
   }
 }

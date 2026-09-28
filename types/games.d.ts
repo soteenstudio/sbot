@@ -7,13 +7,10 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-export type ActivePoll = {
-    authorId: string;
-    question: string;
-    options: string[];
-    messageId: string;
-    channelId: string;
-    votes: Map<number, number>;
-    voters: Set<string>;
+type Game = {
+    label: string;
+    roleId: string | undefined;
+    maxPlayers: number;
 };
-export declare const activePolls: Map<string, ActivePoll>;
+export declare const Games: Record<string, Game>;
+export {};

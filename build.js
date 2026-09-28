@@ -13,7 +13,7 @@ async function build() {
     outdir: 'dist', // Pakai outdir bukan outfile
     platform: 'node',
     format: 'esm',
-    bundle: true, // MATIIN BUNDLE biar struktur folder tetep ada
+    bundle: false, // MATIIN BUNDLE biar struktur folder tetep ada
     minify: true,
     sourcemap: true,
     packages: 'external', // Biar node_modules gak ikutan dicompile

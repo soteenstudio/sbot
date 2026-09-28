@@ -8,9 +8,10 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import { InteractionHandler } from '@sapphire/framework';
-import { ButtonInteraction } from 'discord.js';
-export declare class RequestHandler extends InteractionHandler {
+import { ModalSubmitInteraction } from 'discord.js';
+import 'dotenv/config';
+export declare class HoneypotAppealHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
-    parse(interaction: ButtonInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
-    run(interaction: ButtonInteraction): Promise<import("discord.js").Message<boolean> | import("discord.js").InteractionResponse<boolean>>;
+    parse(interaction: ModalSubmitInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
+    run(interaction: ModalSubmitInteraction): Promise<import("discord.js").InteractionResponse<boolean> | undefined>;
 }
