@@ -385,9 +385,15 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
     members: { fetch: async () => channel.member },
     channels: { create: async () => channel },
   };
+  let publicMessages = 0;
   const client = {
     channels: {
-      fetch: async () => ({ guild, isTextBased: () => true, messages: { fetch: async () => announcement } }),
+      fetch: async () => ({
+        guild,
+        isTextBased: () => true,
+        messages: { fetch: async () => announcement },
+        async send() { publicMessages++; },
+      }),
     },
     users: { fetch: async () => ({ id: hostId, username: 'host' }) },
   };
@@ -406,6 +412,8 @@ test('LFG acceptance tracks participants and rejects a kicked member in this ses
   };
   const reply = await RequestHandler.prototype.run(interaction);
   assert.match(reply.content, /Join request accepted/);
+  assert.equal(reply.ephemeral, true);
+  assert.equal(publicMessages, 0);
   assert.equal(session.vcId, voiceId);
   assert.equal(session.participantIds.has(participantId), true);
   assert.deepEqual((await getLFGSession(hostId)).participantIds, [participantId]);
@@ -439,18 +447,26 @@ test('a host request disables both buttons and ignores concurrent and repeated c
   let declineDM;
   const client = { users: { fetch: async () => ({ send: async (content) => { declineDM = content; return notification; } }) } };
   const decline = decisionInteraction(session, 'decline', message, client);
+  let updates = 0;
+  const update = decline.update;
+  decline.update = async (value) => { updates++; return update(value); };
+  decline.followUp = async () => { assert.fail('Decline must not send a host follow-up'); };
   const first = RequestHandler.prototype.run(decline);
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(message.components[0].components.map((button) => button.disabled), [true, true]);
   const duplicate = await RequestHandler.prototype.run(decisionInteraction(session, 'accept', message, client));
   assert.match(duplicate.content, /already been handled/);
   releaseNotification();
-  assert.match((await first).content, /declined/);
+  assert.equal((await first).components.length, 1);
+  assert.equal(updates, 1);
   assert.match(declineDM, /declined.*3 minutes/);
-  assert.match((await RequestHandler.prototype.run(decline)).content, /already been handled/);
+  assert.match((await RequestHandler.prototype.run(decisionInteraction(session, 'decline', message, client))).content, /already been handled/);
 });
 
-test('LFG cooldowns display rounded minutes and seconds', () => {
+test('LFG cooldowns display rounded hours, minutes, and seconds', () => {
+  assert.equal(formatLFGCooldown(3_600_000), '1 hour');
+  assert.equal(formatLFGCooldown(7_200_001), '2 hours 1 second');
+  assert.equal(formatLFGCooldown(3_661_000), '1 hour 1 minute 1 second');
   assert.equal(formatLFGCooldown(157_000), '2 minutes 37 seconds');
   assert.equal(formatLFGCooldown(60_000), '1 minute');
   assert.equal(formatLFGCooldown(61_000), '1 minute 1 second');
@@ -468,7 +484,7 @@ test('decline cooldown expires after 3 minutes and is scoped to the session', as
   const host = { async send(value) { messages.push(value); } };
   const client = { users: { fetch: async (id) => id === hostId ? host : { async send() {} } } };
   const decline = decisionInteraction(session, 'decline', requestMessage(session), client);
-  assert.match((await RequestHandler.prototype.run(decline)).content, /declined/);
+  assert.equal((await RequestHandler.prototype.run(decline)).components.length, 1);
   const join = () => JoinButtonHandler.prototype.run({
     customId: `lfg_pro_join_${hostId}`,
     user: { id: participantId, toString: () => `<@${participantId}>`, displayAvatarURL: () => 'https://example.com/avatar.png' },
@@ -664,8 +680,12 @@ test('a disabled joiner DM does not undo a host decision', async () => {
   const accepted = await RequestHandler.prototype.run(decisionInteraction(session, 'accept', requestMessage(session), client));
   assert.match(accepted.content, /accepted.*could not be notified/);
   assert.equal(session.participantIds.has(participantId), true);
-  const declined = await RequestHandler.prototype.run(decisionInteraction(session, 'decline', requestMessage(session, outsiderId), client, outsiderId));
-  assert.match(declined.content, /declined.*could not be notified/);
+  const declineMessage = requestMessage(session, outsiderId);
+  const decline = decisionInteraction(session, 'decline', declineMessage, client, outsiderId);
+  decline.followUp = async () => { assert.fail('Decline must not send a host follow-up'); };
+  const declined = await RequestHandler.prototype.run(decline);
+  assert.equal(declined.components.length, 1);
+  assert.deepEqual(declineMessage.components[0].components.map((button) => button.disabled), [true, true]);
   assert.equal(session.participantIds.has(participantId), true);
 });
 
@@ -717,6 +737,7 @@ test('LFG join acknowledges once before fetching the host', async (t) => {
     async reply() { assert.fail('Join must use the deferred update'); },
   });
   assert.match(reply.content, /sent to the host/);
+  assert.equal(reply.ephemeral, true);
   assert.equal(acknowledgementCount, 1);
   assert.equal(hostDMs, 1);
   assert.equal(logs.length, 1);
@@ -932,9 +953,11 @@ test('legacy LFG end buttons direct everyone to the close command without changi
   });
   const refused = await EndSessionHandler.prototype.run(interaction(outsiderId));
   assert.match(refused.content, /\/lfg-pro close/);
+  assert.equal(refused.ephemeral, true);
   assert.equal(channel.deletes, 0);
   const directed = await EndSessionHandler.prototype.run(interaction(hostId));
   assert.match(directed.content, /\/lfg-pro close/);
+  assert.equal(directed.ephemeral, true);
   assert.equal(channel.deletes, 0);
   assert.equal(activeLFG.get(hostId), session);
   assert.ok(await getLFGSession(hostId));

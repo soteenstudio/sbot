@@ -26,6 +26,8 @@ import {
 import {
   activeLFG,
   clearPendingLFGRequest,
+  formatLFGCooldown,
+  LFG_DECLINE_COOLDOWN_MS,
   pendingLFGInitialSaves,
   recordLFGDecline,
 } from '../lib/lfg-data.js';
@@ -124,7 +126,9 @@ export class RequestHandler extends InteractionHandler {
     let disabled = false;
     let settled = false;
     try {
-      await interaction.update({ components: decisionRows(interaction, true) });
+      const acknowledgement = await interaction.update({
+        components: decisionRows(interaction, true),
+      });
       disabled = true;
 
       if (session.kickedIds.has(joinerId)) {
@@ -153,21 +157,15 @@ export class RequestHandler extends InteractionHandler {
         clearPendingLFGRequest(session, joinerId);
         settled = true;
         decisionState.set(requestId, Date.now() + DECISION_RETENTION_MS);
-        let notified = true;
         try {
           const joiner = await interaction.client.users.fetch(joinerId);
           await joiner.send(
-            `Your request to join ${session.game} was declined. You can try again in 3 minutes.`,
+            `Your request to join ${session.game} was declined. You can try again in ${formatLFGCooldown(LFG_DECLINE_COOLDOWN_MS)}.`,
           );
         } catch {
-          notified = false;
+          // The host's decision is complete even when the joiner cannot receive DMs.
         }
-        return interaction.followUp({
-          content: notified
-            ? 'Your join request has been declined. The participant was notified.'
-            : 'Your join request has been declined, but the participant could not be notified by DM.',
-          ephemeral: true,
-        });
+        return acknowledgement;
       }
 
       if (
