@@ -24,14 +24,14 @@ import {
   activeLFG,
   declineCooldownRemaining,
   finishLFGRequestSend,
+  formatLFGCooldown,
   pendingLFGInitialSaves,
   pendingRequestCooldownRemaining,
   startLFGRequestSend,
 } from '../lib/lfg-data.js';
 
-function cooldownNotice(remaining: number): string {
-  const seconds = Math.ceil(remaining / 1000);
-  return `❌ Please wait ${seconds} ${seconds === 1 ? 'second' : 'seconds'} before requesting to join this session again.`;
+function cooldownNotice(remainingMs: number): string {
+  return `❌ Please wait ${formatLFGCooldown(remainingMs)} before requesting to join this session again.`;
 }
 
 export class JoinButtonHandler extends InteractionHandler {
