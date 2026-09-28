@@ -8,7 +8,6 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-// fix(lfg-pro): ...
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import {
   EmbedBuilder,
@@ -20,7 +19,7 @@ import {
   ChannelType,
 } from 'discord.js';
 import { Games } from '../games.js';
-import { activeLFG, type ActiveLFGSession } from '../lib/lfg-data.js';
+import { activeLFG, pendingLFGInitialSaves, type ActiveLFGSession } from '../lib/lfg-data.js';
 import { isUnknownChannel } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 import { kickFromSession } from '../lib/session-kick.js';
@@ -183,10 +182,24 @@ export class LFGCommand extends Subcommand {
       participantIds: new Set(),
       kickedIds: new Set(),
     };
+    // Another create may have completed while the announcement was being sent.
+    if (activeLFG.has(interaction.user.id)) {
+      await interaction.editReply({
+        content: '❌ You already have an active session. Close it before creating another.',
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+    activeLFG.set(interaction.user.id, session);
+    pendingLFGInitialSaves.add(session);
     try {
       await saveLFGSession(session);
     } catch (error) {
       console.error('Could not save LFG session:', error);
+      if (activeLFG.get(interaction.user.id) === session)
+        activeLFG.delete(interaction.user.id);
+      pendingLFGInitialSaves.delete(session);
       await interaction.editReply({
         content: '❌ Could not create the session. Please try again.',
         embeds: [],
@@ -194,7 +207,7 @@ export class LFGCommand extends Subcommand {
       });
       return;
     }
-    activeLFG.set(interaction.user.id, session);
+    pendingLFGInitialSaves.delete(session);
   }
 
   public async close(interaction: ChatInputCommandInteraction) {
@@ -203,6 +216,13 @@ export class LFGCommand extends Subcommand {
     if (!session) {
       return interaction.reply({
         content: '❌ You do not have an active session to close.',
+        ephemeral: true,
+      });
+    }
+
+    if (pendingLFGInitialSaves.has(session)) {
+      return interaction.reply({
+        content: '❌ This session is still being created. Please try again.',
         ephemeral: true,
       });
     }
@@ -257,10 +277,16 @@ export class LFGCommand extends Subcommand {
 
   public async kick(interaction: ChatInputCommandInteraction) {
     const session = activeLFG.get(interaction.user.id);
-    if (!session || !session.vcId || !interaction.guild) {
+    if (!session) {
       return interaction.reply({
-        content:
-          '❌ You do not have an active session voice channel to manage.',
+        content: '❌ You do not have an active session to manage.',
+        ephemeral: true,
+      });
+    }
+
+    if (pendingLFGInitialSaves.has(session)) {
+      return interaction.reply({
+        content: '❌ This session is still being created. Please try again.',
         ephemeral: true,
       });
     }
@@ -279,17 +305,20 @@ export class LFGCommand extends Subcommand {
 
     await interaction.deferReply({ ephemeral: true });
     try {
-      const channel = await interaction.guild.channels.fetch(session.vcId);
-      if (
-        channel?.type !== ChannelType.GuildVoice ||
-        channel.guild.id !== interaction.guild.id
-      ) {
-        return interaction.editReply({
-          content: '❌ Your session voice channel is unavailable.',
-        });
+      if (session.vcId) {
+        if (!interaction.guild) throw new Error('Session server is unavailable.');
+        const channel = await interaction.guild.channels.fetch(session.vcId);
+        if (
+          channel?.type !== ChannelType.GuildVoice ||
+          channel.guild.id !== interaction.guild.id
+        ) {
+          return interaction.editReply({
+            content: '❌ Your session voice channel is unavailable.',
+          });
+        }
+        const member = await interaction.guild.members.fetch(participant.id);
+        await kickFromSession(channel, member);
       }
-      const member = await interaction.guild.members.fetch(participant.id);
-      await kickFromSession(channel, member);
       const participantIds = new Set(session.participantIds);
       const kickedIds = new Set(session.kickedIds);
       participantIds.delete(participant.id);
@@ -308,8 +337,8 @@ export class LFGCommand extends Subcommand {
             const count = session.participantIds.size + 1;
             const embed = EmbedBuilder.from(message.embeds[0]);
             const description = embed.data.description?.replace(
-              /\d+\/\d+/,
-              `${count}/${session.maxPlayers}`,
+              /\*\*Players:\*\* \d+\/\d+/,
+              `**Players:** ${count}/${session.maxPlayers}`,
             );
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
               new ButtonBuilder()

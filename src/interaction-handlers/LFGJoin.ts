@@ -20,7 +20,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
-import { activeLFG } from '../lib/lfg-data.js';
+import { activeLFG, pendingLFGInitialSaves } from '../lib/lfg-data.js';
 
 export class JoinButtonHandler extends InteractionHandler {
   public constructor(
@@ -49,6 +49,12 @@ export class JoinButtonHandler extends InteractionHandler {
     if (!session || interaction.message.id !== session.messageId)
       return interaction.followUp({
         content: '❌ This session is no longer active.',
+        ephemeral: true,
+      });
+
+    if (pendingLFGInitialSaves.has(session))
+      return interaction.followUp({
+        content: '❌ This session is still being created. Please try again.',
         ephemeral: true,
       });
 

@@ -32,6 +32,28 @@ export type LFGSession = Omit<
 
 type LFGRecords = Record<string, LFGSession>;
 
+function isLFGSession(value: unknown): value is LFGSession {
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.game === 'string' &&
+    typeof record.rank === 'string' &&
+    typeof record.maxPlayers === 'number' &&
+    Number.isInteger(record.maxPlayers) &&
+    record.maxPlayers > 0 &&
+    typeof record.author === 'string' &&
+    typeof record.authorId === 'string' &&
+    typeof record.channelId === 'string' &&
+    typeof record.messageId === 'string' &&
+    typeof record.vcId === 'string' &&
+    Array.isArray(record.participantIds) &&
+    record.participantIds.every((id: unknown) => typeof id === 'string') &&
+    Array.isArray(record.kickedIds) &&
+    record.kickedIds.every((id: unknown) => typeof id === 'string')
+  );
+}
+
 export function toLFGSession(session: ActiveLFGSession): LFGSession {
   return {
     ...session,
@@ -68,16 +90,9 @@ async function readLFG(path: string): Promise<LFGRecords> {
       Object.getPrototypeOf(records) !== Object.prototype
     )
       throw new Error('Invalid LFG storage: expected an object');
-    for (const record of Object.values(records)) {
-      if (
-        record === null ||
-        typeof record !== 'object' ||
-        !Array.isArray(record.participantIds) ||
-        !Array.isArray(record.kickedIds)
-      )
-        throw new Error(
-          'Invalid LFG storage: expected participantIds and kickedIds arrays',
-        );
+    for (const [hostId, record] of Object.entries(records)) {
+      if (!isLFGSession(record) || record.authorId !== hostId)
+        throw new Error('Invalid LFG storage: expected complete session records');
     }
     return records as LFGRecords;
   } catch (error) {
