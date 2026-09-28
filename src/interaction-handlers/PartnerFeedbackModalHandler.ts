@@ -45,7 +45,7 @@ export class PartnerFeedbackModalHandler extends InteractionHandler {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
-      const channelId = process.env.REPORT_CHANNEL;
+      const channelId = process.env.FEEDBACK_CHANNEL;
       const channel =
         channelId && interaction.guild
           ? await interaction.guild.channels.fetch(channelId)

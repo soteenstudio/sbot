@@ -50,25 +50,51 @@ export class PartnerFeedbackSelectHandler extends InteractionHandler {
           : '💬 General Feedback',
       );
 
-    const inputField = new TextInputBuilder()
-      .setCustomId('feedback_input_text')
-      .setLabel(
-        isNewChar
-          ? 'Character Name, Region & Description:'
-          : 'Your suggestions or thoughts:',
-      )
-      .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder(
-        isNewChar
-          ? 'Example: Name: Nyoman Sari | Region: Gianlar, Bali | Desc: A skilled weaver...'
-          : 'Type your feedback here to help us improve...',
-      )
-      .setRequired(true)
-      .setMaxLength(1000);
+    if (isNewChar) {
+      const nameInput = new TextInputBuilder()
+        .setCustomId('char_name_input')
+        .setLabel('Character Name')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('e.g., Nyoman Sari')
+        .setRequired(true)
+        .setMaxLength(100);
 
-    modal.addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(inputField),
-    );
+      const regionInput = new TextInputBuilder()
+        .setCustomId('char_region_input')
+        .setLabel('Region / Culture')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('e.g., Gianyar, Bali')
+        .setRequired(true)
+        .setMaxLength(100);
+
+      const descInput = new TextInputBuilder()
+        .setCustomId('char_desc_input')
+        .setLabel('Character Description (English)')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder(
+          'e.g., A skilled traditional weaver from the highlands...',
+        )
+        .setRequired(true)
+        .setMaxLength(1000);
+
+      modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(regionInput),
+        new ActionRowBuilder<TextInputBuilder>().addComponents(descInput),
+      );
+    } else {
+      const inputField = new TextInputBuilder()
+        .setCustomId('feedback_input_text')
+        .setLabel('Your suggestions or thoughts:')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Type your feedback here to help us improve...')
+        .setRequired(true)
+        .setMaxLength(1000);
+
+      modal.addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(inputField),
+      );
+    }
 
     await interaction.showModal(modal);
   }
