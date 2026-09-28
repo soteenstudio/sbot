@@ -7,13 +7,6 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-export type ActivePoll = {
-    authorId: string;
-    question: string;
-    options: string[];
-    messageId: string;
-    channelId: string;
-    votes: Map<number, number>;
-    voters: Set<string>;
-};
-export declare const activePolls: Map<string, ActivePoll>;
+import type { GuildMember, VoiceChannel } from 'discord.js';
+/** Deny this member access to one voice channel, then disconnect them from it. */
+export declare function kickFromSession(channel: VoiceChannel, member: GuildMember): Promise<void>;

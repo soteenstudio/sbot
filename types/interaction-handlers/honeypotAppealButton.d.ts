@@ -9,8 +9,9 @@
  */
 import { InteractionHandler } from '@sapphire/framework';
 import { ButtonInteraction } from 'discord.js';
-export declare class JoinButtonHandler extends InteractionHandler {
+import 'dotenv/config';
+export declare class HoneypotAppealButtonHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
     parse(interaction: ButtonInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
-    run(interaction: ButtonInteraction): Promise<import("discord.js").Message<boolean>>;
+    run(interaction: ButtonInteraction): Promise<import("discord.js").InteractionResponse<boolean> | undefined>;
 }

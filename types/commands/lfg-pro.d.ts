@@ -12,7 +12,8 @@ import { ChatInputCommandInteraction } from 'discord.js';
 export declare class LFGCommand extends Subcommand {
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
-    create(interaction: ChatInputCommandInteraction): Promise<void>;
+    create(interaction: ChatInputCommandInteraction): Promise<import("discord.js").InteractionResponse<boolean> | undefined>;
     close(interaction: ChatInputCommandInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
+    kick(interaction: ChatInputCommandInteraction): Promise<import("discord.js").Message<boolean> | import("discord.js").InteractionResponse<boolean>>;
     list(interaction: ChatInputCommandInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
 }

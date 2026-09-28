@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-export declare const activeLFG: Map<string, {
+export type ActiveLFGSession = {
     game: string;
     rank: string;
     maxPlayers: number;
@@ -16,4 +16,8 @@ export declare const activeLFG: Map<string, {
     channelId: string;
     messageId: string;
     vcId: string;
-}>;
+    participantIds: Set<string>;
+    kickedIds: Set<string>;
+};
+/** Active sessions are keyed by their host's user ID. */
+export declare const activeLFG: Map<string, ActiveLFGSession>;

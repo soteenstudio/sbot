@@ -8,6 +8,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
+// fix(lfg-pro): ...
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import {
   EmbedBuilder,

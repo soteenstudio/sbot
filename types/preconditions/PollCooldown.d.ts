@@ -8,7 +8,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import { Precondition } from '@sapphire/framework';
-import { CommandInteraction } from 'discord.js';
+import { ChatInputCommandInteraction } from 'discord.js';
 export declare class PollCooldown extends Precondition {
-    chatInputRun(interaction: CommandInteraction): Promise<import("@sapphire/result").Result<unknown, import("@sapphire/framework").UserError, boolean>>;
+    chatInputRun(interaction: ChatInputCommandInteraction): Promise<import("@sapphire/result").Result<unknown, import("@sapphire/framework").UserError, boolean>>;
 }
