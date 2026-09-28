@@ -37,12 +37,22 @@ export const LFG_PENDING_REQUEST_COOLDOWN_MS = 60_000;
 
 export function formatLFGCooldown(remainingMs: number): string {
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1_000));
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
   const seconds = totalSeconds % 60;
 
+  const hourText = `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
   const minuteText = `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
   const secondText = `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
 
+  if (hours > 0)
+    return [
+      hourText,
+      minutes > 0 ? minuteText : '',
+      seconds > 0 ? secondText : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
   if (minutes === 0) return secondText;
   if (seconds === 0) return minuteText;
   return `${minuteText} ${secondText}`;
