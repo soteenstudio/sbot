@@ -51,6 +51,15 @@ export class JoinButtonHandler extends InteractionHandler {
   }
 
   public async run(interaction: ButtonInteraction) {
+    if (interaction.deferred || interaction.replied) {
+      console.warn('LFG join interaction already acknowledged:', {
+        interactionId: interaction.id,
+        deferred: interaction.deferred,
+        replied: interaction.replied,
+      });
+      return;
+    }
+
     const acknowledgementStarted = Date.now();
     const createdTimestamp =
       interaction.createdTimestamp ?? acknowledgementStarted;
