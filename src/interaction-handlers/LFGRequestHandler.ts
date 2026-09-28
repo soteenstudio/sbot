@@ -22,7 +22,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
-import { activeLFG } from '../lib/lfg-data.js';
+import { activeLFG, pendingLFGInitialSaves } from '../lib/lfg-data.js';
 import { saveLFGSession } from '../lib/lfgSession.js';
 
 const pendingAccepts = new Set<string>();
@@ -69,6 +69,12 @@ export class RequestHandler extends InteractionHandler {
     )
       return interaction.reply({
         content: '❌ This session is no longer active.',
+        ephemeral: true,
+      });
+
+    if (pendingLFGInitialSaves.has(session))
+      return interaction.reply({
+        content: '❌ This session is still being created. Please try again.',
         ephemeral: true,
       });
 
@@ -200,8 +206,8 @@ export class RequestHandler extends InteractionHandler {
 
             const currentCount = session.participantIds.size + 1;
             const newDescription = oldEmbed.data.description?.replace(
-              /\d+\/\d+/,
-              `${currentCount}/${session.maxPlayers}`,
+              /\*\*Players:\*\* \d+\/\d+/,
+              `**Players:** ${currentCount}/${session.maxPlayers}`,
             );
 
             if (currentCount >= session.maxPlayers) {

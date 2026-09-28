@@ -21,3 +21,5 @@ export type ActiveLFGSession = {
 };
 /** Active sessions are keyed by their host's user ID. */
 export declare const activeLFG: Map<string, ActiveLFGSession>;
+/** Sessions visible in memory while their first write is still pending. */
+export declare const pendingLFGInitialSaves: WeakSet<ActiveLFGSession>;
