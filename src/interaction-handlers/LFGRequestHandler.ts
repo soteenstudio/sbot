@@ -25,14 +25,27 @@ import {
 } from 'discord.js';
 import {
   activeLFG,
+  clearPendingLFGRequest,
   pendingLFGInitialSaves,
   recordLFGDecline,
 } from '../lib/lfg-data.js';
 import { saveLFGAcceptance } from '../lib/lfgSession.js';
 
 const pendingAccepts = new Set<string>();
-const pendingDecisions = new Set<string>();
-const completedDecisions = new Set<string>();
+const decisions = new WeakMap<object, Map<string, 'pending' | number>>();
+const DECISION_RETENTION_MS = 10 * 60_000;
+
+function sessionDecisions(session: object): Map<string, 'pending' | number> {
+  let entries = decisions.get(session);
+  if (!entries) {
+    entries = new Map();
+    decisions.set(session, entries);
+  }
+  for (const [id, state] of entries) {
+    if (typeof state === 'number' && state <= Date.now()) entries.delete(id);
+  }
+  return entries;
+}
 
 function decisionRows(interaction: ButtonInteraction, disabled: boolean) {
   return interaction.message.components
@@ -100,13 +113,14 @@ export class RequestHandler extends InteractionHandler {
       });
 
     const requestId = interaction.message.id;
-    if (pendingDecisions.has(requestId) || completedDecisions.has(requestId))
+    const decisionState = sessionDecisions(session);
+    if (decisionState.has(requestId))
       return interaction.reply({
         content: '❌ This join request has already been handled.',
         ephemeral: true,
       });
 
-    pendingDecisions.add(requestId);
+    decisionState.set(requestId, 'pending');
     let disabled = false;
     let settled = false;
     try {
@@ -136,13 +150,14 @@ export class RequestHandler extends InteractionHandler {
           });
         }
         recordLFGDecline(session, joinerId);
+        clearPendingLFGRequest(session, joinerId);
         settled = true;
-        completedDecisions.add(requestId);
+        decisionState.set(requestId, Date.now() + DECISION_RETENTION_MS);
         let notified = true;
         try {
           const joiner = await interaction.client.users.fetch(joinerId);
           await joiner.send(
-            `Your request to join ${session.game} was declined. You can try again in 60 seconds.`,
+            `Your request to join ${session.game} was declined. You can try again in 3 minutes.`,
           );
         } catch {
           notified = false;
@@ -298,8 +313,9 @@ export class RequestHandler extends InteractionHandler {
         rollback = undefined;
         session.vcId = vc.id;
         session.participantIds = participantIds;
+        clearPendingLFGRequest(session, joinerId);
         settled = true;
-        completedDecisions.add(requestId);
+        decisionState.set(requestId, Date.now() + DECISION_RETENTION_MS);
 
         try {
           const channel = await interaction.client.channels
@@ -340,16 +356,8 @@ export class RequestHandler extends InteractionHandler {
             }
           }
 
-          const endRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`lfg_pro_end_${vc.id}`)
-              .setLabel('End Session')
-              .setStyle(ButtonStyle.Danger),
-          );
-
           await vc.send({
             content: `✅ A voice channel is ready for <@${host.id}> and <@${joinerId}>.`,
-            components: [endRow],
           });
         } catch (error) {
           console.error('Could not update LFG session announcement:', error);
@@ -400,7 +408,8 @@ export class RequestHandler extends InteractionHandler {
           console.error('Could not restore LFG request buttons:', error);
         }
       }
-      pendingDecisions.delete(requestId);
+      if (decisionState.get(requestId) === 'pending')
+        decisionState.delete(requestId);
     }
   }
 }

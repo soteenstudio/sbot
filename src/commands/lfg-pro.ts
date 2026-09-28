@@ -19,7 +19,11 @@ import {
   ChannelType,
 } from 'discord.js';
 import { Games } from '../games.js';
-import { activeLFG, pendingLFGInitialSaves, type ActiveLFGSession } from '../lib/lfg-data.js';
+import {
+  activeLFG,
+  pendingLFGInitialSaves,
+  type ActiveLFGSession,
+} from '../lib/lfg-data.js';
 import { isUnknownChannel } from '../lib/party-data.js';
 import { meetsRoleLevel } from '../lib/role-utils.js';
 import { kickFromSession } from '../lib/session-kick.js';
@@ -185,7 +189,8 @@ export class LFGCommand extends Subcommand {
     // Another create may have completed while the announcement was being sent.
     if (activeLFG.has(interaction.user.id)) {
       await interaction.editReply({
-        content: '❌ You already have an active session. Close it before creating another.',
+        content:
+          '❌ You already have an active session. Close it before creating another.',
         embeds: [],
         components: [],
       });
@@ -314,7 +319,8 @@ export class LFGCommand extends Subcommand {
     await interaction.deferReply({ ephemeral: true });
     try {
       if (session.vcId) {
-        if (!interaction.guild) throw new Error('Session server is unavailable.');
+        if (!interaction.guild)
+          throw new Error('Session server is unavailable.');
         const channel = await interaction.guild.channels.fetch(session.vcId);
         if (
           channel?.type !== ChannelType.GuildVoice ||
@@ -334,6 +340,15 @@ export class LFGCommand extends Subcommand {
       await saveLFGSession({ ...session, participantIds, kickedIds });
       session.participantIds = participantIds;
       session.kickedIds = kickedIds;
+
+      let notified = true;
+      try {
+        await participant.send(
+          `You were removed from ${session.author}'s ${session.game} (${session.rank}) session.`,
+        );
+      } catch {
+        notified = false;
+      }
 
       try {
         const origin = await interaction.client.channels.fetch(
@@ -365,7 +380,9 @@ export class LFGCommand extends Subcommand {
       }
 
       return interaction.editReply({
-        content: `✅ <@${participant.id}> has been removed from this session.`,
+        content: notified
+          ? `✅ <@${participant.id}> has been removed from this session.`
+          : `✅ <@${participant.id}> has been removed from this session, but they could not be notified by DM.`,
         allowedMentions: { users: [] },
       });
     } catch (error) {

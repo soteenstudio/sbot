@@ -23,7 +23,10 @@ import {
 import {
   activeLFG,
   declineCooldownRemaining,
+  finishLFGRequestSend,
   pendingLFGInitialSaves,
+  pendingRequestCooldownRemaining,
+  startLFGRequestSend,
 } from '../lib/lfg-data.js';
 
 function cooldownNotice(remaining: number): string {
@@ -115,6 +118,16 @@ export class JoinButtonHandler extends InteractionHandler {
         ephemeral: true,
       });
 
+    const pendingRemaining = pendingRequestCooldownRemaining(
+      session,
+      interaction.user.id,
+    );
+    if (pendingRemaining)
+      return interaction.followUp({
+        content: cooldownNotice(pendingRemaining),
+        ephemeral: true,
+      });
+
     const host = await interaction.client.users.fetch(hostId);
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -158,22 +171,36 @@ export class JoinButtonHandler extends InteractionHandler {
         ephemeral: true,
       });
 
+    const latestPending = pendingRequestCooldownRemaining(
+      session,
+      interaction.user.id,
+    );
+    if (latestPending || !startLFGRequestSend(session, interaction.user.id))
+      return interaction.followUp({
+        content: latestPending
+          ? cooldownNotice(latestPending)
+          : '❌ Your join request is already being sent. Please try again shortly.',
+        ephemeral: true,
+      });
+
     try {
       await host.send({
         embeds: [notificationEmbed],
         components: [row],
       });
-
-      return interaction.followUp({
-        content: '✅ Your join request has been sent to the host.',
-        ephemeral: true,
-      });
     } catch {
+      finishLFGRequestSend(session, interaction.user.id, false);
       return interaction.followUp({
         content:
           '❌ The host could not receive your request by direct message.',
         ephemeral: true,
       });
     }
+
+    finishLFGRequestSend(session, interaction.user.id, true);
+    return interaction.followUp({
+      content: '✅ Your join request has been sent to the host.',
+      ephemeral: true,
+    });
   }
 }
