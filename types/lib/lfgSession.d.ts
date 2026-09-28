@@ -18,4 +18,6 @@ export declare function restoreLFGSessions(): Promise<void>;
 export declare function getLFGSession(hostId: string): Promise<LFGSession | null>;
 export declare function getAllLFGSessions(): Promise<LFGSession[]>;
 export declare function saveLFGSession(session: ActiveLFGSession): Promise<void>;
+/** Persist an acceptance only while it still belongs to the same active session. */
+export declare function saveLFGAcceptance(expected: ActiveLFGSession, updated: ActiveLFGSession): Promise<boolean>;
 export declare function deleteLFGSession(hostId: string): Promise<boolean>;

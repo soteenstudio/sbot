@@ -25,3 +25,32 @@ export type ActiveLFGSession = {
 export const activeLFG = new Map<string, ActiveLFGSession>();
 /** Sessions visible in memory while their first write is still pending. */
 export const pendingLFGInitialSaves = new WeakSet<ActiveLFGSession>();
+
+const declineCooldowns = new WeakMap<ActiveLFGSession, Map<string, number>>();
+export const LFG_DECLINE_COOLDOWN_MS = 60_000;
+
+export function declineCooldownRemaining(
+  session: ActiveLFGSession,
+  joinerId: string,
+  now = Date.now(),
+): number {
+  const expiresAt = declineCooldowns.get(session)?.get(joinerId) ?? 0;
+  if (expiresAt <= now) {
+    declineCooldowns.get(session)?.delete(joinerId);
+    return 0;
+  }
+  return expiresAt - now;
+}
+
+export function recordLFGDecline(
+  session: ActiveLFGSession,
+  joinerId: string,
+  now = Date.now(),
+): void {
+  let cooldowns = declineCooldowns.get(session);
+  if (!cooldowns) {
+    cooldowns = new Map();
+    declineCooldowns.set(session, cooldowns);
+  }
+  cooldowns.set(joinerId, now + LFG_DECLINE_COOLDOWN_MS);
+}

@@ -20,12 +20,33 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ComponentType,
   EmbedBuilder,
 } from 'discord.js';
-import { activeLFG, pendingLFGInitialSaves } from '../lib/lfg-data.js';
-import { saveLFGSession } from '../lib/lfgSession.js';
+import {
+  activeLFG,
+  pendingLFGInitialSaves,
+  recordLFGDecline,
+} from '../lib/lfg-data.js';
+import { saveLFGAcceptance } from '../lib/lfgSession.js';
 
 const pendingAccepts = new Set<string>();
+const pendingDecisions = new Set<string>();
+const completedDecisions = new Set<string>();
+
+function decisionRows(interaction: ButtonInteraction, disabled: boolean) {
+  return interaction.message.components
+    .filter((row) => row.type === ComponentType.ActionRow)
+    .map((row) =>
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        row.components
+          .filter((component) => component.type === ComponentType.Button)
+          .map((component) =>
+            ButtonBuilder.from(component).setDisabled(disabled),
+          ),
+      ),
+    );
+}
 
 export class RequestHandler extends InteractionHandler {
   public constructor(
@@ -78,187 +99,277 @@ export class RequestHandler extends InteractionHandler {
         ephemeral: true,
       });
 
-    if (action === 'decline') {
+    const requestId = interaction.message.id;
+    if (pendingDecisions.has(requestId) || completedDecisions.has(requestId))
       return interaction.reply({
-        content: 'Your join request has been declined.',
+        content: '❌ This join request has already been handled.',
         ephemeral: true,
       });
-    }
 
-    if (session.kickedIds.has(joinerId)) {
-      return interaction.reply({
-        content: '❌ This participant has been removed from this session.',
-        ephemeral: true,
-      });
-    }
-
-    if (joinerId === hostId || session.participantIds.has(joinerId)) {
-      return interaction.reply({
-        content: '❌ This participant is already in the session.',
-        ephemeral: true,
-      });
-    }
-
-    if (
-      session.participantIds.size + 1 >= session.maxPlayers ||
-      pendingAccepts.has(hostId)
-    ) {
-      return interaction.reply({
-        content:
-          '❌ This session is full or another request is being processed.',
-        ephemeral: true,
-      });
-    }
-
-    pendingAccepts.add(hostId);
+    pendingDecisions.add(requestId);
+    let disabled = false;
+    let settled = false;
     try {
-      await interaction.deferUpdate();
+      await interaction.update({ components: decisionRows(interaction, true) });
+      disabled = true;
 
-      const channelOrigin = await interaction.client.channels
-        .fetch(session.channelId)
-        .catch(() => null);
-      const guild = (channelOrigin as any)?.guild;
-
-      if (!guild) {
+      if (session.kickedIds.has(joinerId)) {
         return interaction.followUp({
-          content: '❌ The original server could not be accessed.',
+          content: '❌ This participant has been removed from this session.',
           ephemeral: true,
         });
       }
 
-      const joiner = await guild.members.fetch(joinerId).catch(() => null);
-      if (!joiner || joiner.user.bot) {
+      if (joinerId === hostId || session.participantIds.has(joinerId)) {
         return interaction.followUp({
-          content: '❌ This participant is no longer eligible to join.',
+          content: '❌ This participant is already in the session.',
+          ephemeral: true,
+        });
+      }
+
+      if (action === 'decline') {
+        if (activeLFG.get(hostId) !== session) {
+          settled = true;
+          return interaction.followUp({
+            content: '❌ This join request is no longer valid.',
+            ephemeral: true,
+          });
+        }
+        recordLFGDecline(session, joinerId);
+        settled = true;
+        completedDecisions.add(requestId);
+        let notified = true;
+        try {
+          const joiner = await interaction.client.users.fetch(joinerId);
+          await joiner.send(
+            `Your request to join ${session.game} was declined. You can try again in 60 seconds.`,
+          );
+        } catch {
+          notified = false;
+        }
+        return interaction.followUp({
+          content: notified
+            ? 'Your join request has been declined. The participant was notified.'
+            : 'Your join request has been declined, but the participant could not be notified by DM.',
           ephemeral: true,
         });
       }
 
       if (
-        activeLFG.get(hostId) !== session ||
-        session.kickedIds.has(joinerId)
+        session.participantIds.size + 1 >= session.maxPlayers ||
+        pendingAccepts.has(hostId)
       ) {
         return interaction.followUp({
-          content: '❌ This join request is no longer valid.',
+          content:
+            '❌ This session is full or another request is being processed.',
           ephemeral: true,
         });
       }
 
-      const host = await interaction.client.users
-        .fetch(hostId)
-        .catch(() => null);
-      if (!host)
-        return interaction.followUp({
-          content: '❌ The session host could not be found.',
-          ephemeral: true,
-        });
-      let vc;
-      if (session.vcId) {
-        vc = await guild.channels.fetch(session.vcId);
-        if (vc?.type !== ChannelType.GuildVoice) {
+      pendingAccepts.add(hostId);
+      try {
+        const channelOrigin = await interaction.client.channels
+          .fetch(session.channelId)
+          .catch(() => null);
+        const guild =
+          channelOrigin && 'guild' in channelOrigin
+            ? channelOrigin.guild
+            : null;
+
+        if (!guild) {
           return interaction.followUp({
-            content: '❌ The session voice channel is unavailable.',
+            content: '❌ The original server could not be accessed.',
             ephemeral: true,
           });
         }
-        await vc.permissionOverwrites.edit(joinerId, {
-          ViewChannel: true,
-          Connect: true,
-        });
-      } else {
-        vc = await guild.channels.create({
-          name: `LFG-${host.username}`,
-          type: ChannelType.GuildVoice,
-          permissionOverwrites: [
-            { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-            {
-              id: host.id,
-              allow: [
-                PermissionsBitField.Flags.ViewChannel,
-                PermissionsBitField.Flags.Connect,
-              ],
-            },
-            {
-              id: joinerId,
-              allow: [
-                PermissionsBitField.Flags.ViewChannel,
-                PermissionsBitField.Flags.Connect,
-              ],
-            },
-          ],
-        });
-      }
-      const participantIds = new Set(session.participantIds).add(joinerId);
-      await saveLFGSession({ ...session, vcId: vc.id, participantIds });
-      session.vcId = vc.id;
-      session.participantIds = participantIds;
 
-      try {
-        const channel = await interaction.client.channels
-          .fetch(session.channelId)
-          .catch(() => null);
-        if (channel && channel.isTextBased()) {
-          const message = await channel.messages
-            .fetch(session.messageId)
-            .catch(() => null);
-          if (message?.embeds[0]) {
-            const oldEmbed = EmbedBuilder.from(message.embeds[0]);
-
-            const currentCount = session.participantIds.size + 1;
-            const newDescription = oldEmbed.data.description?.replace(
-              /\*\*Players:\*\* \d+\/\d+/,
-              `**Players:** ${currentCount}/${session.maxPlayers}`,
-            );
-
-            if (currentCount >= session.maxPlayers) {
-              const fullRow =
-                new ActionRowBuilder<ButtonBuilder>().addComponents(
-                  new ButtonBuilder()
-                    .setCustomId('lfg_pro_full')
-                    .setLabel('Session Full')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setDisabled(true),
-                );
-
-              await message.edit({
-                embeds: [oldEmbed.setDescription(newDescription || null)],
-                components: [fullRow],
-              });
-            } else {
-              await message.edit({
-                embeds: [oldEmbed.setDescription(newDescription || null)],
-              });
-            }
-          }
+        const joiner = await guild.members.fetch(joinerId).catch(() => null);
+        if (!joiner || joiner.user.bot) {
+          return interaction.followUp({
+            content: '❌ This participant is no longer eligible to join.',
+            ephemeral: true,
+          });
         }
 
-        const endRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`lfg_pro_end_${vc.id}`)
-            .setLabel('End Session')
-            .setStyle(ButtonStyle.Danger),
-        );
+        if (
+          activeLFG.get(hostId) !== session ||
+          session.kickedIds.has(joinerId)
+        ) {
+          if (activeLFG.get(hostId) !== session) settled = true;
+          return interaction.followUp({
+            content: '❌ This join request is no longer valid.',
+            ephemeral: true,
+          });
+        }
 
-        await vc.send({
-          content: `✅ A voice channel is ready for <@${host.id}> and <@${joinerId}>.`,
-          components: [endRow],
+        const host = await interaction.client.users
+          .fetch(hostId)
+          .catch(() => null);
+        if (!host)
+          return interaction.followUp({
+            content: '❌ The session host could not be found.',
+            ephemeral: true,
+          });
+        if (activeLFG.get(hostId) !== session) {
+          settled = true;
+          return interaction.followUp({
+            content: '❌ This join request is no longer valid.',
+            ephemeral: true,
+          });
+        }
+        let vc;
+        if (session.vcId) {
+          vc = await guild.channels.fetch(session.vcId);
+          if (vc?.type !== ChannelType.GuildVoice) {
+            return interaction.followUp({
+              content: '❌ The session voice channel is unavailable.',
+              ephemeral: true,
+            });
+          }
+          await vc.permissionOverwrites.edit(joinerId, {
+            ViewChannel: true,
+            Connect: true,
+          });
+        } else {
+          vc = await guild.channels.create({
+            name: `LFG-${host.username}`,
+            type: ChannelType.GuildVoice,
+            permissionOverwrites: [
+              { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+              {
+                id: host.id,
+                allow: [
+                  PermissionsBitField.Flags.ViewChannel,
+                  PermissionsBitField.Flags.Connect,
+                ],
+              },
+              {
+                id: joinerId,
+                allow: [
+                  PermissionsBitField.Flags.ViewChannel,
+                  PermissionsBitField.Flags.Connect,
+                ],
+              },
+            ],
+          });
+        }
+        const participantIds = new Set(session.participantIds).add(joinerId);
+        const saved = await saveLFGAcceptance(session, {
+          ...session,
+          vcId: vc.id,
+          participantIds,
+        });
+        if (!saved || activeLFG.get(hostId) !== session) {
+          settled = true;
+          return interaction.followUp({
+            content: '❌ This join request is no longer valid.',
+            ephemeral: true,
+          });
+        }
+        session.vcId = vc.id;
+        session.participantIds = participantIds;
+        settled = true;
+        completedDecisions.add(requestId);
+
+        try {
+          const channel = await interaction.client.channels
+            .fetch(session.channelId)
+            .catch(() => null);
+          if (channel && channel.isTextBased()) {
+            const message = await channel.messages
+              .fetch(session.messageId)
+              .catch(() => null);
+            if (message?.embeds[0]) {
+              const oldEmbed = EmbedBuilder.from(message.embeds[0]);
+
+              const currentCount = session.participantIds.size + 1;
+              const newDescription = oldEmbed.data.description?.replace(
+                /\*\*Players:\*\* \d+\/\d+/,
+                `**Players:** ${currentCount}/${session.maxPlayers}`,
+              );
+
+              if (currentCount >= session.maxPlayers) {
+                const fullRow =
+                  new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                      .setCustomId('lfg_pro_full')
+                      .setLabel('Session Full')
+                      .setStyle(ButtonStyle.Secondary)
+                      .setDisabled(true),
+                  );
+
+                await message.edit({
+                  embeds: [oldEmbed.setDescription(newDescription || null)],
+                  components: [fullRow],
+                });
+              } else {
+                await message.edit({
+                  embeds: [oldEmbed.setDescription(newDescription || null)],
+                });
+              }
+            }
+          }
+
+          const endRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`lfg_pro_end_${vc.id}`)
+              .setLabel('End Session')
+              .setStyle(ButtonStyle.Danger),
+          );
+
+          await vc.send({
+            content: `✅ A voice channel is ready for <@${host.id}> and <@${joinerId}>.`,
+            components: [endRow],
+          });
+        } catch (error) {
+          console.error('Could not update LFG session announcement:', error);
+        }
+
+        let notified = true;
+        try {
+          await joiner.user.send(
+            `✅ Your request to join ${session.game} (${session.rank}) with ${session.author} was accepted. Join the voice channel: ${vc.toString()}`,
+          );
+        } catch {
+          notified = false;
+        }
+        return interaction.followUp({
+          content: notified
+            ? `✅ Join request accepted. Your voice channel is ${vc.toString()}.`
+            : `✅ Join request accepted. Your voice channel is ${vc.toString()}, but the participant could not be notified by DM.`,
+          ephemeral: true,
         });
       } catch (error) {
-        console.error('Could not update LFG session announcement:', error);
+        console.error('Could not accept LFG participant:', error);
+        return interaction.followUp({
+          content: '❌ Could not add this participant. Please try again.',
+          ephemeral: true,
+        });
+      } finally {
+        pendingAccepts.delete(hostId);
       }
-
-      return interaction.followUp({
-        content: `✅ Join request accepted. Your voice channel is ${vc.toString()}.`,
-        ephemeral: true,
-      });
     } catch (error) {
-      console.error('Could not accept LFG participant:', error);
-      return interaction.followUp({
-        content: '❌ Could not add this participant. Please try again.',
-        ephemeral: true,
-      });
+      console.error('Could not handle LFG join request:', error);
+      return disabled
+        ? interaction.followUp({
+            content: '❌ Could not handle this request. Please try again.',
+            ephemeral: true,
+          })
+        : interaction.reply({
+            content: '❌ Could not handle this request. Please try again.',
+            ephemeral: true,
+          });
     } finally {
-      pendingAccepts.delete(hostId);
+      if (disabled && !settled) {
+        try {
+          await interaction.message.edit({
+            components: decisionRows(interaction, false),
+          });
+        } catch (error) {
+          console.error('Could not restore LFG request buttons:', error);
+        }
+      }
+      pendingDecisions.delete(requestId);
     }
   }
 }
