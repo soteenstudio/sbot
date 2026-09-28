@@ -12,9 +12,13 @@ import { SapphireClient, RegisterBehavior } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
 import 'dotenv/config';
 import { join } from 'path';
+import { createRequire } from 'module';
 import { restoreLFGSessions } from './lib/lfgSession.js';
 import { restorePolls } from './lib/pollSession.js';
 import { restoreHoneypotBans } from './listeners/honeypot.js';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
 
 const client = new SapphireClient({
   intents: [
@@ -37,6 +41,8 @@ async function main() {
     await restoreLFGSessions();
     await restorePolls();
     client.once('ready', () => {
+      client.user?.setActivity(`v${version}`, { type: 4 });
+
       void restoreHoneypotBans(client).catch((error) =>
         console.error('Failed to restore honeypot bans:', error),
       );
