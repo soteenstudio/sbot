@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
-import { ButtonStyle, ChannelType, ComponentType, EmbedBuilder } from 'discord.js';
+import { ButtonStyle, ChannelType, ComponentType, EmbedBuilder, PermissionOverwrites, PermissionsBitField } from 'discord.js';
 import { PartyCommand } from '../dist/commands/party.js';
 import { LFGCommand } from '../dist/commands/lfg-pro.js';
 import { RequestHandler } from '../dist/interaction-handlers/LFGRequestHandler.js';
@@ -73,8 +73,19 @@ function voiceChannel(connected = true) {
       return deletes;
     },
     permissionOverwrites: {
+      cache: new Map(),
+      deleted: [],
       async edit(id, permissions) {
         edits.push([id, permissions]);
+        const resolved = PermissionOverwrites.resolveOverwriteOptions(permissions, this.cache.get(id));
+        this.cache.set(id, {
+          allow: new PermissionsBitField(resolved.allow),
+          deny: new PermissionsBitField(resolved.deny),
+        });
+      },
+      async delete(id) {
+        this.deleted.push(id);
+        this.cache.delete(id);
       },
     },
     async delete() {
@@ -971,6 +982,71 @@ test('LFG failed accept save preserves participants and voice channel id', async
     assert.deepEqual(await getLFGSession(hostId), stored);
   }
 });
+
+for (const outcome of ['saved', 'rejected', 'ended', 'throws', 'ended and throws']) {
+  for (const prior of ['new channel', 'no overwrite', 'allow', 'deny', 'inherit']) {
+    test(`LFG acceptance cleanup: ${outcome}, ${prior}`, async (t) => {
+      t.mock.method(console, 'error', () => {});
+      const session = lfgSession([]);
+      const created = prior === 'new channel';
+      if (created) session.vcId = '';
+      activeLFG.set(hostId, session);
+      await saveLFGSession(outcome === 'rejected' ? { ...session, messageId: 'replacement' } : session);
+      const stored = await getLFGSession(hostId);
+      const channel = voiceChannel(false);
+      const overwrites = channel.permissionOverwrites;
+      const flags = PermissionsBitField.Flags;
+      const previous = ['allow', 'deny', 'inherit'].includes(prior) ? {
+        allow: new PermissionsBitField([flags.Speak, ...(prior === 'allow' ? [flags.ViewChannel] : prior === 'deny' ? [flags.Connect] : [])]),
+        deny: new PermissionsBitField([flags.SendMessages, ...(prior === 'deny' ? [flags.ViewChannel] : prior === 'allow' ? [flags.Connect] : [])]),
+      } : undefined;
+      if (previous) overwrites.cache.set(participantId, previous);
+      const afterGrant = () => {
+        if (outcome.startsWith('ended')) activeLFG.delete(hostId);
+      };
+      const edit = overwrites.edit.bind(overwrites);
+      overwrites.edit = async (...args) => { await edit(...args); afterGrant(); };
+      const guild = {
+        id: guildId,
+        members: { fetch: async () => channel.member },
+        channels: {
+          create: async () => { afterGrant(); return channel; },
+          fetch: async () => channel,
+        },
+      };
+      const client = {
+        channels: { fetch: async () => ({ guild, isTextBased: () => false }) },
+        users: { fetch: async () => ({ id: hostId, username: 'host' }) },
+      };
+      const path = process.env.LFG_DATA_FILE;
+      let reply;
+      try {
+        if (outcome.includes('throws')) process.env.LFG_DATA_FILE = storageDirectory;
+        reply = await RequestHandler.prototype.run(decisionInteraction(session, 'accept', requestMessage(session), client));
+      } finally { process.env.LFG_DATA_FILE = path; }
+      if (outcome === 'saved') {
+        assert.match(reply.content, /Join request accepted/);
+        assert.equal(channel.deletes, 0);
+        assert.deepEqual(overwrites.deleted, []);
+        assert.equal(channel.edits.length, created ? 0 : 1);
+        assert.equal(session.participantIds.has(participantId), true);
+        assert.deepEqual((await getLFGSession(hostId)).participantIds, [participantId]);
+      } else {
+        assert.match(reply.content, outcome.includes('throws') ? /Could not add/ : /no longer valid/);
+        assert.equal(channel.deletes, created ? 1 : 0);
+        assert.equal(session.vcId, created ? '' : voiceId);
+        assert.equal(session.participantIds.size, 0);
+        assert.deepEqual(await getLFGSession(hostId), stored);
+        if (!created) {
+          assert.deepEqual(overwrites.cache.get(participantId), previous);
+          assert.deepEqual(overwrites.deleted, previous ? [] : [participantId]);
+          assert.equal(channel.edits.length, previous ? 2 : 1);
+          if (previous) assert.deepEqual(Object.keys(channel.edits[1][1]).sort(), ['Connect', 'ViewChannel']);
+        }
+      }
+    });
+  }
+}
 
 test('LFG storage rejects invalid roots and member collections without overwriting them', async () => {
   const { writeFile, readFile } = await import('node:fs/promises');

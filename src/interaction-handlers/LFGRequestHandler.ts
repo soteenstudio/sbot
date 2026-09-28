@@ -167,6 +167,16 @@ export class RequestHandler extends InteractionHandler {
       }
 
       pendingAccepts.add(hostId);
+      let rollback: (() => Promise<unknown>) | undefined;
+      const rollbackAcceptance = async () => {
+        const cleanup = rollback;
+        rollback = undefined;
+        try {
+          await cleanup?.();
+        } catch (error) {
+          console.error('Could not roll back LFG acceptance:', error);
+        }
+      };
       try {
         const channelOrigin = await interaction.client.channels
           .fetch(session.channelId)
@@ -226,7 +236,23 @@ export class RequestHandler extends InteractionHandler {
               ephemeral: true,
             });
           }
-          await vc.permissionOverwrites.edit(joinerId, {
+          const overwrites = vc.permissionOverwrites;
+          const previous = overwrites.cache.get(joinerId);
+          const previousState = (permission: bigint) =>
+            previous?.allow.has(permission, false)
+              ? true
+              : previous?.deny.has(permission, false)
+                ? false
+                : null;
+          const permissions = {
+            ViewChannel: previousState(PermissionsBitField.Flags.ViewChannel),
+            Connect: previousState(PermissionsBitField.Flags.Connect),
+          };
+          rollback = () =>
+            previous
+              ? overwrites.edit(joinerId, permissions)
+              : overwrites.delete(joinerId);
+          await overwrites.edit(joinerId, {
             ViewChannel: true,
             Connect: true,
           });
@@ -252,6 +278,8 @@ export class RequestHandler extends InteractionHandler {
               },
             ],
           });
+          const createdChannel = vc;
+          rollback = () => createdChannel.delete();
         }
         const participantIds = new Set(session.participantIds).add(joinerId);
         const saved = await saveLFGAcceptance(session, {
@@ -261,11 +289,13 @@ export class RequestHandler extends InteractionHandler {
         });
         if (!saved || activeLFG.get(hostId) !== session) {
           settled = true;
+          await rollbackAcceptance();
           return interaction.followUp({
             content: '❌ This join request is no longer valid.',
             ephemeral: true,
           });
         }
+        rollback = undefined;
         session.vcId = vc.id;
         session.participantIds = participantIds;
         settled = true;
@@ -341,6 +371,7 @@ export class RequestHandler extends InteractionHandler {
         });
       } catch (error) {
         console.error('Could not accept LFG participant:', error);
+        await rollbackAcceptance();
         return interaction.followUp({
           content: '❌ Could not add this participant. Please try again.',
           ephemeral: true,
