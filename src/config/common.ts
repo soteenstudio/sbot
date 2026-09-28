@@ -10,43 +10,43 @@
 
 export const COMMON = [
   {
-    name: 'Saraswati',
+    name: 'Kadek Swari',
     desc: 'A modest girl from Bali who performs traditional dances with grace.',
   },
   {
-    name: 'Larasati',
+    name: 'Sekar Melati',
     desc: 'A Javanese student who excels in traditional gamelan and philosophy.',
   },
   {
-    name: 'Putri Minang',
+    name: 'Siti Mutiara',
     desc: 'A sharp-witted girl from Padang with a deep respect for matrilineal heritage.',
   },
   {
-    name: 'Dayang Sumbi',
+    name: 'Nyi Rengganis',
     desc: 'A mysterious figure from Sundanese folklore, known for her weaving skills.',
   },
   {
-    name: 'Maimunah',
+    name: 'Zahra Betawi',
     desc: 'A cheerful girl from Betawi who loves to tell stories with witty pantun.',
   },
   {
-    name: 'Rara Jonggrang',
+    name: 'Kirana Pitaloka',
     desc: 'A princess from the Mataram era known for her strong will and ancient beauty.',
   },
   {
-    name: 'Anak Agung',
+    name: 'Luh Ayu',
     desc: 'A noble Balinese girl dedicated to preserving her family temple traditions.',
   },
   {
-    name: 'Sriwijaya',
+    name: 'Dinda Sri',
     desc: 'A sophisticated girl from Palembang with a passion for maritime history.',
   },
   {
-    name: 'Kartini',
+    name: 'Rian Puspita',
     desc: 'A visionary young woman from Jepara who advocates for modern education.',
   },
   {
-    name: 'Puan Papua',
+    name: 'Neles Wenda',
     desc: 'A resilient girl from the highlands who deeply values her tribal wisdom.',
   },
 ];

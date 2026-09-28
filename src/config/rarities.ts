@@ -9,17 +9,17 @@
  */
 
 import { COMMON } from './common.js';
+import { UNCOMMON } from './uncommon.js';
+import { RARE } from './rare.js';
+import { EPIC } from './epic.js';
+import { MYTHIC } from './mythic.js';
+import { LEGENDARY } from './legendary.js';
 
 export const RARITY_TIERS = [
-  { tier: 'Common', weight: 5000, chars: COMMON },
-  {
-    tier: 'Uncommon',
-    weight: 3000,
-    chars: [{ name: 'Siti', desc: 'Biasa aja.' }],
-  },
-  {
-    tier: 'Rare',
-    weight: 1500,
-    chars: [{ name: 'Dewi', desc: 'Wow.' }],
-  },
+  { tier: 'Common', weight: 55, chars: COMMON },
+  { tier: 'Uncommon', weight: 25, chars: UNCOMMON },
+  { tier: 'Rare', weight: 12, chars: RARE },
+  { tier: 'Epic', weight: 6, chars: EPIC },
+  { tier: 'Mythic', weight: 1.8, chars: MYTHIC },
+  { tier: 'Legendary', weight: 0.2, chars: LEGENDARY },
 ];
