@@ -22,6 +22,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import { cancelHoneypotBan } from '../listeners/HoneypotListener.js';
 import { HONEYPOT_APPEAL_TITLE } from '../lib/honeypotAppeal.js';
 import { updateHoneypotRecord } from '../lib/honeypotStore.js';
@@ -121,19 +122,21 @@ export class HoneypotAppealHandler extends InteractionHandler {
               {
                 name: 'Verification',
                 value: '✅ Challenge and time check passed',
-                inline: false,
+                inline: true,
               },
             )
-            .setColor(0xffa500)
+            .setColor(EMBED_COLORS.WARNING)
             .setFooter({ text: 'Review this appeal before taking action.' })
             .setTimestamp();
           const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
               .setCustomId(`report_done_${targetUserId}`)
+              .setEmoji('✅')
               .setLabel('Approve Appeal')
               .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
               .setCustomId(`report_ban_${targetUserId}`)
+              .setEmoji('❌')
               .setLabel('Reject and Ban')
               .setStyle(ButtonStyle.Danger),
           );
@@ -173,6 +176,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
             new ActionRowBuilder<ButtonBuilder>().addComponents(
               new ButtonBuilder()
                 .setCustomId(`honeypot_appeal_${targetUserId}_${targetGuildId}`)
+                .setEmoji('✅')
                 .setLabel('Appeal Submitted')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(true),
@@ -193,7 +197,9 @@ export class HoneypotAppealHandler extends InteractionHandler {
             .setDescription(
               'Your appeal was submitted to staff. You will be notified after review.',
             )
-            .setColor(0x00ff00),
+            .setColor(EMBED_COLORS.CONFIRMED)
+            .setFooter({ text: EMBED_FOOTER })
+            .setTimestamp(),
         ],
       });
     } catch (error) {

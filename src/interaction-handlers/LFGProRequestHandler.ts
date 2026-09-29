@@ -160,7 +160,7 @@ export class LFGProRequestHandler extends InteractionHandler {
         try {
           const joiner = await interaction.client.users.fetch(joinerId);
           await joiner.send(
-            `Your request to join ${session.game} was declined. You can try again in ${formatLFGCooldown(LFG_DECLINE_COOLDOWN_MS)}.`,
+            `❌ Your request to join ${session.game} was declined. You can try again in ${formatLFGCooldown(LFG_DECLINE_COOLDOWN_MS)}.`,
           );
         } catch {}
         return acknowledgement;
@@ -335,6 +335,7 @@ export class LFGProRequestHandler extends InteractionHandler {
                   new ActionRowBuilder<ButtonBuilder>().addComponents(
                     new ButtonBuilder()
                       .setCustomId('lfg_pro_full')
+                      .setEmoji('🔒')
                       .setLabel('Session Full')
                       .setStyle(ButtonStyle.Secondary)
                       .setDisabled(true),

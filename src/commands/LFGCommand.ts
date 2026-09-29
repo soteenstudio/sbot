@@ -16,6 +16,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
+import { EMBED_COLORS } from '../engine/SEmbed.js';
 
 export class LFGCommand extends Command {
   public constructor(context: Command.LoaderContext, options: Command.Options) {
@@ -73,14 +74,16 @@ export class LFGCommand extends Command {
 
     const embed = new EmbedBuilder()
       .setTitle('🎮 Looking for Group')
-      .setColor(0x5865f2)
+      .setColor(EMBED_COLORS.INFO)
       .setDescription(
         `**Host:** ${interaction.user}\n**Game:** ${game}\n**Players needed:** ${slots}`,
       )
-      .setFooter({ text: 'Looking for group' });
+      .setFooter({ text: 'SoTeen Studio • Looking for group' })
+      .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
+        .setEmoji('🔊')
         .setLabel('Join Voice Channel')
         .setStyle(ButtonStyle.Link)
         .setURL(vcLink),

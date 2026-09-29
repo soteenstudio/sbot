@@ -10,6 +10,7 @@
 
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import {
   activeParties,
   findHostedParty,
@@ -192,8 +193,8 @@ export class PartyCommand extends Subcommand {
       activeParties.set(channel.id, { hostId: interaction.user.id, gameKey });
 
       const embed = new EmbedBuilder()
-        .setTitle('🎮 Party voice channel')
-        .setColor(0x5865f2)
+        .setTitle('🎮 Party Voice Channel')
+        .setColor(EMBED_COLORS.INFO)
         .addFields(
           { name: 'Game', value: game.label, inline: true },
           {
@@ -202,7 +203,9 @@ export class PartyCommand extends Subcommand {
             inline: true,
           },
           { name: 'Voice channel', value: channel.toString() },
-        );
+        )
+        .setFooter({ text: EMBED_FOOTER })
+        .setTimestamp();
 
       return await interaction.editReply({
         content: `<@&${game.roleId}>`,
@@ -287,7 +290,8 @@ export class PartyCommand extends Subcommand {
 
       try {
         await participant.send({
-          content: `❌ You have been removed from the party voice channel by the host.`,
+          content:
+            '⚠️ You have been removed from the party voice channel by the host. You can rejoin if the host invites you again.',
         });
       } catch (dmError) {
         console.error('Could not send kick notification DM:', dmError);
@@ -308,7 +312,8 @@ export class PartyCommand extends Subcommand {
   public async list(interaction: Subcommand.ChatInputCommandInteraction) {
     if (activeParties.size === 0) {
       return interaction.reply({
-        content: 'No party voice channels are currently active.',
+        content:
+          '⚠️ No party voice channels are currently active. Use `/party create` to start one.',
         ephemeral: true,
       });
     }
@@ -329,10 +334,12 @@ export class PartyCommand extends Subcommand {
         ? `\n${omitted} more ${omitted === 1 ? 'party' : 'parties'} not shown.`
         : '');
     const embed = new EmbedBuilder()
-      .setTitle('Active Party Voice Channels')
+      .setTitle('📋 Active Party Voice Channels')
       .setDescription(list)
-      .setColor(0x2f3136);
+      .setColor(EMBED_COLORS.NEUTRAL)
+      .setFooter({ text: EMBED_FOOTER })
+      .setTimestamp();
 
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }

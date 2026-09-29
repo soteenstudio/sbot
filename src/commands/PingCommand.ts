@@ -9,6 +9,7 @@
  */
 
 import { Command } from '@sapphire/framework';
+import { MessageFlags } from 'discord.js';
 
 export class PingCommand extends Command {
   public static commandName: string = 'ping';
@@ -36,7 +37,8 @@ export class PingCommand extends Command {
     interaction: Command.ChatInputCommandInteraction,
   ) {
     const msg = await interaction.reply({
-      content: 'Checking latency…',
+      content: '⏳ Checking latency…',
+      flags: MessageFlags.Ephemeral,
       fetchReply: true,
     });
 
@@ -44,7 +46,7 @@ export class PingCommand extends Command {
     const ping = Math.round(this.container.client.ws.ping);
 
     return interaction.editReply(
-      `🏓 Response time: **${diff} ms**. Discord gateway latency: **${ping} ms**.`,
+      `✅ Response time: **${diff} ms**. Discord gateway latency: **${ping} ms**.`,
     );
   }
 }

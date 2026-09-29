@@ -11,6 +11,7 @@
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
 import axios from 'axios';
+import { EMBED_COLORS } from '../engine/SEmbed.js';
 
 export class MemeCommand extends Subcommand {
   public constructor(
@@ -34,6 +35,7 @@ export class MemeCommand extends Subcommand {
       builder
         .setName(this.name)
         .setDescription(this.description)
+        .setDMPermission(false)
         .addSubcommand((sub) =>
           sub.setName('random').setDescription('Get a random meme'),
         )
@@ -59,17 +61,22 @@ export class MemeCommand extends Subcommand {
       const { title, url: imageUrl, postLink, author } = response.data;
 
       const embed = new EmbedBuilder()
-        .setTitle(title)
+        .setTitle(`😂 ${title}`)
         .setURL(postLink)
         .setImage(imageUrl)
-        .setColor(0x00ff9d)
+        .setColor(EMBED_COLORS.SUCCESS)
         .setFooter({
           text: `Subreddit: r/${subreddit || 'random'} | u/${author}`,
-        });
+        })
+        .setTimestamp();
 
       return interaction.editReply({ embeds: [embed] });
     } catch (error) {
-      return interaction.editReply({ content: '❌ Failed to fetch meme.' });
+      console.error('Could not fetch a meme:', error);
+      return interaction.editReply({
+        content:
+          '❌ Could not fetch a meme right now. Please try again in a moment.',
+      });
     }
   }
 

@@ -15,9 +15,11 @@ import {
   ButtonStyle,
   ActionRowBuilder,
   ChatInputCommandInteraction,
+  MessageFlags,
   version as djsVersion,
 } from 'discord.js';
 import { createRequire } from 'module';
+import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { cleanVersion } from '../utils/cleanVersion.js';
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json');
@@ -60,7 +62,7 @@ export class StatsCommand extends Subcommand {
 
     const embed = new EmbedBuilder()
       .setTitle('📊 Server and Bot Statistics')
-      .setColor(0x00ff9d)
+      .setColor(EMBED_COLORS.SUCCESS)
       .addFields(
         {
           name: 'Server',
@@ -73,15 +75,21 @@ export class StatsCommand extends Subcommand {
           inline: true,
         },
       )
-      .setFooter({ text: 'SoTeen Studio | Node.js ' + process.version });
+      .setFooter({ text: 'SoTeen Studio | Node.js ' + process.version })
+      .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
+        .setEmoji('🔗')
         .setLabel('SBot Engine (GitHub)')
         .setStyle(ButtonStyle.Link)
         .setURL('https://github.com/soteenstudio/sbot'),
     );
 
-    await interaction.reply({ embeds: [embed], components: [row] });
+    await interaction.reply({
+      embeds: [embed],
+      components: [row],
+      flags: MessageFlags.Ephemeral,
+    });
   }
 }

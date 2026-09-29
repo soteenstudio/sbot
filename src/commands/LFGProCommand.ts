@@ -15,9 +15,9 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ActionRowBuilder,
-  ComponentType,
   ChannelType,
 } from 'discord.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import { Games } from '../games.js';
 import {
   activeLFG,
@@ -158,12 +158,14 @@ export class LFGCommand extends Subcommand {
       .setDescription(
         `**Host:** ${interaction.user}\n**Game:** ${game}\n**Required rank:** ${rank}\n**Players:** 1/${maxPlayers}`,
       )
-      .setColor(0x00ff9d)
-      .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) });
+      .setColor(EMBED_COLORS.SUCCESS)
+      .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) })
+      .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`lfg_pro_join_${interaction.user.id}`)
+        .setEmoji('📩')
         .setLabel('Request to Join')
         .setStyle(ButtonStyle.Success),
     );
@@ -274,6 +276,7 @@ export class LFGCommand extends Subcommand {
         const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId('disabled')
+            .setEmoji('🔒')
             .setLabel('Session Closed')
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(true),
@@ -366,6 +369,7 @@ export class LFGCommand extends Subcommand {
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
               new ButtonBuilder()
                 .setCustomId(`lfg_pro_join_${interaction.user.id}`)
+                .setEmoji('📩')
                 .setLabel('Request to Join')
                 .setStyle(ButtonStyle.Success),
             );
@@ -397,7 +401,8 @@ export class LFGCommand extends Subcommand {
     const sessions = await getAllLFGSessions();
     if (sessions.length === 0) {
       return interaction.reply({
-        content: 'No premium sessions are currently active.',
+        content:
+          '⚠️ No premium sessions are currently active. Use `/lfg-pro create` to start one.',
         ephemeral: true,
       });
     }
@@ -418,10 +423,12 @@ export class LFGCommand extends Subcommand {
         ? `\n${omitted} more ${omitted === 1 ? 'session' : 'sessions'} not shown.`
         : '');
     const embed = new EmbedBuilder()
-      .setTitle('Active Premium Sessions')
+      .setTitle('📋 Active Premium Sessions')
       .setDescription(list)
-      .setColor(0x2f3136);
+      .setColor(EMBED_COLORS.NEUTRAL)
+      .setFooter({ text: EMBED_FOOTER })
+      .setTimestamp();
 
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }

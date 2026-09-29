@@ -38,7 +38,7 @@ export class FlipCommand extends Subcommand {
     const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
 
     await interaction.reply({
-      content: `🪙 ${interaction.user} flipped a coin: **${result}**.`,
+      content: `✅ ${interaction.user} flipped a coin: **${result}**.`,
     });
     return;
   }

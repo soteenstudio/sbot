@@ -43,7 +43,7 @@ async function main() {
     client.once('ready', () => {
       const guild = client.guilds.cache.get(process.env.GUILD_ID as string);
       const memberCount = guild ? guild.memberCount : 0;
-      
+
       client.user?.setActivity('Custom Status', {
         type: 4,
         state: `v${version} | Listening to ${memberCount} members`,

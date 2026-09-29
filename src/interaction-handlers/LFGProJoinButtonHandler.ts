@@ -20,6 +20,7 @@ import {
   ButtonStyle,
   EmbedBuilder,
 } from 'discord.js';
+import { EMBED_COLORS } from '../engine/SEmbed.js';
 import {
   activeLFG,
   declineCooldownRemaining,
@@ -144,19 +145,21 @@ export class LFGProJoinButtonHandler extends InteractionHandler {
         .setCustomId(
           `lfg_pro_accept_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
         )
+        .setEmoji('✅')
         .setLabel('Accept Request')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(
           `lfg_pro_decline_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
         )
+        .setEmoji('❌')
         .setLabel('Decline Request')
         .setStyle(ButtonStyle.Danger),
     );
 
     const notificationEmbed = new EmbedBuilder()
       .setTitle('🔔 Session Join Request')
-      .setColor(0x0099ff)
+      .setColor(EMBED_COLORS.INFO)
       .setDescription(
         `${interaction.user} has requested to join your looking-for-group session.`,
       )

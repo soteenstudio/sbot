@@ -34,8 +34,7 @@ export class RollCommand extends Subcommand {
             .setName('max')
             .setDescription('Maximum value (default: 100)')
             .setMinValue(1),
-        )
-        .setDMPermission(false),
+        ),
     );
   }
 
@@ -46,7 +45,7 @@ export class RollCommand extends Subcommand {
     const result = Math.floor(Math.random() * max) + 1;
 
     await interaction.reply({
-      content: `🎲 ${interaction.user} rolled **${result}** (range: 1–${max}).`,
+      content: `✅ ${interaction.user} rolled **${result}** (range: 1–${max}).`,
     });
     return;
   }
