@@ -15,9 +15,9 @@ import {
   findHostedParty,
   getPartyChannelName,
   isUnknownChannel,
-} from '../lib/party-data.js';
-import { meetsRoleLevel } from '../lib/role-utils.js';
-import { kickFromSession } from '../lib/session-kick.js';
+} from '../lib/partyData.js';
+import { meetsRoleLevel } from '../lib/roleUtils.js';
+import { kickFromSession } from '../lib/sessionKick.js';
 import { Games } from '../games.js';
 
 const pendingCreations = new Set<string>();
@@ -313,7 +313,7 @@ export class PartyCommand extends Subcommand {
       });
     }
 
-    const lines = Array.from(activeParties.entries()).map(
+    const lines: string[] = [...activeParties.entries()].map(
       ([channelId, party]) =>
         `• ${Games[party.gameKey]?.label ?? party.gameKey} | Host: <@${party.hostId}> | Channel: <#${channelId}>`,
     );

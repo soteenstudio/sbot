@@ -9,8 +9,8 @@
  */
 import { InteractionHandler } from '@sapphire/framework';
 import { ButtonInteraction } from 'discord.js';
-export declare class JoinButtonHandler extends InteractionHandler {
+export declare class LFGProEndSessionHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
     parse(interaction: ButtonInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
-    run(interaction: ButtonInteraction): Promise<import("discord.js").Message<boolean> | undefined>;
+    run(interaction: ButtonInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
 }

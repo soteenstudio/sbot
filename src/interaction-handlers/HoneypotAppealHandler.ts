@@ -22,7 +22,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
-import { cancelHoneypotBan } from '../listeners/honeypot.js';
+import { cancelHoneypotBan } from '../listeners/HoneypotListener.js';
 import { HONEYPOT_APPEAL_TITLE } from '../lib/honeypotAppeal.js';
 import { updateHoneypotRecord } from '../lib/honeypotStore.js';
 

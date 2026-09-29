@@ -24,7 +24,7 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import 'dotenv/config';
-import { meetsRoleLevel } from '../lib/role-utils.js';
+import { meetsRoleLevel } from '../lib/roleUtils.js';
 import { isHoneypotAppealTitle } from '../lib/honeypotAppeal.js';
 import { updateHoneypotRecord } from '../lib/honeypotStore.js';
 

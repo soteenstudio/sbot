@@ -15,7 +15,7 @@ import { join } from 'path';
 import { createRequire } from 'module';
 import { restoreLFGSessions } from './lib/lfgSession.js';
 import { restorePolls } from './lib/pollSession.js';
-import { restoreHoneypotBans } from './listeners/honeypot.js';
+import { restoreHoneypotBans } from './listeners/HoneypotListener.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -50,7 +50,7 @@ async function main() {
       });
 
       void restoreHoneypotBans(client).catch((error) =>
-        console.error('Failed to restore honeypot bans:', error),
+        console.error('Failed to restore honeypot bans:', error as string),
       );
     });
     await client.login(process.env.TOKEN);

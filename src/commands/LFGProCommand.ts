@@ -23,10 +23,10 @@ import {
   activeLFG,
   pendingLFGInitialSaves,
   type ActiveLFGSession,
-} from '../lib/lfg-data.js';
-import { isUnknownChannel } from '../lib/party-data.js';
-import { meetsRoleLevel } from '../lib/role-utils.js';
-import { kickFromSession } from '../lib/session-kick.js';
+} from '../lib/lfgData.js';
+import { isUnknownChannel } from '../lib/partyData.js';
+import { meetsRoleLevel } from '../lib/roleUtils.js';
+import { kickFromSession } from '../lib/sessionKick.js';
 import {
   deleteLFGSession,
   getAllLFGSessions,

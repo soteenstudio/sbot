@@ -30,7 +30,7 @@ import {
   LFG_DECLINE_COOLDOWN_MS,
   pendingLFGInitialSaves,
   recordLFGDecline,
-} from '../lib/lfg-data.js';
+} from '../lib/lfgData.js';
 import { saveLFGAcceptance } from '../lib/lfgSession.js';
 
 const pendingAccepts = new Set<string>();

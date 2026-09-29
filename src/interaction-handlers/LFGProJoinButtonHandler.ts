@@ -28,7 +28,7 @@ import {
   pendingLFGInitialSaves,
   pendingRequestCooldownRemaining,
   startLFGRequestSend,
-} from '../lib/lfg-data.js';
+} from '../lib/lfgData.js';
 
 function cooldownNotice(remainingMs: number): string {
   return `❌ Please wait ${formatLFGCooldown(remainingMs)} before requesting to join this session again.`;
