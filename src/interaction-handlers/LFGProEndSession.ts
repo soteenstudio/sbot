@@ -15,7 +15,7 @@ import {
 } from '@sapphire/framework';
 import { ButtonInteraction } from 'discord.js';
 
-export class EndSessionHandler extends InteractionHandler {
+export class LFGProEndSessionHandler extends InteractionHandler {
   public constructor(
     context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,

@@ -12,18 +12,22 @@ import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChatInputCommandInteraction } from 'discord.js';
 
 export class RollCommand extends Subcommand {
+  public static commandName: string = 'roll';
+  public static commandDescription: string =
+    'Roll a random number within a chosen range.';
+
   public constructor(
     context: Subcommand.LoaderContext,
     options: Subcommand.Options,
   ) {
-    super(context, { ...options, name: 'roll' });
+    super(context, { ...options, name: RollCommand.commandName });
   }
 
   public override registerApplicationCommands(registry: Subcommand.Registry) {
     registry.registerChatInputCommand((builder) =>
       builder
-        .setName('roll')
-        .setDescription('Roll a random number within a chosen range.')
+        .setName(RollCommand.commandName)
+        .setDescription(RollCommand.commandDescription)
         .setDMPermission(false)
         .addIntegerOption((o) =>
           o

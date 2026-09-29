@@ -10,6 +10,8 @@
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChatInputCommandInteraction } from 'discord.js';
 export declare class RollCommand extends Subcommand {
+    static commandName: string;
+    static commandDescription: string;
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
     chatInputRun(interaction: ChatInputCommandInteraction): Promise<void>;

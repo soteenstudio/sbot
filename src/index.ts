@@ -41,7 +41,10 @@ async function main() {
     await restoreLFGSessions();
     await restorePolls();
     client.once('ready', () => {
-      client.user?.setActivity(`v${version}`, { type: 4 });
+      const guild = client.guilds.cache.get(process.env.GUILD_ID as string);
+      const memberCount = guild ? guild.memberCount : 0;
+      
+      client.user?.setActivity(`v${version} | Listening to ${memberCount} members`, { type: 4 });
 
       void restoreHoneypotBans(client).catch((error) =>
         console.error('Failed to restore honeypot bans:', error),

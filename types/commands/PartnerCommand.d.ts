@@ -8,10 +8,11 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import { Subcommand } from '@sapphire/plugin-subcommands';
-import { ChatInputCommandInteraction, InteractionResponse, Message } from 'discord.js';
+import { ChatInputCommandInteraction } from 'discord.js';
 export declare class PartnerCommand extends Subcommand {
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
-    fic(interaction: ChatInputCommandInteraction): Promise<InteractionResponse<boolean>>;
-    user(interaction: ChatInputCommandInteraction): Promise<Message<boolean>>;
+    private generateFicEmbed;
+    fic(interaction: ChatInputCommandInteraction): Promise<void>;
+    user(interaction: ChatInputCommandInteraction): Promise<import("discord.js").Message<boolean> | undefined>;
 }

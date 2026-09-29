@@ -11,11 +11,15 @@
 import { Command } from '@sapphire/framework';
 
 export class PingCommand extends Command {
+  public static commandName: string = 'ping';
+  public static commandDescription: string =
+    'Check bot response time and Discord gateway latency.';
+
   public constructor(context: Command.LoaderContext, options: Command.Options) {
     super(context, {
       ...options,
-      name: 'ping',
-      description: 'Check bot response time and Discord gateway latency.',
+      name: PingCommand.commandName,
+      description: PingCommand.commandDescription,
     });
   }
 

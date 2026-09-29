@@ -63,7 +63,7 @@ function decisionRows(interaction: ButtonInteraction, disabled: boolean) {
     );
 }
 
-export class RequestHandler extends InteractionHandler {
+export class LFGProRequestHandler extends InteractionHandler {
   public constructor(
     context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,

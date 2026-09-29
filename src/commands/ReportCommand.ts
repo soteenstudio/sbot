@@ -21,14 +21,18 @@ import {
 import 'dotenv/config';
 
 export class ReportCommand extends Subcommand {
+  public static commandName: string = 'report';
+  public static commandDescription: string =
+    'Submit a report to the server staff.';
+
   public constructor(
     context: Subcommand.LoaderContext,
     options: Subcommand.Options,
   ) {
     super(context, {
       ...options,
-      name: 'report',
-      description: 'Submit a report to the server staff.',
+      name: ReportCommand.commandName,
+      description: ReportCommand.commandDescription,
     });
   }
 

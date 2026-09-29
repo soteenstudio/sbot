@@ -34,7 +34,7 @@ function cooldownNotice(remainingMs: number): string {
   return `❌ Please wait ${formatLFGCooldown(remainingMs)} before requesting to join this session again.`;
 }
 
-export class JoinButtonHandler extends InteractionHandler {
+export class LFGProJoinButtonHandler extends InteractionHandler {
   public constructor(
     context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,
