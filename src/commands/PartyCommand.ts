@@ -291,7 +291,7 @@ export class PartyCommand extends Subcommand {
       try {
         await participant.send({
           content:
-            '⚠️ You have been removed from the party voice channel by the host. You can rejoin if the host invites you again.',
+            '⚠️ You have been removed from the party voice channel by the host. To reconnect, ask the host to restore your access to the channel.',
         });
       } catch (dmError) {
         console.error('Could not send kick notification DM:', dmError);
