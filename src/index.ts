@@ -44,7 +44,10 @@ async function main() {
       const guild = client.guilds.cache.get(process.env.GUILD_ID as string);
       const memberCount = guild ? guild.memberCount : 0;
       
-      client.user?.setActivity(`v${version} | Listening to ${memberCount} members`, { type: 4 });
+      client.user?.setActivity('Custom Status', {
+        type: 4,
+        state: `v${version} | Listening to ${memberCount} members`,
+      });
 
       void restoreHoneypotBans(client).catch((error) =>
         console.error('Failed to restore honeypot bans:', error),
