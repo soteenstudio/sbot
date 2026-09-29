@@ -15,7 +15,7 @@ import { join } from 'path';
 import { createRequire } from 'module';
 import { restoreLFGSessions } from './lib/lfgSession.js';
 import { restorePolls } from './lib/pollSession.js';
-import { restoreHoneypotBans } from './listeners/honeypot.js';
+import { restoreHoneypotBans } from './listeners/HoneypotListener.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -41,10 +41,16 @@ async function main() {
     await restoreLFGSessions();
     await restorePolls();
     client.once('ready', () => {
-      client.user?.setActivity(`v${version}`, { type: 4 });
+      const guild = client.guilds.cache.get(process.env.GUILD_ID as string);
+      const memberCount = guild ? guild.memberCount : 0;
+
+      client.user?.setActivity('Custom Status', {
+        type: 4,
+        state: `v${version} | Listening to ${memberCount} members`,
+      });
 
       void restoreHoneypotBans(client).catch((error) =>
-        console.error('Failed to restore honeypot bans:', error),
+        console.error('Failed to restore honeypot bans:', error as string),
       );
     });
     await client.login(process.env.TOKEN);

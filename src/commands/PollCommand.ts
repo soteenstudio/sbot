@@ -16,8 +16,15 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import { type ActivePoll } from '../lib/pollData.js';
 import { deletePoll, getPoll, savePoll } from '../lib/pollSession.js';
+
+/** Maximum number of answer options a poll may offer. */
+const MAX_POLL_OPTIONS = 5;
+
+/** Keycap emoji shown alongside each poll option button. */
+const NUMBER_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'] as const;
 
 export class PollCommand extends Subcommand {
   public constructor(
@@ -88,7 +95,7 @@ export class PollCommand extends Subcommand {
 
     const question = interaction.options.getString('question', true);
     const options = interaction.options.getString('options', true).split('|');
-    if (options.length > 5) {
+    if (options.length > MAX_POLL_OPTIONS) {
       await interaction.reply({
         content:
           '❌ A poll can have at most five answer options. Separate them with `|`.',
@@ -102,14 +109,17 @@ export class PollCommand extends Subcommand {
       .setDescription(
         `Question:\n${question}\n\n${options.map((option, index) => `${index + 1}. ${option}`).join('\n')}`,
       )
-      .setColor(0x00ff9d);
+      .setColor(EMBED_COLORS.SUCCESS)
+      .setFooter({ text: EMBED_FOOTER })
+      .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>();
     options.forEach((_, i) => {
       row.addComponents(
         new ButtonBuilder()
           .setCustomId(`poll_${interaction.user.id}_${i + 1}`)
-          .setLabel(`${i + 1}`)
+          .setEmoji(NUMBER_EMOJIS[i])
+          .setLabel(`Option ${i + 1}`)
           .setStyle(ButtonStyle.Primary),
       );
     });
@@ -169,7 +179,9 @@ export class PollCommand extends Subcommand {
     const embed = new EmbedBuilder()
       .setTitle('📈 Poll Results')
       .setDescription(`Question:\n${poll.question}\n\n${resultLines}`)
-      .setColor(0x00ff9d);
+      .setColor(EMBED_COLORS.SUCCESS)
+      .setFooter({ text: EMBED_FOOTER })
+      .setTimestamp();
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
   }
@@ -193,7 +205,8 @@ export class PollCommand extends Subcommand {
           disabledRow.addComponents(
             new ButtonBuilder()
               .setCustomId(`poll_${interaction.user.id}_${i + 1}`)
-              .setLabel(`${i + 1}`)
+              .setEmoji(NUMBER_EMOJIS[i])
+              .setLabel(`Option ${i + 1}`)
               .setStyle(ButtonStyle.Primary)
               .setDisabled(true),
           );

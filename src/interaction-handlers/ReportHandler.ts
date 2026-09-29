@@ -20,6 +20,7 @@ import {
   EmbedBuilder,
   MessageFlags,
 } from 'discord.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import { isHoneypotAppealTitle } from '../lib/honeypotAppeal.js';
 
 export class ReportHandler extends InteractionHandler {
@@ -47,18 +48,24 @@ export class ReportHandler extends InteractionHandler {
     const originalEmbed = interaction.message.embeds[0];
 
     const resolvedEmbed = EmbedBuilder.from(originalEmbed)
-      .setColor(0x00ff00)
+      .setColor(EMBED_COLORS.CONFIRMED)
       .setFields(
         ...(originalEmbed.fields ?? []).filter(
           (field) => field.name !== 'Status',
         ),
-        { name: 'Status', value: `✅ Resolved by <@${interaction.user.id}>` },
+        {
+          name: 'Status',
+          value: `✅ Resolved by <@${interaction.user.id}>`,
+          inline: true,
+        },
       )
-      .setFooter({ text: `Resolved by ${interaction.user.tag}` });
+      .setFooter({ text: `Resolved by ${interaction.user.tag}` })
+      .setTimestamp();
 
     const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(interaction.customId)
+        .setEmoji('✅')
         .setLabel('Mark as Resolved')
         .setStyle(ButtonStyle.Success)
         .setDisabled(true),
@@ -71,7 +78,7 @@ export class ReportHandler extends InteractionHandler {
 
     const dmEmbed = new EmbedBuilder()
       .setTitle('✅ Your Report Has Been Resolved')
-      .setColor(0x00ff00)
+      .setColor(EMBED_COLORS.CONFIRMED)
       .setDescription(
         `The server staff have resolved your report (${originalEmbed.title}).`,
       )
@@ -83,7 +90,8 @@ export class ReportHandler extends InteractionHandler {
           inline: true,
         },
       )
-      .setFooter({ text: 'Thank you for helping keep our community safe.' });
+      .setFooter({ text: 'Thank you for helping keep our community safe.' })
+      .setTimestamp();
 
     try {
       const reporter = await interaction.client.users.fetch(reporterId);
@@ -99,7 +107,9 @@ export class ReportHandler extends InteractionHandler {
           .setDescription(
             'The report has been marked as resolved. The reporter was notified if direct messages were available.',
           )
-          .setColor(0x00ff00),
+          .setColor(EMBED_COLORS.CONFIRMED)
+          .setFooter({ text: EMBED_FOOTER })
+          .setTimestamp(),
       ],
     });
   }

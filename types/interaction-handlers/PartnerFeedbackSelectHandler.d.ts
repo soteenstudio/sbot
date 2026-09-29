@@ -8,9 +8,9 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import { InteractionHandler } from '@sapphire/framework';
-import { ButtonInteraction } from 'discord.js';
-export declare class EndSessionHandler extends InteractionHandler {
+import { StringSelectMenuInteraction } from 'discord.js';
+export declare class PartnerFeedbackSelectHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
-    parse(interaction: ButtonInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
-    run(interaction: ButtonInteraction): Promise<import("discord.js").InteractionResponse<boolean>>;
+    parse(interaction: StringSelectMenuInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
+    run(interaction: StringSelectMenuInteraction): Promise<void>;
 }

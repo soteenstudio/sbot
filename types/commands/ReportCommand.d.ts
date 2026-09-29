@@ -11,6 +11,8 @@ import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChatInputCommandInteraction } from 'discord.js';
 import 'dotenv/config';
 export declare class ReportCommand extends Subcommand {
+    static commandName: string;
+    static commandDescription: string;
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
     chatInputRun(interaction: ChatInputCommandInteraction): Promise<void>;

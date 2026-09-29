@@ -15,8 +15,10 @@ import {
 import {
   ButtonInteraction,
   ActionRowBuilder,
+  EmbedBuilder,
   StringSelectMenuBuilder,
 } from 'discord.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 
 export class PartnerFeedbackHandler extends InteractionHandler {
   public constructor(
@@ -61,7 +63,16 @@ export class PartnerFeedbackHandler extends InteractionHandler {
     );
 
     await interaction.reply({
-      content: '💡 Please choose the type of feedback you would like to share:',
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('💡 Partner Feedback')
+          .setDescription(
+            'Choose the type of feedback you would like to share. Suggestions are delivered straight to the SoTeen Studio team.',
+          )
+          .setColor(EMBED_COLORS.INFO)
+          .setFooter({ text: EMBED_FOOTER })
+          .setTimestamp(),
+      ],
       components: [row],
       ephemeral: true,
     });

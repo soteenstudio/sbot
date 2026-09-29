@@ -7,7 +7,7 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-import { type ActiveLFGSession } from './lfg-data.js';
+import { type ActiveLFGSession } from './lfgData.js';
 export type LFGSession = Omit<ActiveLFGSession, 'participantIds' | 'kickedIds'> & {
     participantIds: string[];
     kickedIds: string[];

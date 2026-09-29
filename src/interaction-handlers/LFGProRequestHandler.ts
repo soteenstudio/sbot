@@ -30,7 +30,7 @@ import {
   LFG_DECLINE_COOLDOWN_MS,
   pendingLFGInitialSaves,
   recordLFGDecline,
-} from '../lib/lfg-data.js';
+} from '../lib/lfgData.js';
 import { saveLFGAcceptance } from '../lib/lfgSession.js';
 
 const pendingAccepts = new Set<string>();
@@ -63,7 +63,7 @@ function decisionRows(interaction: ButtonInteraction, disabled: boolean) {
     );
 }
 
-export class RequestHandler extends InteractionHandler {
+export class LFGProRequestHandler extends InteractionHandler {
   public constructor(
     context: InteractionHandler.LoaderContext,
     options: InteractionHandler.Options,
@@ -160,7 +160,7 @@ export class RequestHandler extends InteractionHandler {
         try {
           const joiner = await interaction.client.users.fetch(joinerId);
           await joiner.send(
-            `Your request to join ${session.game} was declined. You can try again in ${formatLFGCooldown(LFG_DECLINE_COOLDOWN_MS)}.`,
+            `❌ Your request to join ${session.game} was declined. You can try again in ${formatLFGCooldown(LFG_DECLINE_COOLDOWN_MS)}.`,
           );
         } catch {}
         return acknowledgement;
@@ -335,6 +335,7 @@ export class RequestHandler extends InteractionHandler {
                   new ActionRowBuilder<ButtonBuilder>().addComponents(
                     new ButtonBuilder()
                       .setCustomId('lfg_pro_full')
+                      .setEmoji('🔒')
                       .setLabel('Session Full')
                       .setStyle(ButtonStyle.Secondary)
                       .setDisabled(true),

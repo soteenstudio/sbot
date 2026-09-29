@@ -20,7 +20,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { activeLFG, type ActiveLFGSession } from './lfg-data.js';
+import { activeLFG, type ActiveLFGSession } from './lfgData.js';
 
 export type LFGSession = Omit<
   ActiveLFGSession,

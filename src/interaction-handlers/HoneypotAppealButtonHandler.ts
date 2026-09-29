@@ -24,7 +24,8 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import 'dotenv/config';
-import { meetsRoleLevel } from '../lib/role-utils.js';
+import { EMBED_COLORS } from '../engine/SEmbed.js';
+import { meetsRoleLevel } from '../lib/roleUtils.js';
 import { isHoneypotAppealTitle } from '../lib/honeypotAppeal.js';
 import { updateHoneypotRecord } from '../lib/honeypotStore.js';
 
@@ -124,11 +125,13 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
         const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(`report_done_${targetUserId}`)
+            .setEmoji('✅')
             .setLabel('Mark as Resolved')
             .setStyle(ButtonStyle.Success)
             .setDisabled(true),
           new ButtonBuilder()
             .setCustomId(`report_ban_${targetUserId}`)
+            .setEmoji('❌')
             .setLabel('Reject & Ban')
             .setStyle(ButtonStyle.Danger)
             .setDisabled(true),
@@ -145,12 +148,14 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
           }
 
           oldEmbed
-            .setColor(0x00ff00)
+            .setColor(EMBED_COLORS.CONFIRMED)
             .addFields({
               name: 'Status',
               value: `✅ Approved by <@${interaction.user.id}>`,
+              inline: true,
             })
-            .setFooter({ text: `Approved by ${interaction.user.tag}` });
+            .setFooter({ text: `Approved by ${interaction.user.tag}` })
+            .setTimestamp();
 
           await interaction.message.edit({
             embeds: [oldEmbed],
@@ -167,12 +172,14 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
           }
 
           oldEmbed
-            .setColor(0xff0000)
+            .setColor(EMBED_COLORS.ERROR)
             .addFields({
               name: 'Status',
               value: `❌ Rejected and banned by <@${interaction.user.id}>`,
+              inline: true,
             })
-            .setFooter({ text: `Rejected by ${interaction.user.tag}` });
+            .setFooter({ text: `Rejected by ${interaction.user.tag}` })
+            .setTimestamp();
 
           await interaction.message.edit({
             embeds: [oldEmbed],
@@ -236,7 +243,8 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
       );
       if (!stored)
         return interaction.reply({
-          content: 'This appeal is no longer available.',
+          content:
+            '❌ This appeal is no longer available. Click Appeal Restriction again if you still need to appeal.',
           flags: MessageFlags.Ephemeral,
         });
 

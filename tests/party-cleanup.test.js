@@ -18,13 +18,13 @@ import {
 } from 'discord.js';
 import { Roles } from '../dist/config.js';
 import { Games } from '../dist/games.js';
-import { PartyCommand } from '../dist/commands/party.js';
+import { PartyCommand } from '../dist/commands/PartyCommand.js';
 import { PartyReady } from '../dist/listeners/PartyReady.js';
 import {
   activeParties,
   getMarkedParty,
   getPartyChannelName,
-} from '../dist/lib/party-data.js';
+} from '../dist/lib/partyData.js';
 
 const hostId = '123456789012345678';
 const roleId = '234567890123456789';

@@ -12,18 +12,22 @@ import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChatInputCommandInteraction } from 'discord.js';
 
 export class FlipCommand extends Subcommand {
+  public static commandName: string = 'flip';
+  public static commandDescription: string =
+    'Flip a coin and display the result.';
+
   public constructor(
     context: Subcommand.LoaderContext,
     options: Subcommand.Options,
   ) {
-    super(context, { ...options, name: 'flip' });
+    super(context, { ...options, name: FlipCommand.commandName });
   }
 
   public override registerApplicationCommands(registry: Subcommand.Registry) {
     registry.registerChatInputCommand((builder) =>
       builder
-        .setName('flip')
-        .setDescription('Flip a coin and display the result.')
+        .setName(FlipCommand.commandName)
+        .setDescription(FlipCommand.commandDescription)
         .setDMPermission(false),
     );
   }
@@ -34,7 +38,7 @@ export class FlipCommand extends Subcommand {
     const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
 
     await interaction.reply({
-      content: `🪙 ${interaction.user} flipped a coin: **${result}**.`,
+      content: `✅ ${interaction.user} flipped a coin: **${result}**.`,
     });
     return;
   }

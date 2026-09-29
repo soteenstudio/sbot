@@ -19,16 +19,21 @@ import {
   MessageFlags,
 } from 'discord.js';
 import 'dotenv/config';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 
 export class ReportCommand extends Subcommand {
+  public static commandName: string = 'report';
+  public static commandDescription: string =
+    'Submit a report to the server staff.';
+
   public constructor(
     context: Subcommand.LoaderContext,
     options: Subcommand.Options,
   ) {
     super(context, {
       ...options,
-      name: 'report',
-      description: 'Submit a report to the server staff.',
+      name: ReportCommand.commandName,
+      description: ReportCommand.commandDescription,
     });
   }
 
@@ -97,16 +102,17 @@ export class ReportCommand extends Subcommand {
         {
           name: 'Status',
           value: '⏳ Awaiting staff review',
-          inline: false,
+          inline: true,
         },
       )
-      .setColor(0xffa500)
+      .setColor(EMBED_COLORS.WARNING)
       .setFooter({ text: 'Review this report before taking action.' })
       .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`report_done_${interaction.user.id}`)
+        .setEmoji('✅')
         .setLabel('Mark as Resolved')
         .setStyle(ButtonStyle.Success),
     );
@@ -127,9 +133,11 @@ export class ReportCommand extends Subcommand {
     const confirmation = new EmbedBuilder()
       .setTitle('✅ Report Submitted')
       .setDescription(
-        'Your report has been sent to the server staff. Thank you.',
+        'Your report has been sent to the server staff. Thank you for helping keep the community safe.',
       )
-      .setColor(0x00ff00);
+      .setColor(EMBED_COLORS.CONFIRMED)
+      .setFooter({ text: EMBED_FOOTER })
+      .setTimestamp();
 
     try {
       await interaction.reply({

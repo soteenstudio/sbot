@@ -18,6 +18,7 @@ import {
   EmbedBuilder,
   MessageFlags,
 } from 'discord.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 
 export class PartnerFeedbackModalHandler extends InteractionHandler {
   public constructor(
@@ -72,7 +73,10 @@ export class PartnerFeedbackModalHandler extends InteractionHandler {
         .addFields({
           name: 'Submitted by',
           value: `${interaction.user.tag} (${interaction.user.id})`,
+          inline: true,
         })
+        .setColor(isNewChar ? EMBED_COLORS.SUCCESS : EMBED_COLORS.INFO)
+        .setFooter({ text: EMBED_FOOTER })
         .setTimestamp();
       await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
     } catch (error) {

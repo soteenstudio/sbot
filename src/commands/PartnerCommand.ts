@@ -16,9 +16,9 @@ import {
   ButtonStyle,
   ActionRowBuilder,
   ButtonInteraction,
-  GuildMember,
 } from 'discord.js';
 
+import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { RARITY_TIERS } from '../config/rarities.js';
 
 function getRarityStyle(tierName: string) {
@@ -113,7 +113,8 @@ export class PartnerCommand extends Subcommand {
       .setColor(style.color)
       .setFooter({
         text: `Session ID: ${userId.slice(-4)} | Fun gacha to appreciate Indonesian culture, no disrespect intended. Click feedback for suggestions.`,
-      });
+      })
+      .setTimestamp();
 
     return embed;
   }
@@ -162,23 +163,35 @@ export class PartnerCommand extends Subcommand {
     });
   }
 
+  /** Replace a public "thinking" placeholder with an ephemeral error. */
+  private async replyPrivateError(
+    interaction: ChatInputCommandInteraction,
+    content: string,
+  ) {
+    await interaction.deleteReply().catch(() => null);
+    return interaction.followUp({ content, ephemeral: true });
+  }
+
   public async user(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply();
+    let published = false;
     try {
       const members = await interaction.guild?.members.fetch();
       if (!members) {
-        return interaction.editReply({
-          content: '❌ Could not fetch members.',
-        });
+        return this.replyPrivateError(
+          interaction,
+          '❌ Could not read the member list. Please try again in a moment.',
+        );
       }
 
       const memberArray = Array.from(members.values()).filter(
         (m) => !m.user.bot,
       );
       if (memberArray.length === 0) {
-        return interaction.editReply({
-          content: '❌ No non-bot members found.',
-        });
+        return this.replyPrivateError(
+          interaction,
+          '❌ This server has no members to pick from yet.',
+        );
       }
 
       const randomMember =
@@ -189,8 +202,9 @@ export class PartnerCommand extends Subcommand {
         .setDescription(
           `Today's selected partner for ${interaction.user} is: **${randomMember.user.username}**`,
         )
-        .setColor(0x00ff9d)
-        .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) });
+        .setColor(EMBED_COLORS.SUCCESS)
+        .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) })
+        .setTimestamp();
 
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
@@ -207,6 +221,7 @@ export class PartnerCommand extends Subcommand {
         embeds: [embed],
         components: [row],
       });
+      published = true;
 
       const collector = response.createMessageComponentCollector({
         filter: (i) => i.customId === 'roll_again_user',
@@ -230,10 +245,11 @@ export class PartnerCommand extends Subcommand {
             .setDescription(
               `Today's selected partner for ${i.user} is: **${freshMember.user.username}**`,
             )
-            .setColor(0x00ff9d)
+            .setColor(EMBED_COLORS.SUCCESS)
             .setFooter({
               text: 'Session ID: ' + interaction.user.id.slice(-4),
-            });
+            })
+            .setTimestamp();
 
           await i.update({ embeds: [newEmbed], components: [row] });
         }
@@ -243,9 +259,12 @@ export class PartnerCommand extends Subcommand {
         await interaction.editReply({ components: [] }).catch(() => {});
       });
     } catch (error) {
-      return interaction.editReply({
-        content: '❌ Failed to select a partner.',
-      });
+      if (published) throw error;
+      console.error('Could not select a partner user:', error);
+      return this.replyPrivateError(
+        interaction,
+        '❌ Could not select a partner right now. Please try again in a moment.',
+      );
     }
   }
 }

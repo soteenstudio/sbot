@@ -10,7 +10,7 @@
 
 import { Events, Listener } from '@sapphire/framework';
 import type { Client } from 'discord.js';
-import { activeParties, getMarkedParty } from '../lib/party-data.js';
+import { activeParties, getMarkedParty } from '../lib/partyData.js';
 
 export class PartyReady extends Listener<typeof Events.ClientReady> {
   public constructor(

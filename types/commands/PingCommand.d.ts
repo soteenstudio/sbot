@@ -8,9 +8,10 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import { Command } from '@sapphire/framework';
-import { ApplicationCommandRegistry } from '@sapphire/framework';
-export declare class TssCommand extends Command {
+export declare class PingCommand extends Command {
+    static commandName: string;
+    static commandDescription: string;
     constructor(context: Command.LoaderContext, options: Command.Options);
-    registerApplicationCommands(registry: ApplicationCommandRegistry): void;
-    chatInputRun(interaction: Command.ChatInputCommandInteraction): Promise<import("discord.js").Message<boolean> | import("discord.js").InteractionResponse<boolean>>;
+    registerApplicationCommands(registry: Command.Registry): void;
+    chatInputRun(interaction: Command.ChatInputCommandInteraction): Promise<import("discord.js").Message<boolean>>;
 }

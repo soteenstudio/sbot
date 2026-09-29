@@ -10,14 +10,15 @@
 
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChannelType, EmbedBuilder, PermissionsBitField } from 'discord.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import {
   activeParties,
   findHostedParty,
   getPartyChannelName,
   isUnknownChannel,
-} from '../lib/party-data.js';
-import { meetsRoleLevel } from '../lib/role-utils.js';
-import { kickFromSession } from '../lib/session-kick.js';
+} from '../lib/partyData.js';
+import { meetsRoleLevel } from '../lib/roleUtils.js';
+import { kickFromSession } from '../lib/sessionKick.js';
 import { Games } from '../games.js';
 
 const pendingCreations = new Set<string>();
@@ -192,8 +193,8 @@ export class PartyCommand extends Subcommand {
       activeParties.set(channel.id, { hostId: interaction.user.id, gameKey });
 
       const embed = new EmbedBuilder()
-        .setTitle('🎮 Party voice channel')
-        .setColor(0x5865f2)
+        .setTitle('🎮 Party Voice Channel')
+        .setColor(EMBED_COLORS.INFO)
         .addFields(
           { name: 'Game', value: game.label, inline: true },
           {
@@ -202,7 +203,9 @@ export class PartyCommand extends Subcommand {
             inline: true,
           },
           { name: 'Voice channel', value: channel.toString() },
-        );
+        )
+        .setFooter({ text: EMBED_FOOTER })
+        .setTimestamp();
 
       return await interaction.editReply({
         content: `<@&${game.roleId}>`,
@@ -287,7 +290,8 @@ export class PartyCommand extends Subcommand {
 
       try {
         await participant.send({
-          content: `❌ You have been removed from the party voice channel by the host.`,
+          content:
+            '⚠️ You have been removed from the party voice channel by the host. To reconnect, ask the host to restore your access to the channel.',
         });
       } catch (dmError) {
         console.error('Could not send kick notification DM:', dmError);
@@ -308,12 +312,13 @@ export class PartyCommand extends Subcommand {
   public async list(interaction: Subcommand.ChatInputCommandInteraction) {
     if (activeParties.size === 0) {
       return interaction.reply({
-        content: 'No party voice channels are currently active.',
+        content:
+          '⚠️ No party voice channels are currently active. Use `/party create` to start one.',
         ephemeral: true,
       });
     }
 
-    const lines = Array.from(activeParties.entries()).map(
+    const lines: string[] = [...activeParties.entries()].map(
       ([channelId, party]) =>
         `• ${Games[party.gameKey]?.label ?? party.gameKey} | Host: <@${party.hostId}> | Channel: <#${channelId}>`,
     );
@@ -329,10 +334,12 @@ export class PartyCommand extends Subcommand {
         ? `\n${omitted} more ${omitted === 1 ? 'party' : 'parties'} not shown.`
         : '');
     const embed = new EmbedBuilder()
-      .setTitle('Active Party Voice Channels')
+      .setTitle('📋 Active Party Voice Channels')
       .setDescription(list)
-      .setColor(0x2f3136);
+      .setColor(EMBED_COLORS.NEUTRAL)
+      .setFooter({ text: EMBED_FOOTER })
+      .setTimestamp();
 
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }
