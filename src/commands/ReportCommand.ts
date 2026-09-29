@@ -111,7 +111,7 @@ export class ReportCommand extends Subcommand {
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`report_done_${interaction.user.id}`)
-        .setLabel('Mark as Resolved')
+        .setLabel('✅ Mark as Resolved')
         .setStyle(ButtonStyle.Success),
     );
 
@@ -133,7 +133,9 @@ export class ReportCommand extends Subcommand {
       .setDescription(
         'Your report has been sent to the server staff. Thank you.',
       )
-      .setColor(0x00ff00);
+      .setColor(0x00ff00)
+      .setFooter({ text: 'SoTeen Studio • Reports' })
+      .setTimestamp();
 
     try {
       await interaction.reply({
@@ -145,7 +147,7 @@ export class ReportCommand extends Subcommand {
       try {
         const response = {
           content:
-            'Your report was delivered, but the confirmation could not be displayed.',
+            '⚠️ Your report was delivered, but the confirmation could not be displayed.',
           flags: MessageFlags.Ephemeral,
         } as const;
         if (interaction.replied || interaction.deferred) {

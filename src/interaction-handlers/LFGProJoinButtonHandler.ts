@@ -144,13 +144,13 @@ export class LFGProJoinButtonHandler extends InteractionHandler {
         .setCustomId(
           `lfg_pro_accept_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
         )
-        .setLabel('Accept Request')
+        .setLabel('✅ Accept Request')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(
           `lfg_pro_decline_${interaction.user.id}_${session.channelId}_${session.messageId}_${hostId}`,
         )
-        .setLabel('Decline Request')
+        .setLabel('❌ Decline Request')
         .setStyle(ButtonStyle.Danger),
     );
 

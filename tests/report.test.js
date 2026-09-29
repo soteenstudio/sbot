@@ -57,7 +57,7 @@ test('a delivered report has an ephemeral confirmation embed and a pending staff
     assert.match(staff.embeds[0].data.fields.at(-1).value, /Awaiting staff review/);
     assert.equal(staff.embeds[0].data.footer.text, 'Review this report before taking action.');
     assert.equal(staff.components[0].components[0].data.custom_id, 'report_done_reporter');
-    assert.equal(staff.components[0].components[0].data.label, 'Mark as Resolved');
+    assert.equal(staff.components[0].components[0].data.label, '✅ Mark as Resolved');
     assert.equal(staff.components[0].components[0].data.style, 3);
     const confirmation = events[1][1];
     assert.equal(confirmation.flags, MessageFlags.Ephemeral);

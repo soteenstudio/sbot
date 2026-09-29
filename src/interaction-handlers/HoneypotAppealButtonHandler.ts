@@ -73,7 +73,11 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
       await interaction.deferUpdate();
 
       try {
-        if (!guildId) return;
+        if (!guildId)
+          return interaction.followUp({
+            content: '❌ This appeal is no longer available in this server.',
+            flags: MessageFlags.Ephemeral,
+          });
         const reviewed = await updateHoneypotRecord(
           guildId,
           targetUserId,
@@ -112,7 +116,11 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
             ];
           },
         );
-        if (!reviewed) return;
+        if (!reviewed)
+          return interaction.followUp({
+            content: 'ℹ️ This appeal has already been reviewed.',
+            flags: MessageFlags.Ephemeral,
+          });
         const user = await interaction.client.users
           .fetch(targetUserId)
           .catch(() => null);
@@ -124,12 +132,12 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
         const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(`report_done_${targetUserId}`)
-            .setLabel('Mark as Resolved')
+            .setLabel('✅ Mark as Resolved')
             .setStyle(ButtonStyle.Success)
             .setDisabled(true),
           new ButtonBuilder()
             .setCustomId(`report_ban_${targetUserId}`)
-            .setLabel('Reject & Ban')
+            .setLabel('❌ Reject & Ban')
             .setStyle(ButtonStyle.Danger)
             .setDisabled(true),
         );
@@ -184,6 +192,12 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
           '[Honeypot Appeal Handler] Failed to process staff action:',
           err,
         );
+        await interaction
+          .followUp({
+            content: '❌ Could not review this appeal. Please try again.',
+            flags: MessageFlags.Ephemeral,
+          })
+          .catch(console.error);
       }
       return;
     }
@@ -236,7 +250,7 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
       );
       if (!stored)
         return interaction.reply({
-          content: 'This appeal is no longer available.',
+          content: '❌ This appeal is no longer available.',
           flags: MessageFlags.Ephemeral,
         });
 

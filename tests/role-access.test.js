@@ -15,10 +15,10 @@ import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { Collection } from 'discord.js';
 import { Roles } from '../dist/config.js';
-import { LFGCommand } from '../dist/commands/lfg-pro.js';
-import { activeLFG } from '../dist/lib/lfg-data.js';
+import { LFGCommand } from '../dist/commands/LFGProCommand.js';
+import { activeLFG } from '../dist/lib/lfgData.js';
 import { getLFGSession, restoreLFGSessions } from '../dist/lib/lfgSession.js';
-import { meetsRoleLevel } from '../dist/lib/role-utils.js';
+import { meetsRoleLevel } from '../dist/lib/roleUtils.js';
 
 const billionRoleId = '123456789012345678';
 const richmanRoleId = '234567890123456789';
@@ -47,6 +47,8 @@ test('role level accepts API role IDs and cached guild roles', () => {
 
 function interaction(maxPlayers, roles) {
   let reply;
+  let announcement;
+  let deferred;
   return {
     member: { roles },
     options: {
@@ -59,13 +61,24 @@ function interaction(maxPlayers, roles) {
     },
     user: { id: hostId, tag: 'host#0001', toString: () => '<@host>' },
     channelId: '456789012345678901',
+    channel: {
+      isSendable: () => true,
+      async send(value) {
+        announcement = value;
+        return { id: '567890123456789012', channelId: '456789012345678901' };
+      },
+    },
+    async deferReply(value) { deferred = value; },
+    async editReply(value) { reply = value; return value; },
     async reply(value) {
       reply = value;
-      return { id: '567890123456789012' };
+      return value;
     },
     get lastReply() {
       return reply;
     },
+    get announcement() { return announcement; },
+    get deferred() { return deferred; },
   };
 }
 
@@ -82,7 +95,11 @@ test('lfg-pro stores the game label and allows the default player limit', async 
   await LFGCommand.prototype.create(request);
   assert.equal(activeLFG.get(hostId).game, 'Mobile Legends');
   assert.equal(activeLFG.get(hostId).maxPlayers, 2);
-  assert.match(request.lastReply.embeds[0].data.description, /Mobile Legends/);
+  assert.equal(request.lastReply.content, '✅ Your session is ready.');
+  assert.equal(request.deferred.ephemeral, true);
+  assert.match(request.announcement.embeds[0].data.description, /Mobile Legends/);
+  assert.ok(request.announcement.embeds[0].data.timestamp);
+  assert.equal(request.announcement.components[0].components[0].data.label, '🙋 Request to Join');
   assert.equal((await getLFGSession(hostId)).messageId, '567890123456789012');
   activeLFG.clear();
   await restoreLFGSessions();
@@ -96,6 +113,17 @@ test('lfg-pro lets Richman set the player limit', async () => {
   assert.equal(activeLFG.get(hostId).maxPlayers, 4);
 });
 
+test('lfg-pro keeps announcement failures private', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const request = interaction(null, [billionRoleId]);
+  request.channel.send = async () => { throw new Error('missing permissions'); };
+  await LFGCommand.prototype.create(request);
+  assert.equal(request.deferred.ephemeral, true);
+  assert.match(request.lastReply.content, /Could not announce/);
+  assert.equal(activeLFG.has(hostId), false);
+  assert.equal(await getLFGSession(hostId), null);
+});
+
 test('lfg-pro list reads persisted sessions after memory is cleared', async () => {
   await LFGCommand.prototype.create(interaction(null, [billionRoleId]));
   activeLFG.clear();
@@ -104,4 +132,5 @@ test('lfg-pro list reads persisted sessions after memory is cleared', async () =
   });
   assert.match(reply.embeds[0].data.description, /Mobile Legends/);
   assert.match(reply.embeds[0].data.description, /host#0001/);
+  assert.equal(reply.ephemeral, true);
 });

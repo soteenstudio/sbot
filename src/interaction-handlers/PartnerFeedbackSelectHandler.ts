@@ -69,7 +69,7 @@ export class PartnerFeedbackSelectHandler extends InteractionHandler {
 
       const cultureInput = new TextInputBuilder()
         .setCustomId('char_culture_input')
-        .setLabel('Region')
+        .setLabel('Culture')
         .setStyle(TextInputStyle.Short)
         .setPlaceholder('e.g., ----')
         .setRequired(true)

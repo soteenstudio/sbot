@@ -93,6 +93,8 @@ function voiceChannel(id = '456789012345678901', humans = 0) {
 async function createParty(maxPlayersOption = null) {
   const channel = voiceChannel();
   let reply;
+  let announcement;
+  let deferred;
   const guild = {
     id: guildId,
     channels: {
@@ -112,9 +114,13 @@ async function createParty(maxPlayersOption = null) {
         getInteger: () => maxPlayersOption,
       },
       guild,
+      channel: {
+        isSendable: () => true,
+        async send(value) { announcement = value; },
+      },
       member: { roles: [richmanRoleId] },
       user: { id: hostId, username: 'host' },
-      async deferReply() {},
+      async deferReply(value) { deferred = value; },
       async editReply(value) {
         reply = value;
       },
@@ -122,7 +128,9 @@ async function createParty(maxPlayersOption = null) {
   );
   assert.deepEqual(activeParties.get(channel.id), party);
   assert.equal(channel.deletes, 0);
-  return { channel, reply };
+  assert.equal(deferred.ephemeral, true);
+  assert.match(reply.content, /ready/);
+  return { channel, reply: announcement };
 }
 
 test('party rejects a player limit override from a lower role', async () => {
@@ -190,6 +198,8 @@ test('party list shows the game, host, and voice channel', async () => {
   assert.match(description, /Minecraft/);
   assert.ok(description.includes(`<@${hostId}>`));
   assert.ok(description.includes(`<#${channel.id}>`));
+  assert.equal(reply.ephemeral, true);
+  assert.ok(reply.embeds[0].data.timestamp);
 });
 
 test('party create rejects a second active party from the same host', async (t) => {
@@ -202,6 +212,7 @@ test('party create rejects a second active party from the same host', async (t) 
       getInteger: () => null,
     },
     guild: { id: guildId, channels: { create } },
+    channel: { isSendable: () => true, send: async () => {} },
     member: { roles: [richmanRoleId] },
     user: { id: hostId },
     async deferReply() {},
@@ -219,6 +230,17 @@ test('party create rejects a second active party from the same host', async (t) 
   assert.equal(create.mock.callCount(), 1);
   assert.match(replies[1].content, /already have an active party/);
   assert.equal(replies[1].ephemeral, true);
+});
+
+test('party keeps announcement failures private after creating the voice channel', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const voice = voiceChannel();
+  const request = creationInteraction(voice);
+  request.channel.send = async () => { throw new Error('missing permissions'); };
+  request.editReply = async (value) => value;
+  const response = await PartyCommand.prototype.create.call({}, request);
+  assert.match(response.content, /could not announce it here/);
+  assert.deepEqual(activeParties.get(voice.id), party);
 });
 
 for (const [maxPlayersOption, label] of [
@@ -338,6 +360,7 @@ function creationInteraction(channel) {
       getInteger: () => null,
     },
     guild: { id: guildId, channels: { create: async () => channel } },
+    channel: { isSendable: () => true, send: async () => {} },
     user: { id: hostId },
     async deferReply() {},
     async editReply() {},

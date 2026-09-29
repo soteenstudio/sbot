@@ -33,6 +33,8 @@ import {
   saveLFGSession,
 } from '../lib/lfgSession.js';
 
+const pendingCreations = new Set<string>();
+
 export class LFGCommand extends Subcommand {
   public constructor(
     context: Subcommand.LoaderContext,
@@ -129,10 +131,13 @@ export class LFGCommand extends Subcommand {
   }
 
   public async create(interaction: ChatInputCommandInteraction) {
-    if (activeLFG.has(interaction.user.id)) {
+    if (
+      activeLFG.has(interaction.user.id) ||
+      pendingCreations.has(interaction.user.id)
+    ) {
       return interaction.reply({
         content:
-          '❌ You already have an active session. Close it before creating another.',
+          '❌ You already have an active session or one being created. Wait for creation to finish or close it with `/lfg-pro close`.',
         ephemeral: true,
       });
     }
@@ -159,60 +164,72 @@ export class LFGCommand extends Subcommand {
         `**Host:** ${interaction.user}\n**Game:** ${game}\n**Required rank:** ${rank}\n**Players:** 1/${maxPlayers}`,
       )
       .setColor(0x00ff9d)
-      .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) });
+      .setFooter({ text: 'Session ID: ' + interaction.user.id.slice(-4) })
+      .setTimestamp();
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`lfg_pro_join_${interaction.user.id}`)
-        .setLabel('Request to Join')
+        .setLabel('🙋 Request to Join')
         .setStyle(ButtonStyle.Success),
     );
 
-    const response = await interaction.reply({
-      embeds: [embed],
-      components: [row],
-      fetchReply: true,
-    });
-
-    const session: ActiveLFGSession = {
-      game,
-      rank,
-      maxPlayers,
-      author: interaction.user.tag,
-      authorId: interaction.user.id,
-      channelId: interaction.channelId!,
-      messageId: response.id,
-      vcId: '',
-      participantIds: new Set(),
-      kickedIds: new Set(),
-    };
-
-    if (activeLFG.has(interaction.user.id)) {
-      await interaction.editReply({
-        content:
-          '❌ You already have an active session. Close it before creating another.',
-        embeds: [],
-        components: [],
-      });
-      return;
-    }
-    activeLFG.set(interaction.user.id, session);
-    pendingLFGInitialSaves.add(session);
+    pendingCreations.add(interaction.user.id);
     try {
-      await saveLFGSession(session);
-    } catch (error) {
-      console.error('Could not save LFG session:', error);
-      if (activeLFG.get(interaction.user.id) === session)
-        activeLFG.delete(interaction.user.id);
-      pendingLFGInitialSaves.delete(session);
-      await interaction.editReply({
-        content: '❌ Could not create the session. Please try again.',
-        embeds: [],
-        components: [],
+      await interaction.deferReply({ ephemeral: true });
+      if (!interaction.channel?.isSendable())
+        throw new Error('LFG announcement channel is unavailable.');
+
+      const announcement = await interaction.channel.send({
+        embeds: [embed],
+        components: [row],
       });
-      return;
+      const session: ActiveLFGSession = {
+        game,
+        rank,
+        maxPlayers,
+        author: interaction.user.tag,
+        authorId: interaction.user.id,
+        channelId: announcement.channelId,
+        messageId: announcement.id,
+        vcId: '',
+        participantIds: new Set(),
+        kickedIds: new Set(),
+      };
+
+      activeLFG.set(interaction.user.id, session);
+      pendingLFGInitialSaves.add(session);
+      try {
+        await saveLFGSession(session);
+      } catch (error) {
+        console.error('Could not save LFG session:', error);
+        if (activeLFG.get(interaction.user.id) === session)
+          activeLFG.delete(interaction.user.id);
+        try {
+          await announcement.delete();
+        } catch (cleanupError) {
+          console.error(
+            'Could not remove failed LFG announcement:',
+            cleanupError,
+          );
+          await announcement.edit({ components: [] }).catch(console.error);
+        }
+        return interaction.editReply({
+          content: '❌ Could not create the session. Please try again.',
+        });
+      } finally {
+        pendingLFGInitialSaves.delete(session);
+      }
+      return interaction.editReply({ content: '✅ Your session is ready.' });
+    } catch (error) {
+      console.error('Could not announce LFG session:', error);
+      return interaction.editReply({
+        content:
+          '❌ Could not announce the session here. Check that I can post in this channel, then try again.',
+      });
+    } finally {
+      pendingCreations.delete(interaction.user.id);
     }
-    pendingLFGInitialSaves.delete(session);
   }
 
   public async close(interaction: ChatInputCommandInteraction) {
@@ -366,7 +383,7 @@ export class LFGCommand extends Subcommand {
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
               new ButtonBuilder()
                 .setCustomId(`lfg_pro_join_${interaction.user.id}`)
-                .setLabel('Request to Join')
+                .setLabel('🙋 Request to Join')
                 .setStyle(ButtonStyle.Success),
             );
             await message.edit({
@@ -397,7 +414,7 @@ export class LFGCommand extends Subcommand {
     const sessions = await getAllLFGSessions();
     if (sessions.length === 0) {
       return interaction.reply({
-        content: 'No premium sessions are currently active.',
+        content: 'ℹ️ No premium sessions are currently active.',
         ephemeral: true,
       });
     }
@@ -418,10 +435,14 @@ export class LFGCommand extends Subcommand {
         ? `\n${omitted} more ${omitted === 1 ? 'session' : 'sessions'} not shown.`
         : '');
     const embed = new EmbedBuilder()
-      .setTitle('Active Premium Sessions')
+      .setTitle('🎮 Active Premium Sessions')
       .setDescription(list)
-      .setColor(0x2f3136);
+      .setColor(0x5865f2)
+      .setFooter({
+        text: `${sessions.length} active session${sessions.length === 1 ? '' : 's'}`,
+      })
+      .setTimestamp();
 
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }

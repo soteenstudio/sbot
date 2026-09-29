@@ -17,10 +17,10 @@ import { randomUUID } from 'node:crypto';
 import { SapphireClient } from '@sapphire/framework';
 import { ChannelType, MessageFlags } from 'discord.js';
 import { GatewayIntentBits } from 'discord.js';
-import { HoneypotListener, pendingHoneypotBans, restoreHoneypotBans, scheduleHoneypotBan } from '../dist/listeners/honeypot.js';
-import { HoneypotSetupListener } from '../dist/listeners/honeypotSetup.js';
-import { HoneypotAppealHandler } from '../dist/interaction-handlers/honeypotAppeal.js';
-import { HoneypotAppealButtonHandler } from '../dist/interaction-handlers/honeypotAppealButton.js';
+import { HoneypotListener, pendingHoneypotBans, restoreHoneypotBans, scheduleHoneypotBan } from '../dist/listeners/HoneypotListener.js';
+import { HoneypotSetupListener } from '../dist/listeners/HoneypotSetupListener.js';
+import { HoneypotAppealHandler } from '../dist/interaction-handlers/HoneypotAppealHandler.js';
+import { HoneypotAppealButtonHandler } from '../dist/interaction-handlers/HoneypotAppealButtonHandler.js';
 import { getAllHoneypotRecords, getHoneypotRecord, updateHoneypotRecord } from '../dist/lib/honeypotStore.js';
 import { HONEYPOT_APPEAL_TITLE, LEGACY_HONEYPOT_APPEAL_TITLE } from '../dist/lib/honeypotAppeal.js';
 import { Roles } from '../dist/config.js';
@@ -243,10 +243,12 @@ test('completed staff review remains completed after restart and duplicate click
   try {
     let approvals = 0;
     const edits = [];
+    const followUps = [];
     const botClient = client(async () => {});
     botClient.guilds.fetch = async () => ({ members: { async fetch() { return { async timeout() { approvals++; }, roles: { async add() {} } }; } } });
     const interaction = { customId: 'report_done_user', guildId: 'guild', member: { roles: ['deputy'] }, user: { id: 'staff', tag: 'Staff' }, client: botClient,
-      message: { embeds: [{ title: HONEYPOT_APPEAL_TITLE }], async edit(value) { edits.push(value); } }, async deferUpdate() {} };
+      message: { embeds: [{ title: HONEYPOT_APPEAL_TITLE }], async edit(value) { edits.push(value); } }, async deferUpdate() {},
+      async followUp(value) { followUps.push(value); } };
     await HoneypotAppealButtonHandler.prototype.run(interaction);
     assert.equal(approvals, 1);
     assert.equal((await getHoneypotRecord('guild', 'user')).status, 'approved');
@@ -254,6 +256,8 @@ test('completed staff review remains completed after restart and duplicate click
     await HoneypotAppealButtonHandler.prototype.run(interaction);
     assert.equal(approvals, 1);
     assert.equal(edits.length, 1);
+    assert.match(followUps[0].content, /already been reviewed/);
+    assert.equal(followUps[0].flags, MessageFlags.Ephemeral);
   } finally { Roles.DEPUTY.id = deputyId; }
 });
 
@@ -273,8 +277,8 @@ test('Sapphire loads both appeal interaction handlers', async (t) => {
   sapphire.stores.registerPath(sapphire.options.baseUserDirectory);
   await sapphire.stores.get('interaction-handlers').loadAll();
   const handlers = sapphire.stores.get('interaction-handlers');
-  assert.ok(handlers.get('honeypotAppeal'));
-  assert.ok(handlers.get('honeypotAppealButton'));
+  assert.ok(handlers.get('HoneypotAppealHandler'));
+  assert.ok(handlers.get('HoneypotAppealButtonHandler'));
 });
 
 test('unauthorized staff cannot review an appeal', async () => {
@@ -301,6 +305,7 @@ test('rejected staff review persists and cannot ban twice', async () => {
       client: client(async () => { bans++; }),
       message: { embeds: [{ title: HONEYPOT_APPEAL_TITLE }], async edit() {} },
       async deferUpdate() {},
+      async followUp() {},
     };
     await HoneypotAppealButtonHandler.prototype.run(interaction);
     await HoneypotAppealButtonHandler.prototype.run(interaction);
