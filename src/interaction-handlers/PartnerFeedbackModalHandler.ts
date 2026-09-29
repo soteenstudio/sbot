@@ -73,6 +73,8 @@ export class PartnerFeedbackModalHandler extends InteractionHandler {
           name: 'Submitted by',
           value: `${interaction.user.tag} (${interaction.user.id})`,
         })
+        .setColor(0x5865f2)
+        .setFooter({ text: 'Review this feedback before taking action.' })
         .setTimestamp();
       await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
     } catch (error) {

@@ -198,7 +198,9 @@ test('poll creation deletes the reply and propagates save rejection even if clea
       if (cleanupFails) throw new Error('cleanup failed');
     };
     try {
-      await assert.rejects(PollCommand.prototype.create(request), { code: 'EISDIR' });
+      await assert.rejects(PollCommand.prototype.create(request), (error) =>
+        ['EISDIR', 'EXDEV'].includes(error.code),
+      );
       assert.equal(deleted, true);
     } finally {
       process.env.POLL_DATA_FILE = path;

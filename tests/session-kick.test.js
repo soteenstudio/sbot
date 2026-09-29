@@ -14,13 +14,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { ButtonStyle, ChannelType, ComponentType, EmbedBuilder, PermissionOverwrites, PermissionsBitField } from 'discord.js';
-import { PartyCommand } from '../dist/commands/party.js';
-import { LFGCommand } from '../dist/commands/lfg-pro.js';
-import { RequestHandler } from '../dist/interaction-handlers/LFGRequestHandler.js';
-import { EndSessionHandler } from '../dist/interaction-handlers/LFGEndSession.js';
-import { JoinButtonHandler } from '../dist/interaction-handlers/LFGJoin.js';
-import { activeParties } from '../dist/lib/party-data.js';
-import { activeLFG, declineCooldownRemaining, formatLFGCooldown, pendingLFGInitialSaves, pendingRequestCooldownRemaining } from '../dist/lib/lfg-data.js';
+import { PartyCommand } from '../dist/commands/PartyCommand.js';
+import { LFGCommand } from '../dist/commands/LFGProCommand.js';
+import { LFGProRequestHandler as RequestHandler } from '../dist/interaction-handlers/LFGProRequestHandler.js';
+import { LFGProEndSessionHandler as EndSessionHandler } from '../dist/interaction-handlers/LFGProEndSession.js';
+import { LFGProJoinButtonHandler as JoinButtonHandler } from '../dist/interaction-handlers/LFGProJoinButtonHandler.js';
+import { activeParties } from '../dist/lib/partyData.js';
+import { activeLFG, declineCooldownRemaining, formatLFGCooldown, pendingLFGInitialSaves, pendingRequestCooldownRemaining } from '../dist/lib/lfgData.js';
 import {
   getLFGSession,
   restoreLFGSessions,
@@ -1020,7 +1020,9 @@ test('creation registers before saving and blocks joins until persistence comple
   const interaction = {
     user: { id: hostId, tag: 'host' }, channelId: originId,
     options: { getString: () => 'game', getInteger: () => null },
-    reply: async () => ({ id: 'pending-message' }),
+    channel: { isSendable: () => true, send: async () => ({ id: 'pending-message', channelId: originId }) },
+    deferReply: async () => {}, editReply: async (value) => value,
+    reply: async (value) => value,
   };
   const creation = LFGCommand.prototype.create(interaction);
   try {
@@ -1051,17 +1053,19 @@ test('creation registers before saving and blocks joins until persistence comple
   assert.ok(await getLFGSession(hostId));
 });
 
-test('failed initial save removes only its own cached session and disables its announcement', async (t) => {
+test('failed initial save removes only its own cached session and deletes its announcement', async (t) => {
   t.mock.method(console, 'error', () => {});
   const dataPath = process.env.LFG_DATA_FILE;
   const lockPath = `${dataPath}.lock`;
   await mkdir(lockPath);
   await writeFile(join(lockPath, 'held'), '');
   let edited;
+  let deleted = false;
   const creation = LFGCommand.prototype.create({
     user: { id: hostId, tag: 'host' }, channelId: originId,
     options: { getString: () => 'game', getInteger: () => null },
-    reply: async () => ({ id: 'failed-message' }),
+    channel: { isSendable: () => true, send: async () => ({ id: 'failed-message', channelId: originId, delete: async () => { deleted = true; } }) },
+    deferReply: async () => {},
     editReply: async (value) => { edited = value; },
   });
   try {
@@ -1078,30 +1082,34 @@ test('failed initial save removes only its own cached session and disables its a
     assert.equal(activeLFG.get(hostId), newer);
     assert.equal(pendingLFGInitialSaves.has(pending), false);
     assert.match(edited.content, /Could not create/);
-    assert.deepEqual(edited.components, []);
-    assert.deepEqual(edited.embeds, []);
+    assert.equal(deleted, true);
+    assert.equal(edited.components, undefined);
+    assert.equal(edited.embeds, undefined);
   } finally {
     await rm(lockPath, { recursive: true, force: true });
     await rm(dataPath, { recursive: true, force: true });
   }
 });
 
-test('LFG creation removes join controls on save failure and registers saved sessions', async (t) => {
+test('LFG creation deletes failed announcements and registers saved sessions', async (t) => {
   t.mock.method(console, 'error', () => {});
   const path = process.env.LFG_DATA_FILE;
   let edited;
+  let deleted = false;
   const interaction = {
     user: { id: hostId, tag: 'host' }, channelId: originId,
     options: { getString: () => 'game', getInteger: () => null },
-    reply: async () => ({ id: 'message' }),
+    channel: { isSendable: () => true, send: async () => ({ id: 'message', channelId: originId, delete: async () => { deleted = true; } }) },
+    deferReply: async () => {},
     editReply: async (value) => { edited = value; },
   };
   try {
     process.env.LFG_DATA_FILE = storageDirectory;
     await LFGCommand.prototype.create(interaction);
     assert.match(edited.content, /Could not create/);
-    assert.deepEqual(edited.components, []);
-    assert.deepEqual(edited.embeds, []);
+    assert.equal(deleted, true);
+    assert.equal(edited.components, undefined);
+    assert.equal(edited.embeds, undefined);
     assert.equal(activeLFG.has(hostId), false);
   } finally { process.env.LFG_DATA_FILE = path; }
   await LFGCommand.prototype.create(interaction);

@@ -156,7 +156,7 @@ export class PartyCommand extends Subcommand {
 
     pendingCreations.add(hostId);
     try {
-      await interaction.deferReply();
+      await interaction.deferReply({ ephemeral: true });
       const guild = interaction.guild;
       let channel;
       try {
@@ -202,12 +202,27 @@ export class PartyCommand extends Subcommand {
             inline: true,
           },
           { name: 'Voice channel', value: channel.toString() },
-        );
+        )
+        .setFooter({ text: 'SoTeen Studio • Party' })
+        .setTimestamp();
 
-      return await interaction.editReply({
-        content: `<@&${game.roleId}>`,
-        embeds: [embed],
-        allowedMentions: { roles: [game.roleId] },
+      try {
+        if (!interaction.channel?.isSendable())
+          throw new Error('Party announcement channel is unavailable.');
+        await interaction.channel.send({
+          content: `<@&${game.roleId}>`,
+          embeds: [embed],
+          allowedMentions: { roles: [game.roleId] },
+        });
+      } catch (error) {
+        console.error('Could not announce party channel:', error);
+        return interaction.editReply({
+          content: `⚠️ Your party voice channel ${channel.toString()} is ready, but I could not announce it here. Share the channel with your group.`,
+        });
+      }
+
+      return interaction.editReply({
+        content: `✅ Your party voice channel ${channel.toString()} is ready.`,
       });
     } finally {
       pendingCreations.delete(hostId);
@@ -308,7 +323,7 @@ export class PartyCommand extends Subcommand {
   public async list(interaction: Subcommand.ChatInputCommandInteraction) {
     if (activeParties.size === 0) {
       return interaction.reply({
-        content: 'No party voice channels are currently active.',
+        content: 'ℹ️ No party voice channels are currently active.',
         ephemeral: true,
       });
     }
@@ -329,10 +344,14 @@ export class PartyCommand extends Subcommand {
         ? `\n${omitted} more ${omitted === 1 ? 'party' : 'parties'} not shown.`
         : '');
     const embed = new EmbedBuilder()
-      .setTitle('Active Party Voice Channels')
+      .setTitle('🎮 Active Party Voice Channels')
       .setDescription(list)
-      .setColor(0x2f3136);
+      .setColor(0x5865f2)
+      .setFooter({
+        text: `${activeParties.size} active ${activeParties.size === 1 ? 'party' : 'parties'}`,
+      })
+      .setTimestamp();
 
-    return interaction.reply({ embeds: [embed] });
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 }

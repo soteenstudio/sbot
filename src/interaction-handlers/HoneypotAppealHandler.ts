@@ -130,11 +130,11 @@ export class HoneypotAppealHandler extends InteractionHandler {
           const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
               .setCustomId(`report_done_${targetUserId}`)
-              .setLabel('Approve Appeal')
+              .setLabel('✅ Approve Appeal')
               .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
               .setCustomId(`report_ban_${targetUserId}`)
-              .setLabel('Reject and Ban')
+              .setLabel('❌ Reject and Ban')
               .setStyle(ButtonStyle.Danger),
           );
           await reportChannel.send({ embeds: [embed], components: [row] });
@@ -153,7 +153,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
         await interaction.editReply({
           content:
             outcome === 'handled'
-              ? 'Your appeal has already been submitted or reviewed.'
+              ? 'ℹ️ Your appeal has already been submitted or reviewed.'
               : outcome === 'early'
                 ? '❌ Verification failed. Please wait a moment before submitting your appeal.'
                 : outcome === 'invalid'
@@ -173,7 +173,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
             new ActionRowBuilder<ButtonBuilder>().addComponents(
               new ButtonBuilder()
                 .setCustomId(`honeypot_appeal_${targetUserId}_${targetGuildId}`)
-                .setLabel('Appeal Submitted')
+                .setLabel('✅ Appeal Submitted')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(true),
             );
@@ -200,7 +200,7 @@ export class HoneypotAppealHandler extends InteractionHandler {
       console.error(`[Honeypot Appeal Handler] Failed at ${step}:`, error);
       const response = {
         content: submitted
-          ? 'Your appeal was submitted, but the confirmation could not be displayed.'
+          ? '⚠️ Your appeal was submitted, but the confirmation could not be displayed.'
           : '❌ Your appeal could not be sent. Please contact a server administrator.',
       };
       try {
