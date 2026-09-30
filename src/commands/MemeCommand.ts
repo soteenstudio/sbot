@@ -9,9 +9,16 @@
  */
 
 import { Subcommand } from '@sapphire/plugin-subcommands';
-import { EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
+import {
+  EmbedBuilder,
+  ChatInputCommandInteraction,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from 'discord.js';
 import axios from 'axios';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
+import { memeHistory, MemeData } from '../lib/memeStorage.js';
 
 export class MemeCommand extends Subcommand {
   public constructor(
@@ -54,11 +61,20 @@ export class MemeCommand extends Subcommand {
   ) {
     await interaction.deferReply();
     try {
+      const targetSub = subreddit || 'random';
       const url = subreddit
         ? `https://meme-api.com/gimme/${subreddit}`
         : 'https://meme-api.com/gimme';
       const response = await axios.get(url, { timeout: 10000 });
       const { title, url: imageUrl, postLink, author } = response.data;
+
+      const memeInfo: MemeData = {
+        title,
+        imageUrl,
+        postLink,
+        author,
+        subreddit: targetSub,
+      };
 
       const embed = new EmbedBuilder()
         .setTitle(`😂 ${title}`)
@@ -66,11 +82,36 @@ export class MemeCommand extends Subcommand {
         .setImage(imageUrl)
         .setColor(EMBED_COLORS.SUCCESS)
         .setFooter({
-          text: `Subreddit: r/${subreddit || 'random'} | u/${author}`,
+          text: `Subreddit: r/${targetSub} | u/${author}`,
         })
         .setTimestamp();
 
-      return interaction.editReply({ embeds: [embed] });
+      const replyMessage = await interaction.editReply({ embeds: [embed] });
+      const messageId = replyMessage.id;
+
+      const historyList = [memeInfo];
+      memeHistory.set(messageId, { history: historyList, currentIndex: 0 });
+
+      if (memeHistory.size > 100) {
+        const firstKey = memeHistory.keys().next().value;
+        if (firstKey) memeHistory.delete(firstKey);
+      }
+
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`meme_prev_${messageId}`)
+          .setLabel('Previous')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji('⬅️')
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId(`meme_next_${messageId}`)
+          .setLabel('Next')
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji('➡️'),
+      );
+
+      return interaction.editReply({ embeds: [embed], components: [row] });
     } catch (error) {
       console.error('Could not fetch a meme:', error);
       return interaction.editReply({
