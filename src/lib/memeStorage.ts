@@ -32,7 +32,7 @@ let storageQueue: Promise<void> = Promise.resolve();
 
 function enqueue<T>(operation: () => Promise<T>): Promise<T> {
   const result = storageQueue.then(operation);
-  // A failed operation must not block subsequent storage requests.
+
   storageQueue = result.then(
     () => {},
     () => {},
