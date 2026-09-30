@@ -25,7 +25,7 @@ export interface MemeSession {
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DATA_FILE = path.join(DATA_DIR, 'meme_sessions.json');
+const DATA_FILE = path.join(DATA_DIR, 'meme-sessions.json');
 
 async function ensureDataFile(): Promise<void> {
   try {

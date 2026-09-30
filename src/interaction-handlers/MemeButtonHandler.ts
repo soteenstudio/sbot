@@ -21,7 +21,7 @@ import {
 } from 'discord.js';
 import axios from 'axios';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
-import { memeHistory } from '../lib/memeStorage.js';
+import { memeHistory, cleanupMemeHistory } from '../lib/memeStorage.js';
 
 export class MemeButtonHandler extends InteractionHandler {
   public constructor(
@@ -48,6 +48,34 @@ export class MemeButtonHandler extends InteractionHandler {
     interaction: ButtonInteraction,
     parsed: { action: string; messageId: string },
   ) {
+    if (parsed.action === 'close') {
+      await cleanupMemeHistory(parsed.messageId);
+
+      const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`meme_prev_${parsed.messageId}`)
+          .setLabel('Previous')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji('⬅️')
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId(`meme_next_${parsed.messageId}`)
+          .setLabel('Next')
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji('➡️')
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId(`meme_close_${parsed.messageId}`)
+          .setLabel('Close')
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji('🔒')
+          .setDisabled(true),
+      );
+
+      await interaction.update({ components: [disabledRow] });
+      return;
+    }
+
     await interaction.deferUpdate();
 
     const session = await memeHistory.get(parsed.messageId);
@@ -123,6 +151,11 @@ export class MemeButtonHandler extends InteractionHandler {
           .setLabel('Next')
           .setStyle(ButtonStyle.Primary)
           .setEmoji('➡️'),
+        new ButtonBuilder()
+          .setCustomId(`meme_close_${parsed.messageId}`)
+          .setLabel('Close')
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji('🔒'),
       );
 
       await interaction.editReply({ embeds: [embed], components: [row] });

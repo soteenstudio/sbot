@@ -107,6 +107,11 @@ export class MemeCommand extends Subcommand {
           .setLabel('Next')
           .setStyle(ButtonStyle.Primary)
           .setEmoji('➡️'),
+        new ButtonBuilder()
+          .setCustomId(`meme_close_${messageId}`)
+          .setLabel('Close')
+          .setStyle(ButtonStyle.Danger)
+          .setEmoji('🔒'),
       );
 
       return interaction.editReply({ embeds: [embed], components: [row] });
