@@ -90,12 +90,10 @@ export class MemeCommand extends Subcommand {
       const messageId = replyMessage.id;
 
       const historyList = [memeInfo];
-      memeHistory.set(messageId, { history: historyList, currentIndex: 0 });
-
-      if (memeHistory.size > 100) {
-        const firstKey = memeHistory.keys().next().value;
-        if (firstKey) memeHistory.delete(firstKey);
-      }
+      await memeHistory.set(messageId, {
+        history: historyList,
+        currentIndex: 0,
+      });
 
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()

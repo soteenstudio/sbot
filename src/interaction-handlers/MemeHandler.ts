@@ -50,7 +50,7 @@ export class MemeButtonHandler extends InteractionHandler {
   ) {
     await interaction.deferUpdate();
 
-    const session = memeHistory.get(parsed.messageId);
+    const session = await memeHistory.get(parsed.messageId);
     if (!session) {
       await interaction.followUp({
         content:
@@ -98,6 +98,8 @@ export class MemeButtonHandler extends InteractionHandler {
           }
         }
       }
+
+      await memeHistory.set(parsed.messageId, session);
 
       const embed = new EmbedBuilder()
         .setTitle(`😂 ${targetMeme.title}`)
