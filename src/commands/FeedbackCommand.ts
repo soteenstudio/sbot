@@ -117,15 +117,16 @@ export class FeedbackCommand extends Subcommand {
         .setStyle(ButtonStyle.Success),
     );
 
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     try {
       await feedbackChannel.send({ embeds: [embed], components: [row] });
     } catch (error) {
       console.error('Failed to send feedback to channel:', error);
 
-      await interaction.reply({
+      await interaction.editReply({
         content:
           '❌ Your feedback could not be delivered. Please try again later.',
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -140,23 +141,17 @@ export class FeedbackCommand extends Subcommand {
       .setTimestamp();
 
     try {
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [confirmation],
-        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       console.error('Failed to confirm delivered feedback:', error);
       try {
-        const response = {
+        await interaction.editReply({
           content:
             'Your feedback was delivered, but the confirmation could not be displayed.',
-          flags: MessageFlags.Ephemeral,
-        } as const;
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(response);
-        } else {
-          await interaction.reply(response);
-        }
+          embeds: [],
+        });
       } catch (responseError) {
         console.error(
           'Failed to respond after feedback confirmation error:',
