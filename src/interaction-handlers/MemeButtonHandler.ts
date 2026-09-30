@@ -48,6 +48,25 @@ export class MemeButtonHandler extends InteractionHandler {
     interaction: ButtonInteraction,
     parsed: { action: string; messageId: string },
   ) {
+    const session = await memeHistory.get(parsed.messageId);
+    if (!session) {
+      await interaction.reply({
+        content:
+          '❌ This meme session has expired or the data was cleared from memory.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (interaction.user.id !== session.userId) {
+      await interaction.reply({
+        content:
+          '❌ Only the user who requested this meme can use these buttons.',
+        ephemeral: true,
+      });
+      return;
+    }
+
     if (parsed.action === 'close') {
       await cleanupMemeHistory(parsed.messageId);
 
@@ -77,16 +96,6 @@ export class MemeButtonHandler extends InteractionHandler {
     }
 
     await interaction.deferUpdate();
-
-    const session = await memeHistory.get(parsed.messageId);
-    if (!session) {
-      await interaction.followUp({
-        content:
-          '❌ This meme session has expired or the data was cleared from memory.',
-        ephemeral: true,
-      });
-      return;
-    }
 
     try {
       let targetMeme;

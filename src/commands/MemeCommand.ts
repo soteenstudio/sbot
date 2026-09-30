@@ -91,6 +91,7 @@ export class MemeCommand extends Subcommand {
 
       const historyList = [memeInfo];
       await memeHistory.set(messageId, {
+        userId: interaction.user.id,
         history: historyList,
         currentIndex: 0,
       });

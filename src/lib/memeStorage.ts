@@ -9,6 +9,7 @@
  */
 
 import fs from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 export interface MemeData {
@@ -20,19 +21,43 @@ export interface MemeData {
 }
 
 export interface MemeSession {
+  userId: string;
   history: MemeData[];
   currentIndex: number;
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'meme-sessions.json');
+let storageQueue: Promise<void> = Promise.resolve();
+
+function enqueue<T>(operation: () => Promise<T>): Promise<T> {
+  const result = storageQueue.then(operation);
+  // A failed operation must not block subsequent storage requests.
+  storageQueue = result.then(
+    () => {},
+    () => {},
+  );
+  return result;
+}
+
+async function replaceStorage(
+  data: Record<string, MemeSession>,
+): Promise<void> {
+  const temporaryFile = `${DATA_FILE}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporaryFile, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.rename(temporaryFile, DATA_FILE);
+  } finally {
+    await fs.rm(temporaryFile, { force: true });
+  }
+}
 
 async function ensureDataFile(): Promise<void> {
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.access(DATA_FILE);
   } catch {
-    await fs.writeFile(DATA_FILE, JSON.stringify({}, null, 2), 'utf-8');
+    await replaceStorage({});
   }
 }
 
@@ -54,41 +79,49 @@ async function writeStorage(data: Record<string, MemeSession>): Promise<void> {
     delete data[keys[0]];
   }
 
-  await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  await replaceStorage(data);
 }
 
 export const memeHistory = {
   async get(messageId: string): Promise<MemeSession | undefined> {
-    const storage = await readStorage();
-    return storage[messageId];
+    return enqueue(async () => {
+      const storage = await readStorage();
+      return storage[messageId];
+    });
   },
 
   async set(messageId: string, session: MemeSession): Promise<void> {
-    const storage = await readStorage();
+    return enqueue(async () => {
+      const storage = await readStorage();
 
-    if (session.history.length > 20) {
-      session.history = session.history.slice(-20);
-      session.currentIndex = Math.min(
-        session.currentIndex,
-        session.history.length - 1,
-      );
-    }
+      if (session.history.length > 20) {
+        session.history = session.history.slice(-20);
+        session.currentIndex = Math.min(
+          session.currentIndex,
+          session.history.length - 1,
+        );
+      }
 
-    storage[messageId] = session;
-    await writeStorage(storage);
+      storage[messageId] = session;
+      await writeStorage(storage);
+    });
   },
 
   async has(messageId: string): Promise<boolean> {
-    const storage = await readStorage();
-    return Boolean(storage[messageId]);
+    return enqueue(async () => {
+      const storage = await readStorage();
+      return Boolean(storage[messageId]);
+    });
   },
 
   async delete(messageId: string): Promise<void> {
-    const storage = await readStorage();
-    if (storage[messageId]) {
-      delete storage[messageId];
-      await writeStorage(storage);
-    }
+    return enqueue(async () => {
+      const storage = await readStorage();
+      if (storage[messageId]) {
+        delete storage[messageId];
+        await writeStorage(storage);
+      }
+    });
   },
 };
 
