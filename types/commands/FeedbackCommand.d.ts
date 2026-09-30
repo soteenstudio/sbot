@@ -9,12 +9,11 @@
  */
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChatInputCommandInteraction } from 'discord.js';
-export declare class PartnerCommand extends Subcommand {
+import 'dotenv/config';
+export declare class FeedbackCommand extends Subcommand {
+    static commandName: string;
+    static commandDescription: string;
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
-    private generateFicEmbed;
-    fic(interaction: ChatInputCommandInteraction): Promise<void>;
-    /** Replace a public "thinking" placeholder with an ephemeral error. */
-    private replyPrivateError;
-    user(interaction: ChatInputCommandInteraction): Promise<import("discord.js").Message<boolean> | undefined>;
+    chatInputRun(interaction: ChatInputCommandInteraction): Promise<void>;
 }

@@ -21,7 +21,8 @@ export function getDiskUsage() {
     const freeSpace = stats.bfree * stats.bsize;
     const usedSpace = totalSpace - freeSpace;
 
-    const formatGB = (bytes) => (bytes / (1024 * 1024 * 1024)).toFixed(2);
+    const formatGB = (bytes: number) =>
+      (bytes / (1024 * 1024 * 1024)).toFixed(2);
 
     return {
       path: targetPath,
@@ -30,16 +31,8 @@ export function getDiskUsage() {
       free: `${formatGB(freeSpace)} GB`,
       percentage: ((usedSpace / totalSpace) * 100).toFixed(1) + '%',
     };
-  } catch (e) {
-    console.error('Gagal ngecek disk space:', e.message);
+  } catch (e: any) {
+    console.error('Failed:', e.message);
     return null;
   }
-}
-
-const disk = getDiskUsage();
-if (disk) {
-  console.log(`--- Disk Space (${disk.path}) ---`);
-  console.log(`Total : ${disk.total}`);
-  console.log(`Terpakai : ${disk.used} (${disk.percentage})`);
-  console.log(`Sisa : ${disk.free}`);
 }

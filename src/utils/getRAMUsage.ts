@@ -15,7 +15,7 @@ export function getRAMUsage() {
   const freeMemory = os.freemem();
   const usedMemory = totalMemory - freeMemory;
 
-  const formatGB = (bytes) => (bytes / (1024 * 1024 * 1024)).toFixed(2);
+  const formatGB = (bytes: number) => (bytes / (1024 * 1024 * 1024)).toFixed(2);
 
   return {
     total: `${formatGB(totalMemory)} GB`,

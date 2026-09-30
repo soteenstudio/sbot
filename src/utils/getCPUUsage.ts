@@ -16,9 +16,7 @@ function getCPUInfo() {
   let totalMs = 0;
 
   for (const cpu of cpus) {
-    for (const type in cpu.times) {
-      totalMs += cpu.times[type];
-    }
+    totalMs += Object.values(cpu.times).reduce((acc, val) => acc + val, 0);
     idleMs += cpu.times.idle;
   }
 
