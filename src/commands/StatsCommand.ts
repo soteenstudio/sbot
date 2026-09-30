@@ -16,6 +16,7 @@ import {
   ActionRowBuilder,
   ChatInputCommandInteraction,
   MessageFlags,
+  PermissionFlagsBits,
   version as djsVersion,
 } from 'discord.js';
 import { createRequire } from 'module';
@@ -64,6 +65,7 @@ export class StatsCommand extends Subcommand {
   public async chatInputRun(interaction: ChatInputCommandInteraction) {
     const { client } = interaction;
     const show = interaction.options.getString('show', false);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const totalSeconds = Math.floor(client.uptime! / 1000);
     const days = Math.floor(totalSeconds / 86400);
@@ -75,7 +77,7 @@ export class StatsCommand extends Subcommand {
     const vpsHours = Math.floor((vpsTotalSeconds % 86400) / 3600);
     const vpsMinutes = Math.floor((vpsTotalSeconds % 3600) / 60);
 
-    const cpuUsage = await getCPUUsage();
+    const cpuUsage = !show || show === 'vps' ? await getCPUUsage() : 'N/A';
     const ramUsage = getRAMUsage();
     const diskUsage = getDiskUsage();
     const loadAvg = getLoadAvg();
@@ -101,12 +103,18 @@ export class StatsCommand extends Subcommand {
     const forumChannelCount = guild.channels.cache.filter(
       (channel) => channel.type === 15,
     ).size;
+    if (!show || show === 'server') {
+      await guild.members.fetch();
+    }
     const botCount = guild.members.cache.filter(
       (member) => member.user.bot,
     ).size;
     const memberCount = guild.memberCount - botCount;
-    const bans = await interaction.guild!.bans.fetch();
-    const totalBans = bans.size;
+    const totalBans =
+      (!show || show === 'server') &&
+      interaction.appPermissions?.has(PermissionFlagsBits.BanMembers)
+        ? (await guild.bans.fetch()).size
+        : 'N/A';
     const activeTimeouts = interaction.guild!.members.cache.filter(
       (member) =>
         member.communicationDisabledUntilTimestamp &&
@@ -141,7 +149,7 @@ export class StatsCommand extends Subcommand {
     };
     const vpsField = {
       name: 'VPS (Hosting)',
-      value: `**Uptime:** ${vpsDays}d ${vpsHours}h ${vpsMinutes}m\n**Operating System:** ${getHumanFriendlyOS()}\n**CPU Usage:** ${cpuUsage}\n**RAM Usage:** ${ramUsage.used}/${ramUsage.total} (${ramUsage.percentage})\n**Disk Space:** ${diskUsage?.used}/${diskUsage?.total} (${diskUsage?.percentage})${loadAvgText}`,
+      value: `**Uptime:** ${vpsDays}d ${vpsHours}h ${vpsMinutes}m\n**Operating System:** ${getHumanFriendlyOS()}\n**CPU Usage:** ${cpuUsage}\n**RAM Usage:** ${ramUsage.used}/${ramUsage.total} (${ramUsage.percentage})\n**Disk Space:** ${diskUsage ? `${diskUsage.used}/${diskUsage.total} (${diskUsage.percentage})` : 'Unavailable'}${loadAvgText}`,
       inline: true,
     };
 
@@ -170,10 +178,9 @@ export class StatsCommand extends Subcommand {
         .setURL('https://github.com/soteenstudio/sbot'),
     );
 
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [embed],
       components: [row],
-      flags: MessageFlags.Ephemeral,
     });
   }
 }

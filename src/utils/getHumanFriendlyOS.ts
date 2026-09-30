@@ -23,8 +23,10 @@ export function getHumanFriendlyOS() {
 
   if (type === 'Darwin') {
     const major = parseInt(release.split('.')[0], 10);
-    const macVersion = major - 9;
-    return `macOS 1${macVersion} (${release})`;
+    if (major < 20) return `macOS 10.${major - 4} (${release})`;
+    if (major <= 24) return `macOS ${major - 9} (${release})`;
+    if (major === 25) return `macOS 26 (${release})`;
+    return `Darwin ${release}`;
   }
 
   if (type === 'Linux') {

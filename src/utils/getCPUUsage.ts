@@ -33,6 +33,11 @@ export function getCPUUsage() {
       const idleDifference = end.idle - start.idle;
       const totalDifference = end.total - start.total;
 
+      if (totalDifference <= 0) {
+        resolve('N/A');
+        return;
+      }
+
       const cpuPercentage = 100 - (100 * idleDifference) / totalDifference;
       resolve(cpuPercentage.toFixed(1) + '%');
     }, 1000);
