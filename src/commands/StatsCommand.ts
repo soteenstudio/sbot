@@ -19,8 +19,10 @@ import {
   version as djsVersion,
 } from 'discord.js';
 import { createRequire } from 'module';
+import os from 'os';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { cleanVersion } from '../utils/cleanVersion.js';
+import { getHumanFriendlyOS } from '../utils/getHumanFriendlyOS.js';
 const require = createRequire(import.meta.url);
 const pkg = require('../../package.json');
 
@@ -53,6 +55,11 @@ export class StatsCommand extends Subcommand {
     const hours = Math.floor((totalSeconds % 86400) / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
 
+    const vpsTotalSeconds = Math.floor(os.uptime());
+    const vpsDays = Math.floor(totalSeconds / 86400);
+    const vpsHours = Math.floor((totalSeconds % 86400) / 3600);
+    const vpsMinutes = Math.floor((totalSeconds % 3600) / 60);
+
     const guild = interaction.guild!;
 
     const memberCount = guild.memberCount;
@@ -74,6 +81,11 @@ export class StatsCommand extends Subcommand {
           value: `**Uptime:** ${days}d ${hours}h ${minutes}m\n**Library:** Discord.js ${djsVersion}\n**Framework:** Sapphire ${cleanVersion(pkg.dependencies['@sapphire/framework'])}\n**Language:** TypeScript ${cleanVersion(pkg.devDependencies['typescript'])}\n**Engine:** SBot Engine ${pkg.version}`,
           inline: true,
         },
+        {
+          name: 'VPS',
+          value: `**Uptime:** ${vpsDays}d ${vpsHours}h ${vpsMinutes}m\n**Operating System:** ${getHumanFriendlyOS()}`,
+          inline: true,
+        }
       )
       .setFooter({ text: 'SoTeen Studio | Node.js ' + process.version })
       .setTimestamp();
