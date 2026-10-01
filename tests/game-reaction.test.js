@@ -9,14 +9,16 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { ChannelType, Collection } from 'discord.js';
+import Database from 'better-sqlite3';
 
 const directory = await mkdtemp(join(tmpdir(), 'game-selection-'));
 process.env.GAME_SELECTION_DATA_FILE = join(directory, 'selection.json');
+process.env.GAME_SELECTION_DB_FILE = join(directory, 'selection.sqlite');
 process.env.INTERESTS_CHANNEL = 'interests';
 after(() => rm(directory, { recursive: true, force: true }));
 
@@ -35,7 +37,7 @@ const remove = (reaction, user) => GameReactionRemoveListener.prototype.run(reac
 const setup = (client) => GameEmbedSetupListener.prototype.run(client);
 
 beforeEach(async () => {
-  await rm(process.env.GAME_SELECTION_DATA_FILE, { force: true });
+  await saveGameSelectionMessage('interests', '');
   Games[emojiMap[emojis[0]]].roleId = 'game-role';
 });
 
@@ -172,7 +174,12 @@ test('history pagination finds an older selection and persists it before updatin
   assert.equal(existing.edits.length, 1);
   assert.deepEqual(existing.reacted, emojis);
   assert.equal(await loadGameSelectionMessage('interests'), 'older');
-  assert.deepEqual(JSON.parse(await readFile(process.env.GAME_SELECTION_DATA_FILE, 'utf8')), { channelId: 'interests', messageId: 'older' });
+  const db = new Database(process.env.GAME_SELECTION_DB_FILE, { readonly: true });
+  try {
+    assert.deepEqual(db.prepare('SELECT * FROM game_selection').get(), { channel_id: 'interests', message_id: 'older' });
+  } finally {
+    db.close();
+  }
   assert.equal(await loadGameSelectionMessage('other-channel'), undefined);
 });
 

@@ -9,8 +9,8 @@
  */
 
 import Database from 'better-sqlite3';
-import { resolve, dirname, join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 export interface MemeData {
   title: string;
@@ -28,16 +28,41 @@ export interface MemeSession {
 
 const DATA_DIR = resolve(process.cwd(), 'data');
 const DB_FILE = join(DATA_DIR, 'meme-sessions.sqlite');
+const LEGACY_FILE = join(DATA_DIR, 'meme-sessions.json');
 
 mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(DB_FILE);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS meme_sessions (
-    message_id TEXT PRIMARY KEY,
-    data TEXT NOT NULL
+db.transaction(() => {
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meme_sessions'",
+      )
+      .get()
   )
-`);
+    return;
+
+  db.exec(`
+    CREATE TABLE meme_sessions (
+      message_id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    )
+  `);
+
+  if (existsSync(LEGACY_FILE)) {
+    const sessions = JSON.parse(readFileSync(LEGACY_FILE, 'utf8'));
+    if (!sessions || typeof sessions !== 'object' || Array.isArray(sessions)) {
+      throw new Error('Invalid legacy meme sessions');
+    }
+    const insert = db.prepare(
+      'INSERT INTO meme_sessions (message_id, data) VALUES (?, ?)',
+    );
+    for (const [messageId, session] of Object.entries(sessions)) {
+      insert.run(messageId, JSON.stringify(session));
+    }
+  }
+}).immediate();
 
 export const memeHistory = {
   async get(messageId: string): Promise<MemeSession | undefined> {
@@ -62,9 +87,12 @@ export const memeHistory = {
       const countRow = db
         .prepare('SELECT COUNT(*) as count FROM meme_sessions')
         .get() as { count: number };
-      if (countRow.count >= 100) {
+      const exists = db
+        .prepare('SELECT 1 FROM meme_sessions WHERE message_id = ?')
+        .get(messageId);
+      if (!exists && countRow.count >= 100) {
         db.prepare(
-          'DELETE FROM meme_sessions WHERE message_id IN (SELECT message_id FROM meme_sessions LIMIT 1)',
+          'DELETE FROM meme_sessions WHERE message_id IN (SELECT message_id FROM meme_sessions ORDER BY rowid ASC LIMIT 1)',
         ).run();
       }
 

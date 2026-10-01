@@ -9,26 +9,57 @@
  */
 
 import Database from 'better-sqlite3';
-import { resolve } from 'node:path';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 const roleChanges = new Map<string, Promise<void>>();
 
-const dbPath = resolve(
-  process.env.GAME_SELECTION_DATA_FILE ?? 'data/game-selection.sqlite',
+const legacyPath = resolve(
+  process.env.GAME_SELECTION_DATA_FILE ?? 'data/game-selection.json',
 );
+const dbPath = resolve(
+  process.env.GAME_SELECTION_DB_FILE ?? 'data/game-selection.sqlite',
+);
+
+if (dbPath === legacyPath) {
+  throw new Error('Game selection SQLite and legacy JSON paths must differ');
+}
 
 mkdirSync(dirname(dbPath), { recursive: true });
 
 const db = new Database(dbPath);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS game_selection (
-    channel_id TEXT PRIMARY KEY,
-    message_id TEXT NOT NULL
+db.transaction(() => {
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'game_selection'",
+      )
+      .get()
   )
-`);
+    return;
+
+  db.exec(`
+    CREATE TABLE game_selection (
+      channel_id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL
+    )
+  `);
+
+  if (existsSync(legacyPath)) {
+    const saved = JSON.parse(readFileSync(legacyPath, 'utf8'));
+    if (
+      !saved ||
+      typeof saved.channelId !== 'string' ||
+      typeof saved.messageId !== 'string'
+    ) {
+      throw new Error('Invalid legacy game selection record');
+    }
+    db.prepare(
+      'INSERT INTO game_selection (channel_id, message_id) VALUES (?, ?)',
+    ).run(saved.channelId, saved.messageId);
+  }
+}).immediate();
 
 const selectionMessages = new Map<string, string>();
 
