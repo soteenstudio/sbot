@@ -9,11 +9,21 @@
  */
 
 import { Listener, Events as SapphireEvents } from '@sapphire/framework';
-import { ChannelType, Client, TextChannel, EmbedBuilder } from 'discord.js';
+import {
+  ChannelType,
+  Client,
+  TextChannel,
+  EmbedBuilder,
+  Message,
+} from 'discord.js';
 import { Games } from '../games.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import 'dotenv/config';
 import { emojiMap } from '../config/emojiMap.js';
+import {
+  loadGameSelectionMessage,
+  saveGameSelectionMessage,
+} from '../lib/gameSelection.js';
 
 const EMBED_TITLE = '🎮 Select Your Favorite Games!';
 const EMBED_COLOR = EMBED_COLORS.SUCCESS;
@@ -45,13 +55,29 @@ export class GameEmbedSetupListener extends Listener {
       }
 
       const textChannel = channel as TextChannel;
-      const messages = await textChannel.messages.fetch({ limit: 10 });
-
-      const existingMessage = messages.find(
-        (msg) =>
-          msg.author.id === client.user?.id &&
-          msg.embeds[0]?.title === EMBED_TITLE,
-      );
+      const isSelectionMessage = (message: Message) =>
+        message.author.id === client.user?.id &&
+        message.embeds[0]?.title === EMBED_TITLE;
+      const savedId = await loadGameSelectionMessage(channelId);
+      let existingMessage: Message | undefined;
+      if (savedId) {
+        try {
+          const saved = await textChannel.messages.fetch(savedId);
+          if (isSelectionMessage(saved)) existingMessage = saved;
+        } catch (error) {
+          if ((error as { code?: number }).code !== 10008) throw error;
+        }
+      }
+      let before: string | undefined;
+      while (!existingMessage) {
+        const messages = await textChannel.messages.fetch({
+          limit: 100,
+          before,
+        });
+        existingMessage = messages.find(isSelectionMessage);
+        if (existingMessage || messages.size === 0) break;
+        before = messages.last()!.id;
+      }
 
       const description = Object.entries(emojiMap)
         .map(([emoji, key]) => {
@@ -71,6 +97,7 @@ export class GameEmbedSetupListener extends Listener {
         .setTimestamp();
 
       if (existingMessage) {
+        await saveGameSelectionMessage(channelId, existingMessage.id);
         const currentEmbed = existingMessage.embeds[0];
 
         if (
@@ -78,6 +105,7 @@ export class GameEmbedSetupListener extends Listener {
           currentEmbed.title === EMBED_TITLE &&
           currentEmbed.description === expectedDescription
         ) {
+          await ensureReactions(existingMessage);
           console.log(
             '[Game Setup] Game selection message is already up to date. Skipping.',
           );
@@ -95,13 +123,13 @@ export class GameEmbedSetupListener extends Listener {
             editError,
           );
         }
+        await ensureReactions(existingMessage);
         return;
       }
 
       const sentMessage = await textChannel.send({ embeds: [embed] });
-      for (const emoji of Object.keys(emojiMap)) {
-        await sentMessage.react(emoji);
-      }
+      await saveGameSelectionMessage(channelId, sentMessage.id);
+      await ensureReactions(sentMessage);
 
       console.log(
         '[Game Setup] Posted a fresh game selection embed and added reactions.',
@@ -111,6 +139,18 @@ export class GameEmbedSetupListener extends Listener {
         '[Game Setup Error] Could not post or update game embed:',
         error,
       );
+    }
+  }
+}
+
+async function ensureReactions(message: Message) {
+  for (const emoji of Object.keys(emojiMap)) {
+    if (
+      !message.reactions.cache.find(
+        (reaction) => reaction.emoji.name === emoji && reaction.me,
+      )
+    ) {
+      await message.react(emoji);
     }
   }
 }

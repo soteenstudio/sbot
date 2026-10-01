@@ -9,9 +9,18 @@
  */
 
 import { Listener } from '@sapphire/framework';
-import type { MessageReaction, User } from 'discord.js';
+import type {
+  MessageReaction,
+  User,
+  PartialMessageReaction,
+  PartialUser,
+} from 'discord.js';
 import { Games } from '../games.js';
 import { emojiMap } from '../config/emojiMap.js';
+import {
+  enqueueGameRoleChange,
+  isGameSelectionMessage,
+} from '../lib/gameSelection.js';
 
 const INTERESTS_CHANNEL = process.env.INTERESTS_CHANNEL;
 
@@ -26,40 +35,65 @@ export class GameReactionRemoveListener extends Listener {
     });
   }
 
-  public async run(reaction: MessageReaction, user: User) {
-    if (user.bot) return;
+  public async run(
+    reaction: MessageReaction | PartialMessageReaction,
+    user: User | PartialUser,
+  ) {
+    if (user.bot || reaction.message.channelId !== INTERESTS_CHANNEL) return;
+    if (
+      !isGameSelectionMessage(reaction.message.channelId, reaction.message.id)
+    )
+      return;
+    const gameKey = reaction.emoji.name && emojiMap[reaction.emoji.name];
+    if (!gameKey) return;
 
-    if (reaction.partial) {
-      try {
-        await reaction.fetch();
-      } catch (error) {
-        console.error('Failed to fetch reaction data:', error);
-        return;
+    const key = `${reaction.message.guildId}:${user.id}:${gameKey}`;
+    return enqueueGameRoleChange(key, async () => {
+      if (reaction.partial) {
+        try {
+          reaction = await reaction.fetch();
+        } catch (error) {
+          console.error('Failed to fetch reaction data:', error);
+          return;
+        }
       }
-    }
 
-    if (reaction.message.channelId !== INTERESTS_CHANNEL) return;
+      if (user.partial) {
+        try {
+          user = await user.fetch();
+        } catch (error) {
+          console.error('Failed to fetch user data:', error);
+          return;
+        }
+      }
 
-    const emojiName = reaction.emoji.name;
-    if (!emojiName || !emojiMap[emojiName]) return;
+      if (user.bot) return;
+      if (
+        !isGameSelectionMessage(reaction.message.channelId, reaction.message.id)
+      )
+        return;
 
-    const gameKey = emojiMap[emojiName];
-    const gameData = Games[gameKey];
+      const emojiName = reaction.emoji.name;
+      if (!emojiName || !emojiMap[emojiName]) return;
 
-    if (!gameData || !gameData.roleId) return;
+      const gameKey = emojiMap[emojiName];
+      const gameData = Games[gameKey];
 
-    const guild = reaction.message.guild;
-    if (!guild) return;
+      if (!gameData || !gameData.roleId) return;
 
-    try {
-      const member = await guild.members.fetch(user.id);
+      const guild = reaction.message.guild;
+      if (!guild) return;
 
-      await member.roles.remove(gameData.roleId);
-      console.log(
-        `[Role Removed] Successfully removed ${gameData.label} role from ${user.tag}`,
-      );
-    } catch (error) {
-      console.error('Failed to remove role:', error);
-    }
+      try {
+        const member = await guild.members.fetch(user.id);
+
+        await member.roles.remove(gameData.roleId);
+        console.log(
+          `[Role Removed] Successfully removed ${gameData.label} role from ${user.tag}`,
+        );
+      } catch (error) {
+        console.error('Failed to remove role:', error);
+      }
+    });
   }
 }
