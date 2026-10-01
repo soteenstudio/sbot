@@ -18,8 +18,9 @@ import {
   ButtonInteraction,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
 } from 'discord.js';
-import { EMBED_COLORS } from '../engine/SEmbed.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 
 export class FeedbackButtonHandler extends InteractionHandler {
   public constructor(
@@ -39,9 +40,11 @@ export class FeedbackButtonHandler extends InteractionHandler {
   }
 
   public async run(interaction: ButtonInteraction) {
-    await interaction.deferUpdate();
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+    const feedbackUserId = interaction.customId.split('_')[2];
     const originalEmbed = interaction.message.embeds[0];
+
     const reviewedEmbed = EmbedBuilder.from(originalEmbed)
       .setColor(EMBED_COLORS.CONFIRMED)
       .setFields(
@@ -53,19 +56,59 @@ export class FeedbackButtonHandler extends InteractionHandler {
           value: `✅ Reviewed by <@${interaction.user.id}>`,
           inline: true,
         },
-      );
+      )
+      .setFooter({ text: `Reviewed by ${interaction.user.tag}` })
+      .setTimestamp();
+
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(interaction.customId)
         .setEmoji('✅')
-        .setLabel('Reviewed')
+        .setLabel('Mark as Reviewed')
         .setStyle(ButtonStyle.Success)
         .setDisabled(true),
     );
 
-    await interaction.editReply({
+    await interaction.message.edit({
       embeds: [reviewedEmbed],
       components: [row],
+    });
+
+    const dmEmbed = new EmbedBuilder()
+      .setTitle('✅ Your Feedback Has Been Reviewed')
+      .setColor(EMBED_COLORS.CONFIRMED)
+      .setDescription(
+        `The server staff have reviewed your feedback (${originalEmbed.title}).`,
+      )
+      .addFields(
+        { name: 'Status', value: 'Reviewed', inline: true },
+        {
+          name: 'Reviewed',
+          value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
+          inline: true,
+        },
+      )
+      .setFooter({ text: 'Thank you for helping improve our community.' })
+      .setTimestamp();
+
+    try {
+      const feedbackUser = await interaction.client.users.fetch(feedbackUserId);
+      await feedbackUser.send({ embeds: [dmEmbed] });
+    } catch (err) {
+      console.error(`Failed to send DM to user ${feedbackUserId}:`, err);
+    }
+
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('✅ Feedback Reviewed')
+          .setDescription(
+            'The feedback has been marked as reviewed. The user was notified if direct messages were available.',
+          )
+          .setColor(EMBED_COLORS.CONFIRMED)
+          .setFooter({ text: EMBED_FOOTER })
+          .setTimestamp(),
+      ],
     });
   }
 }
