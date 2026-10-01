@@ -29,11 +29,7 @@ const client = new SapphireClient({
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessageReactions,
   ],
-  partials: [
-    Partials.Message,   // <-- WAJIB ADA BUAT CACHE LAMA/PARTIAL
-    Partials.Reaction,  // <-- WAJIB ADA
-    Partials.User,      // <-- WAJIB ADA
-  ],
+  partials: [Partials.Message, Partials.Reaction, Partials.User],
   loadMessageCommandListeners: true,
   baseUserDirectory: join(process.cwd(), 'dist'),
 });

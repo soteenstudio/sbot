@@ -9,7 +9,8 @@
     "build": "node ./build.js",
     "typecheck": "tsc",
     "prettier": "npx prettier ./src/**/*.ts --write",
-    "eslint": "npx eslint ./src/**/*.ts --fix"
+    "eslint": "npx eslint ./src/**/*.ts --fix",
+    "linting": "npm run eslint && npm run prettier"
   },
   "dependencies": {
     "@sapphire/framework": "^5.5.0",

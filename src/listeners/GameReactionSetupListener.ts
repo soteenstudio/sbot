@@ -56,30 +56,46 @@ export class GameEmbedSetupListener extends Listener {
       const description = Object.entries(emojiMap)
         .map(([emoji, key]) => {
           const game = Games[key];
-          return game ? `${emoji} | **${game.label}**` : null;
+          return game ? `(${emoji})---|\u00A0\u00A0**${game.label}**` : null;
         })
         .filter(Boolean)
         .join('\n\n');
 
+      const expectedDescription = `React below to automatically get your favorite game roles!\n\n${description}`;
+
       const embed = new EmbedBuilder()
         .setTitle(EMBED_TITLE)
-        .setDescription(
-          `React below to automatically get your favorite game roles!\n\n${description}`,
-        )
+        .setDescription(expectedDescription)
         .setColor(EMBED_COLOR)
         .setFooter({ text: EMBED_FOOTER })
         .setTimestamp();
 
       if (existingMessage) {
+        const currentEmbed = existingMessage.embeds[0];
+
+        if (
+          currentEmbed &&
+          currentEmbed.title === EMBED_TITLE &&
+          currentEmbed.description === expectedDescription
+        ) {
+          console.log(
+            '[Game Setup] Game selection message is already up to date. Skipping.',
+          );
+          return;
+        }
+
         try {
-          await existingMessage.delete();
-          console.log('[Game Setup] Deleted the old game selection message.');
-        } catch (delError) {
+          await existingMessage.edit({ embeds: [embed] });
+          console.log(
+            '[Game Setup] Updated the existing game selection message.',
+          );
+        } catch (editError) {
           console.error(
-            '[Game Setup Error] Failed to delete old message:',
-            delError,
+            '[Game Setup Error] Failed to update existing message:',
+            editError,
           );
         }
+        return;
       }
 
       const sentMessage = await textChannel.send({ embeds: [embed] });
