@@ -13,17 +13,7 @@ import { ChannelType, Client, TextChannel, EmbedBuilder } from 'discord.js';
 import { Games } from '../games.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import 'dotenv/config';
-
-const emojiMap: Record<string, string> = {
-  '🧱': 'minecraft',
-  '🌱': 'growtopia',
-  '🟥': 'roblox',
-  '🔥': 'freefire',
-  '🗡️': 'mobilelegends',
-  '✨': 'genshinimpact',
-  '🎯': 'valorant',
-  '⚓': 'neverland',
-};
+import { emojiMap } from '../config/emojiMap.js';
 
 const EMBED_TITLE = '🎮 Select Your Favorite Games!';
 const EMBED_COLOR = EMBED_COLORS.SUCCESS;

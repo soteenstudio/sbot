@@ -15,8 +15,7 @@ import type {
   PartialMessageReaction,
   PartialUser,
 } from 'discord.js';
-
-const allowedEmojis = ['🧱', '🌱', '🟥', '🔥', '🗡️', '✨', '🎯', '⚓'];
+import { allowedEmojis } from '../config/allowedEmojis.js'
 
 const INTERESTS_CHANNEL = process.env.INTERESTS_CHANNEL;
 const EMBED_TITLE = '🎮 Select Your Favorite Games!';

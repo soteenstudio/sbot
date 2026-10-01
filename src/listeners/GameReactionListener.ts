@@ -16,17 +16,7 @@ import type {
   PartialUser,
 } from 'discord.js';
 import { Games } from '../games.js';
-
-const emojiMap: Record<string, string> = {
-  '🧱': 'minecraft',
-  '🌱': 'growtopia',
-  '🟥': 'roblox',
-  '🔥': 'freefire',
-  '🗡️': 'mobilelegends',
-  '✨': 'genshinimpact',
-  '🎯': 'valorant',
-  '⚓': 'neverland',
-};
+import { emojiMap } from '../config/emojiMap.js';
 
 const INTERESTS_CHANNEL = process.env.INTERESTS_CHANNEL;
 
