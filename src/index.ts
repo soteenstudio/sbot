@@ -9,7 +9,7 @@
  */
 
 import { SapphireClient, RegisterBehavior } from '@sapphire/framework';
-import { GatewayIntentBits } from 'discord.js';
+import { GatewayIntentBits, Partials } from 'discord.js';
 import 'dotenv/config';
 import { join } from 'path';
 import { createRequire } from 'module';
@@ -27,7 +27,9 @@ const client = new SapphireClient({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMessageReactions,
   ],
+  partials: [Partials.Message, Partials.Reaction, Partials.User],
   loadMessageCommandListeners: true,
   baseUserDirectory: join(process.cwd(), 'dist'),
 });
