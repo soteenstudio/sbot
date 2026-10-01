@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import axios from 'axios';
+import Database from 'better-sqlite3';
 
 const originalDirectory = process.cwd();
 const directory = await fs.mkdtemp(join(tmpdir(), 'meme-session-test-'));
@@ -21,12 +22,14 @@ process.chdir(directory);
 const { memeHistory } = await import('../dist/lib/memeStorage.js');
 const { MemeCommand } = await import('../dist/commands/MemeCommand.js');
 const { MemeButtonHandler } = await import('../dist/interaction-handlers/MemeButtonHandler.js');
-const dataFile = join(directory, 'data', 'meme-sessions.json');
+const db = new Database(join(directory, 'data', 'meme-sessions.sqlite'));
 after(async () => {
+  db.close();
   process.chdir(originalDirectory);
   await fs.rm(directory, { recursive: true, force: true });
 });
-beforeEach(() => fs.rm(join(directory, 'data'), { recursive: true, force: true }));
+beforeEach(() => db.exec('DELETE FROM meme_sessions'));
+const savedIds = () => db.prepare('SELECT message_id FROM meme_sessions ORDER BY rowid').all().map((row) => row.message_id);
 
 const meme = {
   title: 'Test meme', imageUrl: 'https://example.com/meme.png',
@@ -61,14 +64,14 @@ for (const action of ['next', 'prev', 'close']) {
   test(`another user cannot ${action} or change session state`, async (t) => {
     const fetch = t.mock.method(axios, 'get', () => { throw new Error('Unexpected fetch'); });
     await memeHistory.set('message', session());
-    const before = await fs.readFile(dataFile, 'utf8');
+    const before = await memeHistory.get('message');
     const interaction = button('visitor');
     await MemeButtonHandler.prototype.run(interaction, { action, messageId: 'message' });
     assert.equal(interaction.calls.length, 1);
     assert.equal(interaction.calls[0].method, 'reply');
     assert.equal(interaction.calls[0].payload.ephemeral, true);
     assert.match(interaction.calls[0].payload.content, /Only the user/);
-    assert.equal(await fs.readFile(dataFile, 'utf8'), before);
+    assert.deepEqual(await memeHistory.get('message'), before);
     assert.equal(fetch.mock.callCount(), 0);
   });
 }
@@ -117,54 +120,49 @@ test('concurrent initialization, sets, deletes, and reads preserve operation ord
     operations.push(memeHistory.get(`new-${index}`).then((value) => assert.deepEqual(value, session())));
   }
   await Promise.all(operations);
-  const saved = JSON.parse(await fs.readFile(dataFile, 'utf8'));
-  assert.deepEqual(Object.keys(saved), Array.from({ length: 30 }, (_, index) => `new-${index}`));
+  assert.deepEqual(savedIds(), Array.from({ length: 30 }, (_, index) => `new-${index}`));
 });
 
-test('writes leave the previous file intact until atomic replacement', async (t) => {
-  await memeHistory.set('original', session());
-  const original = await fs.readFile(dataFile, 'utf8');
-  const rename = fs.rename.bind(fs);
-  const replace = t.mock.method(fs, 'rename', async (source, destination) => {
-    assert.equal(destination, dataFile);
-    assert.notEqual(source, dataFile);
-    assert.equal(await fs.readFile(dataFile, 'utf8'), original);
-    assert.ok(JSON.parse(await fs.readFile(source, 'utf8')).new);
-    return rename(source, destination);
-  });
+test('failed insert rolls back eviction and allows subsequent writes', async () => {
+  for (let index = 0; index < 100; index++) {
+    await memeHistory.set(`message-${index}`, session());
+  }
+  const before = savedIds();
+  db.exec(`CREATE TRIGGER fail_insert BEFORE INSERT ON meme_sessions
+    WHEN NEW.message_id = 'failed' BEGIN SELECT RAISE(ABORT, 'simulated failure'); END`);
+  try {
+    await assert.rejects(memeHistory.set('failed', session()), /simulated failure/);
+    assert.deepEqual(savedIds(), before);
+    await memeHistory.set('recovered', session());
+    assert.equal(await memeHistory.has('recovered'), true);
+    assert.equal(await memeHistory.has('message-0'), false);
+    assert.equal(savedIds().length, 100);
+  } finally {
+    db.exec('DROP TRIGGER fail_insert');
+  }
+});
+
+test('updates at capacity preserve all sessions and insertion order', async () => {
+  const ids = ['z-oldest', ...Array.from({ length: 99 }, (_, index) => `a-${index}`)];
+  for (const id of ids) await memeHistory.set(id, session());
+  for (const id of ['z-oldest', 'a-50']) {
+    await memeHistory.set(id, { ...session(), userId: 'updated' });
+    assert.equal((await memeHistory.get(id)).userId, 'updated');
+    assert.deepEqual(savedIds(), ids);
+  }
   await memeHistory.set('new', session());
-  assert.equal(replace.mock.callCount(), 1);
-  assert.deepEqual(await fs.readdir(join(directory, 'data')), ['meme-sessions.json']);
+  assert.deepEqual(savedIds(), [...ids.slice(1), 'new']);
+  assert.equal(await memeHistory.has('z-oldest'), false);
 });
 
-test('failed partial write preserves data, cleans up, and does not poison the queue', async (t) => {
-  await memeHistory.set('original', session());
-  const original = await fs.readFile(dataFile, 'utf8');
-  const write = fs.writeFile.bind(fs);
-  t.mock.method(fs, 'writeFile', async (file) => {
-    await write(file, '{partial');
-    throw new Error('simulated disk failure');
-  }, { times: 1 });
-  const failed = memeHistory.set('failed', session());
-  const read = memeHistory.get('original');
-  await assert.rejects(failed, /simulated disk failure/);
-  assert.deepEqual(await read, session());
-  assert.equal(await fs.readFile(dataFile, 'utf8'), original);
-  assert.deepEqual(await fs.readdir(join(directory, 'data')), ['meme-sessions.json']);
-  await memeHistory.set('recovered', session());
-  assert.equal(await memeHistory.has('recovered'), true);
-  assert.equal(await memeHistory.has('failed'), false);
-});
-
-test('history and session limits and malformed JSON fallback are preserved', async () => {
+test('history and session limits are preserved', async () => {
   await memeHistory.set('long', { ...session(), history: Array(25).fill(meme), currentIndex: 24 });
   const saved = await memeHistory.get('long');
   assert.equal(saved.history.length, 20);
   assert.equal(saved.currentIndex, 19);
   await Promise.all(Array.from({ length: 100 }, (_, index) => memeHistory.set(`message-${index}`, session())));
   assert.equal(await memeHistory.has('long'), false);
-  assert.equal(Object.keys(JSON.parse(await fs.readFile(dataFile, 'utf8'))).length, 100);
-  await fs.writeFile(dataFile, '{invalid');
+  assert.equal(savedIds().length, 100);
   assert.equal(await memeHistory.get('missing'), undefined);
   await memeHistory.set('recovered', session());
   assert.deepEqual(await memeHistory.get('recovered'), session());

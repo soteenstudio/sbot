@@ -8,9 +8,9 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import fs from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import path from 'node:path';
+import Database from 'better-sqlite3';
+import { resolve, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 export interface MemeData {
   title: string;
@@ -26,102 +26,96 @@ export interface MemeSession {
   currentIndex: number;
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DATA_FILE = path.join(DATA_DIR, 'meme-sessions.json');
-let storageQueue: Promise<void> = Promise.resolve();
+const DATA_DIR = resolve(process.cwd(), 'data');
+const DB_FILE = join(DATA_DIR, 'meme-sessions.sqlite');
+const LEGACY_FILE = join(DATA_DIR, 'meme-sessions.json');
 
-function enqueue<T>(operation: () => Promise<T>): Promise<T> {
-  const result = storageQueue.then(operation);
+mkdirSync(DATA_DIR, { recursive: true });
+const db = new Database(DB_FILE);
 
-  storageQueue = result.then(
-    () => {},
-    () => {},
-  );
-  return result;
-}
+db.transaction(() => {
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meme_sessions'",
+      )
+      .get()
+  )
+    return;
 
-async function replaceStorage(
-  data: Record<string, MemeSession>,
-): Promise<void> {
-  const temporaryFile = `${DATA_FILE}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(temporaryFile, JSON.stringify(data, null, 2), 'utf-8');
-    await fs.rename(temporaryFile, DATA_FILE);
-  } finally {
-    await fs.rm(temporaryFile, { force: true });
+  db.exec(`
+    CREATE TABLE meme_sessions (
+      message_id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    )
+  `);
+
+  if (existsSync(LEGACY_FILE)) {
+    const sessions = JSON.parse(readFileSync(LEGACY_FILE, 'utf8'));
+    if (!sessions || typeof sessions !== 'object' || Array.isArray(sessions)) {
+      throw new Error('Invalid legacy meme sessions');
+    }
+    const insert = db.prepare(
+      'INSERT INTO meme_sessions (message_id, data) VALUES (?, ?)',
+    );
+    for (const [messageId, session] of Object.entries(sessions)) {
+      insert.run(messageId, JSON.stringify(session));
+    }
   }
-}
-
-async function ensureDataFile(): Promise<void> {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.access(DATA_FILE);
-  } catch {
-    await replaceStorage({});
-  }
-}
-
-async function readStorage(): Promise<Record<string, MemeSession>> {
-  await ensureDataFile();
-  try {
-    const rawData = await fs.readFile(DATA_FILE, 'utf-8');
-    return JSON.parse(rawData);
-  } catch {
-    return {};
-  }
-}
-
-async function writeStorage(data: Record<string, MemeSession>): Promise<void> {
-  await ensureDataFile();
-
-  const keys = Object.keys(data);
-  if (keys.length > 100) {
-    delete data[keys[0]];
-  }
-
-  await replaceStorage(data);
-}
+}).immediate();
 
 export const memeHistory = {
   async get(messageId: string): Promise<MemeSession | undefined> {
-    return enqueue(async () => {
-      const storage = await readStorage();
-      return storage[messageId];
-    });
+    const row = db
+      .prepare('SELECT data FROM meme_sessions WHERE message_id = ?')
+      .get(messageId) as { data: string } | undefined;
+
+    if (!row) return undefined;
+    return JSON.parse(row.data) as MemeSession;
   },
 
   async set(messageId: string, session: MemeSession): Promise<void> {
-    return enqueue(async () => {
-      const storage = await readStorage();
+    if (session.history.length > 20) {
+      session.history = session.history.slice(-20);
+      session.currentIndex = Math.min(
+        session.currentIndex,
+        session.history.length - 1,
+      );
+    }
 
-      if (session.history.length > 20) {
-        session.history = session.history.slice(-20);
-        session.currentIndex = Math.min(
-          session.currentIndex,
-          session.history.length - 1,
-        );
+    const transaction = db.transaction(() => {
+      const countRow = db
+        .prepare('SELECT COUNT(*) as count FROM meme_sessions')
+        .get() as { count: number };
+      const exists = db
+        .prepare('SELECT 1 FROM meme_sessions WHERE message_id = ?')
+        .get(messageId);
+      if (!exists && countRow.count >= 100) {
+        db.prepare(
+          'DELETE FROM meme_sessions WHERE message_id IN (SELECT message_id FROM meme_sessions ORDER BY rowid ASC LIMIT 1)',
+        ).run();
       }
 
-      storage[messageId] = session;
-      await writeStorage(storage);
+      db.prepare(
+        `INSERT INTO meme_sessions (message_id, data) 
+         VALUES (?, ?) 
+         ON CONFLICT(message_id) 
+         DO UPDATE SET data = excluded.data`,
+      ).run(messageId, JSON.stringify(session));
     });
+
+    transaction();
   },
 
   async has(messageId: string): Promise<boolean> {
-    return enqueue(async () => {
-      const storage = await readStorage();
-      return Boolean(storage[messageId]);
-    });
+    const row = db
+      .prepare('SELECT 1 FROM meme_sessions WHERE message_id = ?')
+      .get(messageId);
+    return Boolean(row);
   },
 
   async delete(messageId: string): Promise<void> {
-    return enqueue(async () => {
-      const storage = await readStorage();
-      if (storage[messageId]) {
-        delete storage[messageId];
-        await writeStorage(storage);
-      }
-    });
+    db.prepare('DELETE FROM meme_sessions WHERE message_id = ?').run(messageId);
   },
 };
 
