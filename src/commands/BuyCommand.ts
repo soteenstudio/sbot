@@ -114,6 +114,12 @@ export class BuyCommand extends Subcommand {
       });
       return;
     }
+    if (existing?.pendingRefundId) {
+      await interaction.editReply({
+        content: '❌ Cancellation is pending. Retry /refund first.',
+      });
+      return;
+    }
     if (existing?.roleId === selectedRole.id) {
       await interaction.editReply({
         content:

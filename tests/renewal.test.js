@@ -50,6 +50,8 @@ function assertApprovalButton(components, customId, disabled) {
 }
 
 function fixture(t, scenario = 'success', duration = '1', expiry = now + month) {
+  const originalTier = Roles.DONATUR.id; Roles.DONATUR.id = tierId;
+  t.after(() => { Roles.DONATUR.id = originalTier; });
   const originalLog = process.env.BUY_LOG_CHANNEL;
   process.env.BUY_LOG_CHANNEL = logId;
   t.after(() => { if (originalLog === undefined) delete process.env.BUY_LOG_CHANNEL; else process.env.BUY_LOG_CHANNEL = originalLog; });
@@ -155,7 +157,10 @@ for (const duration of ['1', '6', '12']) {
     test(`renew ${state} for ${duration} months preserves tier and saves before notifications`, async (t) => {
       const f = fixture(t, 'success', duration, state === 'active' ? now + month : now - month);
       await RenewApproveHandler.prototype.run(f.approval);
-      assert.deepEqual(f.current(), {
+      const { paidPeriods, paymentHistoryComplete, subscriptionId, ...subscription } = f.current();
+      assert.equal(paidPeriods.length, 1);
+      assert.equal(paymentHistoryComplete, false);
+      assert.deepEqual(subscription, {
         guildId: 'guild', userId: buyerId, roleId: tierId, durationMonths: Number(duration),
         expiresAt: now + (Number(duration) + (state === 'active' ? 1 : 0)) * month,
       });

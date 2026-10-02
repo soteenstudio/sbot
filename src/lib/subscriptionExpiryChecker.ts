@@ -27,7 +27,7 @@ export function setupSubscriptionExpiryChecker(client: Client) {
                 snapshot.guildId,
                 snapshot.userId,
               );
-              if (!record) return;
+              if (!record || record.pendingRefundId) return;
               if (Date.now() >= record.expiresAt) {
                 const guild = client.guilds.cache.get(record.guildId);
                 if (!guild?.available) return;

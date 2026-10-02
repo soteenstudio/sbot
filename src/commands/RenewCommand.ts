@@ -122,6 +122,12 @@ export class RenewCommand extends Subcommand {
           });
           return;
         }
+        if (existing.pendingRefundId) {
+          await interaction.editReply({
+            content: '❌ Cancellation is pending. Retry /refund first.',
+          });
+          return;
+        }
         const expiresAt =
           Math.max(existing.expiresAt, Date.now()) +
           durationMonths * 30 * 24 * 60 * 60 * 1000;
@@ -196,7 +202,7 @@ export class RenewCommand extends Subcommand {
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(
-              `renew_approve_${buyer.id}_${existing.roleId}_${durationMonths}`,
+              `renew_approve_${buyer.id}_${existing.roleId}_${durationMonths}${existing.subscriptionId ? `_${existing.subscriptionId}` : ''}`,
             )
             .setEmoji('✅')
             .setLabel('Approve Renewal')

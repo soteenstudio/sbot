@@ -23,6 +23,8 @@ import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { notifyBuyerOfPurchase } from '../lib/purchaseNotification.js';
+import { randomUUID } from 'node:crypto';
+import { snapshotPaidPeriod } from '../lib/subscriptionPrices.js';
 import { Roles } from '../config.js';
 
 export class BuyVerifyHandler extends InteractionHandler {
@@ -88,6 +90,13 @@ export class BuyVerifyHandler extends InteractionHandler {
           });
           return;
         }
+        if (existing?.pendingRefundId) {
+          await interaction.followUp({
+            content: '❌ Cancellation is pending. Retry /refund first.',
+            ephemeral: true,
+          });
+          return;
+        }
         if (existing?.roleId === roleId) {
           await interaction.followUp({
             content:
@@ -108,6 +117,21 @@ export class BuyVerifyHandler extends InteractionHandler {
           return;
         }
 
+        const startAt = Date.now();
+        const expiresAt = startAt + durationMonths * 30 * 24 * 60 * 60 * 1000;
+        let period;
+        try {
+          const tier =
+            Object.entries(Roles).find(([, r]) => r.id === roleId)?.[0] ?? '';
+          period = snapshotPaidPeriod(tier, durationMonths, startAt, expiresAt);
+        } catch (error) {
+          await interaction.followUp({
+            content:
+              '❌ Invalid subscription price configuration. No role was changed.',
+            ephemeral: true,
+          });
+          return;
+        }
         const hadRole = member.roles.cache.has(roleId);
         try {
           await member.roles.add(
@@ -123,11 +147,11 @@ export class BuyVerifyHandler extends InteractionHandler {
           return;
         }
 
-        const expiresAt =
-          Date.now() + durationMonths * 30 * 24 * 60 * 60 * 1000;
-
         try {
           await subscriptionStore.set({
+            subscriptionId: randomUUID(),
+            paidPeriods: [period],
+            paymentHistoryComplete: true,
             userId,
             guildId: interaction.guild.id,
             roleId,

@@ -22,10 +22,12 @@ import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 
 const month = 30 * 24 * 60 * 60 * 1000;
 const now = 1800000000000;
-const record = { guildId: 'guild', userId: 'buyer', roleId: 'role', durationMonths: 2, expiresAt: now - 1 };
+const record = { guildId: 'guild', userId: 'buyer', roleId: 'role', durationMonths: 1, expiresAt: now - 1 };
 
 for (const scenario of ['new', 'active', 'expired', 'other tier']) {
   test(`purchase ${scenario} checks the subscription before granting access`, async (t) => {
+    const originalRole = Roles.DONATUR.id; Roles.DONATUR.id = 'role';
+    t.after(() => { Roles.DONATUR.id = originalRole; });
     const events = [];
     const existing = scenario === 'new' ? undefined : {
       ...record,
@@ -40,12 +42,14 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
     });
     t.mock.method(subscriptionStore, 'set', async (saved) => {
       events.push('set');
-      assert.deepEqual(saved, { ...record, expiresAt: now + 2 * month });
+      assert.equal(saved.expiresAt, now + month);
+      assert.equal(saved.paidPeriods[0].price, 10000);
+      assert.equal(saved.paymentHistoryComplete, true);
     });
     const interaction = {
       inCachedGuild: () => true,
       member: { permissions: { has: () => true } },
-      customId: 'buy_verify_buyer_role_2',
+      customId: 'buy_verify_buyer_role_1',
       user: { tag: 'Verifier' },
       message: { embeds: [{ title: 'Purchase' }], components: [] },
       deferUpdate: async () => { events.push('defer'); },
@@ -56,7 +60,7 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
           send: async ({ embeds }) => {
             events.push('dm');
             assert.equal(embeds[0].data.fields.find((field) => field.name === 'Expires').value,
-              `<t:${Math.floor((now + 2 * month) / 1000)}:F>`);
+              `<t:${Math.floor((now + month) / 1000)}:F>`);
           },
           roles: { cache: new Map(), add: async () => { events.push('add'); } },
         };
@@ -92,7 +96,7 @@ for (const failure of ['fetch', 'add']) {
     await BuyVerifyHandler.prototype.run({
       inCachedGuild: () => true,
       member: { permissions: { has: () => true } },
-      customId: 'buy_verify_buyer_role_2',
+      customId: 'buy_verify_buyer_role_1',
       user: { tag: 'Verifier' },
       deferUpdate: async () => { events.push('defer'); },
       guild: { members: { fetch: async () => {

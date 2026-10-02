@@ -11,8 +11,37 @@
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import type { SubscriptionCurrency } from './subscriptionPrices.js';
+
+export interface PaidPeriod {
+  startAt: number;
+  endAt: number;
+  price: number;
+  currency: SubscriptionCurrency;
+  source: 'testing' | 'verified';
+}
+
+export interface RefundReceipt {
+  refundId: string;
+  subscriptionId: string;
+  guildId: string;
+  userId: string;
+  roleId: string;
+  refundAt: number;
+  gross: number;
+  tax: number;
+  net: number;
+  currency: SubscriptionCurrency;
+  staffId: string;
+  staffTag: string;
+  status: 'pending' | 'completed';
+}
 
 export interface SubscriptionRecord {
+  subscriptionId?: string;
+  paidPeriods?: PaidPeriod[];
+  paymentHistoryComplete?: boolean;
+  pendingRefundId?: string;
   userId: string;
   guildId: string;
   roleId: string;
@@ -21,6 +50,8 @@ export interface SubscriptionRecord {
 }
 
 export interface RenewalApproval {
+  subscriptionId?: string;
+  paidPeriod?: PaidPeriod;
   requestId: string;
   userId: string;
   guildId: string;
@@ -32,9 +63,10 @@ export interface RenewalApproval {
 }
 
 interface Storage {
-  version: 1;
+  version: 2;
   subscriptions: Records;
   renewalApprovals: Record<string, RenewalApproval>;
+  refunds: Record<string, RefundReceipt>;
 }
 
 type Records = Record<string, Record<string, SubscriptionRecord>>;
@@ -75,9 +107,10 @@ async function ensureDataFile(): Promise<void> {
     )
       throw error;
     await replaceStorage({
-      version: 1,
+      version: 2,
       subscriptions: {},
       renewalApprovals: {},
+      refunds: {},
     });
   }
 }
@@ -86,9 +119,16 @@ async function readStorage(): Promise<Storage> {
   await ensureDataFile();
   const rawData = await fs.readFile(DATA_FILE, 'utf-8');
   const parsed = JSON.parse(rawData);
-  return parsed.version === 1
-    ? parsed
-    : { version: 1, subscriptions: parsed, renewalApprovals: {} };
+  if (parsed.version === 2) return parsed;
+  if (parsed.version === 1) return { ...parsed, version: 2, refunds: {} };
+  if ('version' in parsed)
+    throw new Error('Unsupported subscription storage version');
+  return {
+    version: 2,
+    subscriptions: parsed,
+    renewalApprovals: {},
+    refunds: {},
+  };
 }
 
 async function writeStorage(data: Storage): Promise<void> {
@@ -96,7 +136,63 @@ async function writeStorage(data: Storage): Promise<void> {
   await replaceStorage(data);
 }
 
+function assertNotCancelling(record: SubscriptionRecord | undefined) {
+  if (record?.pendingRefundId)
+    throw new Error('Subscription cancellation is pending; retry /refund');
+}
+
 export const subscriptionStore = {
+  async getRefund(refundId: string): Promise<RefundReceipt | undefined> {
+    return enqueue(async () => (await readStorage()).refunds[refundId]);
+  },
+  async findRefund(
+    guildId: string,
+    userId: string,
+  ): Promise<RefundReceipt | undefined> {
+    return enqueue(async () =>
+      Object.values((await readStorage()).refunds)
+        .filter((r) => r.guildId === guildId && r.userId === userId)
+        .at(-1),
+    );
+  },
+  async beginRefund(receipt: RefundReceipt): Promise<RefundReceipt> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const prior = data.refunds[receipt.refundId];
+      if (prior) return prior;
+      const record = data.subscriptions[receipt.guildId]?.[receipt.userId];
+      if (!record || record.subscriptionId !== receipt.subscriptionId)
+        throw new Error('Subscription changed; no cancellation performed');
+      assertNotCancelling(record);
+      record.pendingRefundId = receipt.refundId;
+      data.refunds[receipt.refundId] = receipt;
+      await writeStorage(data);
+      return receipt;
+    });
+  },
+  async completeRefund(refundId: string): Promise<RefundReceipt> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const receipt = data.refunds[refundId];
+      if (!receipt) throw new Error('Refund receipt missing');
+      if (receipt.status === 'completed') return receipt;
+      const record = data.subscriptions[receipt.guildId]?.[receipt.userId];
+      if (
+        !record ||
+        record.subscriptionId !== receipt.subscriptionId ||
+        record.pendingRefundId !== refundId
+      )
+        throw new Error(
+          'Subscription changed; recovery requires metadata repair',
+        );
+      receipt.status = 'completed';
+      delete data.subscriptions[receipt.guildId][receipt.userId];
+      if (!Object.keys(data.subscriptions[receipt.guildId]).length)
+        delete data.subscriptions[receipt.guildId];
+      await writeStorage(data);
+      return receipt;
+    });
+  },
   async getRenewalApproval(
     requestId: string,
   ): Promise<RenewalApproval | undefined> {
@@ -113,6 +209,7 @@ export const subscriptionStore = {
       const data = await readStorage();
       if (data.renewalApprovals[approval.requestId])
         throw new Error('Renewal already approved');
+      assertNotCancelling(data.subscriptions[record.guildId]?.[record.userId]);
       data.subscriptions[record.guildId] ??= {};
       data.subscriptions[record.guildId][record.userId] = record;
       data.renewalApprovals[approval.requestId] = approval;
@@ -135,6 +232,7 @@ export const subscriptionStore = {
     return enqueue(async () => {
       const data = await readStorage();
       const storage = data.subscriptions;
+      assertNotCancelling(storage[record.guildId]?.[record.userId]);
       if (!storage[record.guildId]) {
         storage[record.guildId] = {};
       }
@@ -147,6 +245,7 @@ export const subscriptionStore = {
     return enqueue(async () => {
       const data = await readStorage();
       const storage = data.subscriptions;
+      assertNotCancelling(storage[guildId]?.[userId]);
       if (storage[guildId]?.[userId]) {
         delete storage[guildId][userId];
         if (Object.keys(storage[guildId]).length === 0) {

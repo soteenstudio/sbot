@@ -97,3 +97,22 @@ export function formatSubscriptionMoney(
       : `${digits.slice(0, -currency.minorUnitDigits)}.${digits.slice(-currency.minorUnitDigits)}`;
   return `${currency.code} ${value}`;
 }
+
+// The current catalogue is synthetic. Change this only after configuring verified prices.
+export function snapshotPaidPeriod(
+  tier: string,
+  duration: number,
+  startAt: number,
+  endAt: number,
+) {
+  const price = getSubscriptionPrice(tier, duration);
+  const currency = { ...subscriptionPrices.currency! };
+  formatSubscriptionMoney(price, currency);
+  if (
+    ![startAt, endAt].every(Number.isSafeInteger) ||
+    startAt < 0 ||
+    endAt <= startAt
+  )
+    throw new Error('Invalid paid period timestamps');
+  return { startAt, endAt, price, currency, source: 'testing' as const };
+}
