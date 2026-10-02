@@ -10,11 +10,12 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags, PermissionFlagsBits, ChannelType } from 'discord.js';
 import { RefundCommand } from '../dist/commands/RefundCommand.js';
-import { subscriptionPrices, getSubscriptionPrice, calculateRefundDeduction, formatSubscriptionMoney } from '../dist/lib/subscriptionPrices.js';
+import { subscriptionPrices, getSubscriptionPrice, calculateRefundDeduction, formatSubscriptionMoney, snapshotPaidPeriod } from '../dist/lib/subscriptionPrices.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
 import { notifyBuyerOfRefund } from '../dist/lib/refundNotification.js';
+import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 
 const currency = { code: 'USD', minorUnitDigits: 2 };
 
@@ -133,5 +134,53 @@ for (const blocked of [false, true]) {
     assert.equal(sent, 1);
     assert.equal(logged.mock.callCount(), blocked ? 1 : 0);
 
+  });
+}
+
+for (const tier of ['DONATUR', 'BILLION', 'RICHMAN']) for (const duration of [1, 6, 12]) {
+  test(`Refund Logged matches staff preview for ${tier} ${duration} months`, async t => {
+    const now = 1800000000000;
+    t.mock.method(Date, 'now', () => now);
+    const periodLength = duration * 30 * 24 * 60 * 60 * 1000;
+    const period = snapshotPaidPeriod(tier, duration, now - periodLength / 2, now + periodLength / 2);
+    const record = { guildId: 'guild', userId: 'buyer', roleId: tier, subscriptionId: 'subscription',
+      durationMonths: duration, expiresAt: period.endAt, paidPeriods: [period], paymentHistoryComplete: true };
+    const requestId = '11111111-1111-4111-8111-111111111111';
+    t.mock.method(subscriptionStore, 'get', async () => record);
+    t.mock.method(subscriptionStore, 'createRefundRequest', async request => ({ ...request, requestId }));
+    t.mock.method(subscriptionStore, 'bindRefundLog', async () => {});
+    t.mock.method(subscriptionStore, 'beginRefund', async () => assert.fail('submission must not cancel'));
+    const old = process.env.BUY_LOG_CHANNEL;
+    process.env.BUY_LOG_CHANNEL = 'log';
+    t.after(() => { if (old === undefined) delete process.env.BUY_LOG_CHANNEL; else process.env.BUY_LOG_CHANNEL = old; });
+    let log, reply, deferred;
+    const channel = { id: 'log', type: ChannelType.GuildText, send: async payload => {
+      log = payload;
+      return { id: 'message', edit: async () => {} };
+    } };
+    await RefundCommand.prototype.chatInputRun({
+      inCachedGuild: () => true, member: { permissions: { has: () => true } },
+      user: { id: 'admin', tag: 'Admin' }, options: { getUser: () => ({ id: 'buyer', tag: 'Buyer' }) },
+      guild: { id: 'guild', channels: { cache: new Map([['log', channel]]) } },
+      deferReply: async payload => { deferred = payload; }, editReply: async payload => { reply = payload; },
+    });
+    assert.equal(deferred.flags, MessageFlags.Ephemeral);
+    const confirmation = reply.embeds[0].toJSON();
+    assert.equal(confirmation.title, '✅ Refund Logged');
+    const expected = [
+      { name: 'Estimated Gross Refund', value: `IDR ${period.price / 2}`, inline: true },
+      { name: 'Estimated 5% Deduction', value: `IDR ${period.price / 40}`, inline: true },
+      { name: 'Estimated Net Refund', value: `IDR ${period.price / 2 - period.price / 40}`, inline: true },
+    ];
+    assert.deepEqual(confirmation.fields, expected);
+    assert.deepEqual(confirmation.fields, log.embeds[0].toJSON().fields.filter(field => field.name.startsWith('Estimated ')));
+    assert.equal(confirmation.color, EMBED_COLORS.CONFIRMED);
+    assert.equal(confirmation.footer.text, `${EMBED_FOOTER} • Purchases`);
+    assert.ok(confirmation.timestamp);
+    assert.match(confirmation.description, /Amounts are estimates.*recalculates.*remaining time at verification/s);
+    assert.match(confirmation.description, /recorded for manual payment; the bot does not transfer funds/);
+    assert.match(confirmation.description, /dummy test prices/);
+    assert.match(confirmation.description, /The 5% tax does not include inter-bank transfer fees\./);
+    assert.equal(log.components[0].toJSON().components[0].custom_id, `refund_verify_${requestId}`);
   });
 }
