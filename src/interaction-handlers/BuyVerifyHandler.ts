@@ -73,6 +73,30 @@ export class BuyVerifyHandler extends InteractionHandler {
       interaction.guild.id,
       userId,
       async () => {
+        let existing;
+        try {
+          existing = await subscriptionStore.get(interaction.guild.id, userId);
+        } catch (error) {
+          console.error(
+            'Failed to load subscription for purchase verification:',
+            error,
+          );
+          await interaction.followUp({
+            content:
+              '❌ Failed to load the subscription. Try again after storage is restored.',
+            ephemeral: true,
+          });
+          return;
+        }
+        if (existing?.roleId === roleId) {
+          await interaction.followUp({
+            content:
+              '❌ This buyer already has a subscription for this role. Use /renew to extend it.',
+            ephemeral: true,
+          });
+          return;
+        }
+
         const member = await interaction.guild.members
           .fetch(userId)
           .catch(() => null);
@@ -98,14 +122,8 @@ export class BuyVerifyHandler extends InteractionHandler {
           return;
         }
 
-        const existing = await subscriptionStore.get(
-          interaction.guild.id,
-          userId,
-        );
-        const now = Date.now();
-        const startsAt =
-          existing?.roleId === roleId ? Math.max(existing.expiresAt, now) : now;
-        const expiresAt = startsAt + durationMonths * 30 * 24 * 60 * 60 * 1000;
+        const expiresAt =
+          Date.now() + durationMonths * 30 * 24 * 60 * 60 * 1000;
 
         await subscriptionStore.set({
           userId,

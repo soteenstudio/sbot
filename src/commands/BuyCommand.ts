@@ -22,6 +22,7 @@ import {
 import 'dotenv/config';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { Roles } from '../config.js';
+import { subscriptionStore } from '../lib/subscriptionStore.js';
 
 export class BuyCommand extends Subcommand {
   public static commandName: string = 'buy';
@@ -100,16 +101,36 @@ export class BuyCommand extends Subcommand {
       return;
     }
 
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    let existing;
+    try {
+      existing = await subscriptionStore.get(interaction.guildId!, buyer.id);
+    } catch (error) {
+      console.error('Failed to load subscription for purchase:', error);
+      await interaction.editReply({
+        content:
+          '❌ Failed to load the subscription. Try again after storage is restored.',
+      });
+      return;
+    }
+    if (existing?.roleId === selectedRole.id) {
+      await interaction.editReply({
+        content:
+          '❌ This buyer already has a subscription for this role. Use /renew to extend it.',
+      });
+      return;
+    }
+
     const logChannelId = process.env.BUY_LOG_CHANNEL;
     const logChannel = logChannelId
       ? interaction.guild?.channels.cache.get(logChannelId)
       : undefined;
 
     if (!logChannel || logChannel.type !== ChannelType.GuildText) {
-      await interaction.reply({
+      await interaction.editReply({
         content:
           '❌ Purchase log is unavailable because the staff log channel is not configured.',
-        ephemeral: true,
       });
       return;
     }
@@ -146,8 +167,6 @@ export class BuyCommand extends Subcommand {
         .setLabel('Verify & Grant')
         .setStyle(ButtonStyle.Success),
     );
-
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
       await logChannel.send({ embeds: [embed], components: [row] });

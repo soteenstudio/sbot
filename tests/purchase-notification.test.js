@@ -20,14 +20,18 @@ const month = 30 * 24 * 60 * 60 * 1000;
 for (const [name, grant] of [
   ['handler', (interaction) => BuyVerifyHandler.prototype.run(interaction)],
 ]) {
-  for (const scenario of ['success', 'blocked DM', 'fetch failure', 'role failure', 'save failure']) {
+  for (const scenario of ['success', 'blocked DM', 'fetch failure', 'role failure', 'save failure', 'read failure']) {
     test(`${name}: purchase notification on ${scenario}`, async (t) => {
       const events = [];
       let saved;
       const error = new Error(scenario);
       t.mock.method(Date, 'now', () => now);
       const logged = t.mock.method(console, 'error', () => {});
-      t.mock.method(subscriptionStore, 'get', async () => undefined);
+      t.mock.method(subscriptionStore, 'get', async () => {
+        events.push('get');
+        if (scenario === 'read failure') throw error;
+        return undefined;
+      });
       t.mock.method(subscriptionStore, 'set', async (record) => {
         events.push('save');
         if (scenario === 'save failure') throw error;
@@ -78,13 +82,14 @@ for (const [name, grant] of [
       if (scenario === 'save failure') await assert.rejects(grant(interaction), error);
       else await grant(interaction);
       if (scenario === 'success' || scenario === 'blocked DM') {
-        assert.deepEqual(events, ['fetch', 'add', 'save', 'dm', 'staff']);
+        assert.deepEqual(events, ['get', 'fetch', 'add', 'save', 'dm', 'staff']);
         assert.equal(saved.expiresAt, now + month);
       } else {
         assert.ok(!events.includes('dm'));
         assert.ok(!events.includes('staff'));
       }
-      assert.equal(logged.mock.callCount(), scenario === 'blocked DM' ? 1 : 0);
+      if (scenario === 'read failure') assert.deepEqual(events, ['get', 'failure reply']);
+      assert.equal(logged.mock.callCount(), ['blocked DM', 'read failure'].includes(scenario) ? 1 : 0);
       if (scenario === 'blocked DM') assert.equal(logged.mock.calls[0].arguments[1], error);
     });
   }

@@ -233,7 +233,7 @@ test('expiry snapshot racing with renewal re-reads and preserves renewed subscri
 for (const [name, grant] of [
   ['handler', (interaction) => BuyVerifyHandler.prototype.run(interaction)],
 ]) {
-  test(`renewal racing with purchase ${name} retains both durations`, async (t) => {
+  test(`renewal racing with purchase ${name} rejects same-role purchase and extends only by approval`, async (t) => {
     const f = fixture(t);
     const purchase = {
       ...f.interaction,
@@ -241,15 +241,22 @@ for (const [name, grant] of [
       message: { embeds: [{ title: 'Purchase' }], components: [] },
       deferUpdate: async () => {},
       update: async () => {},
+      followUp: async ({ content, ephemeral }) => {
+        assert.equal(ephemeral, true);
+        assert.match(content, /Use \/renew/);
+        f.events.push('purchase rejected');
+      },
     };
-    // Inspect each saved duration rather than reusing renewal-only DM assertions.
+    // Count persistence separately from the renewal notification assertions.
     const member = await f.guild.members.fetch(buyerId);
     member.send = async () => {};
     await Promise.all([
       RenewApproveHandler.prototype.run(f.approval),
       grant(purchase),
     ]);
-    assert.equal(f.current().expiresAt, now + 3 * month);
+    assert.equal(f.current().expiresAt, now + 2 * month);
+    assert.equal(f.events.filter(event => event === 'save').length, 1);
+    assert.ok(f.events.includes('purchase rejected'));
   });
 }
 
