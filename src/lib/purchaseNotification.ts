@@ -17,20 +17,45 @@ export async function notifyBuyerOfPurchase(
   member: GuildMember,
   purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>,
 ): Promise<void> {
+  await notifyBuyer(member, purchase, false);
+}
+
+export async function notifyBuyerOfRenewal(
+  member: GuildMember,
+  purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>,
+): Promise<void> {
+  await notifyBuyer(member, purchase, true);
+}
+
+async function notifyBuyer(
+  member: GuildMember,
+  purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>,
+  renewal: boolean,
+): Promise<void> {
   try {
     const tierName =
       member.guild.roles.cache.get(purchase.roleId)?.name ??
-      Object.entries(Roles).find(([, role]) => role.id === purchase.roleId)?.[0] ??
+      Object.entries(Roles).find(
+        ([, role]) => role.id === purchase.roleId,
+      )?.[0] ??
       'Subscription';
     const embed = new EmbedBuilder()
-      .setTitle('✅ Your Purchase Has Been Granted')
+      .setTitle(
+        renewal
+          ? '✅ Your Subscription Has Been Renewed'
+          : '✅ Your Purchase Has Been Granted',
+      )
       .setColor(EMBED_COLORS.CONFIRMED)
-      .setDescription('Your subscription purchase has been verified and granted.')
+      .setDescription(
+        renewal
+          ? 'Your subscription renewal has been saved and your access extended.'
+          : 'Your subscription purchase has been verified and granted.',
+      )
       .addFields(
         { name: 'Server', value: member.guild.name, inline: true },
         { name: 'Subscription Tier', value: tierName, inline: true },
         {
-          name: 'Purchased Duration',
+          name: renewal ? 'Added Duration' : 'Purchased Duration',
           value: `${purchase.durationMonths} Month${purchase.durationMonths > 1 ? 's' : ''}`,
           inline: true,
         },
@@ -45,6 +70,9 @@ export async function notifyBuyerOfPurchase(
 
     await member.send({ embeds: [embed] });
   } catch (error) {
-    console.error(`Failed to send purchase DM to user ${member.id}:`, error);
+    console.error(
+      `Failed to send ${renewal ? 'renewal' : 'purchase'} DM to user ${member.id}:`,
+      error,
+    );
   }
 }

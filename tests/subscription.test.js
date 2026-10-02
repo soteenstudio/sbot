@@ -102,6 +102,7 @@ for (const scenario of ['missing guild', 'unavailable guild', 'fetch failure', '
     t.mock.method(console, 'log', () => {});
     t.mock.method(console, 'error', () => {});
     t.mock.method(subscriptionStore, 'getAll', async () => [{ ...record, expiresAt: scenario === 'not expired' ? now + month : now - 1 }]);
+    t.mock.method(subscriptionStore, 'get', async () => ({ ...record, expiresAt: scenario === 'not expired' ? now + month : now - 1 }));
     t.mock.method(subscriptionStore, 'delete', async (guildId, userId) => {
       assert.deepEqual([guildId, userId], ['guild', 'buyer']);
       if (scenario === 'success') assert.equal(removed, true);
