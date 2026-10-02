@@ -9,6 +9,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { expectedMoney } from './helpers/money.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,7 +61,7 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
           guild: { name: 'Server', roles: { cache: new Map([['role', { name: 'Donatur' }]]) } },
           send: async ({ embeds }) => {
             events.push('dm');
-            assert.deepEqual(embeds[0].data.fields[3], { name: 'Amount to Pay', value: 'IDR 10000', inline: true });
+            assert.deepEqual(embeds[0].data.fields[3], { name: 'Amount to Pay', value: 'IDR 10.000', inline: true });
             assert.ok(embeds[0].data.description.includes('Recorded for manual payment; the bot does not take payment.'));
             assert.equal(embeds[0].data.fields.find((field) => field.name === 'Expires').value,
               `<t:${Math.floor((now + month) / 1000)}:F>`);
@@ -287,7 +288,7 @@ for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], B
       Roles[tier].id = `role-${tier}`;
       t.after(() => { Roles[tier].id = originalRole; });
       f.interaction.options.getString = name => name === 'role' ? tier : String(duration);
-      const text = `IDR ${prices[index]}`;
+      const text = expectedMoney(prices[index]);
       assert.deepEqual(getPaymentAmount(Roles[tier].id, duration), { amount: prices[index], text });
       await BuyCommand.prototype.chatInputRun(f.interaction);
       assert.equal(f.requests.length, 1);

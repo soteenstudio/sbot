@@ -9,6 +9,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { expectedMoney } from './helpers/money.js';
 import { test } from 'node:test';
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
@@ -89,7 +90,7 @@ for (const [name, grant] of [
           assert.deepEqual(Object.fromEntries(embed.fields.map(({ name, value }) => [name, value])), {
             Server: 'Test Server', 'Subscription Tier': tier,
             'Purchased Duration': `${duration} Month${duration > 1 ? 's' : ''}`,
-            ...(scenario === 'format failure' ? {} : { 'Amount to Pay': `IDR ${amount}` }), Expires: `<t:${Math.floor(saved.expiresAt / 1000)}:F>`,
+            ...(scenario === 'format failure' ? {} : { 'Amount to Pay': expectedMoney(amount) }), Expires: `<t:${Math.floor(saved.expiresAt / 1000)}:F>`,
           });
           if (scenario === 'blocked DM') throw error;
         },
@@ -99,13 +100,13 @@ for (const [name, grant] of [
         member: { permissions: { has: () => true } },
         customId: `buy_verify_buyer_role_${duration}`,
         user: { tag: 'Verifier' }, guild,
-        message: { embeds: [{ title: 'Purchase', fields: [{ name: 'Amount to Pay', value: 'IDR 10000', inline: true }] }], components: [] },
+        message: { embeds: [{ title: 'Purchase', fields: [{ name: 'Amount to Pay', value: 'IDR 10.000', inline: true }] }], components: [] },
         deferUpdate: async () => {},
         reply: async () => { events.push('failure reply'); },
         followUp: async (reply) => { assert.equal(reply.ephemeral, true); followUp = reply.content; events.push('failure reply'); },
         update: async () => { events.push('staff'); },
         editReply: async ({ embeds }) => {
-          assert.deepEqual(embeds[0].toJSON().fields.find(field => field.name === 'Amount to Pay'), { name: 'Amount to Pay', value: 'IDR 10000', inline: true });
+          assert.deepEqual(embeds[0].toJSON().fields.find(field => field.name === 'Amount to Pay'), { name: 'Amount to Pay', value: 'IDR 10.000', inline: true });
           events.push('staff');
         },
       };

@@ -95,7 +95,7 @@ for (const scenario of ['', 'missing channel', 'wrong channel', 'send failure', 
       assert.equal(embed.title, '💸 Subscription Refund Request'); assert.equal(embed.color, EMBED_COLORS.WARNING);
       assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`); assert.ok(embed.timestamp);
       assert.equal(embed.fields.find(x => x.name === 'Status').value, '⏳ Pending verification');
-      assert.equal(embed.fields.find(x => x.name === 'Estimated Net Refund').value, 'IDR 4750');
+      assert.equal(embed.fields.find(x => x.name === 'Estimated Net Refund').value, 'IDR 4.750');
       assert.match(embed.description, /The 5% tax does not include inter-bank transfer fees\./);
       assertButton(f.sent[0].components[0], true); assertButton(f.edits[0].components[0], false);
       const confirmation = f.responses.at(-1).embeds[0].toJSON();
