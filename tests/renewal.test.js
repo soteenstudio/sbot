@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
 import { RenewApproveHandler } from '../dist/interaction-handlers/RenewApproveHandler.js';
 import { Roles } from '../dist/config.js';
@@ -24,6 +24,30 @@ const tierId = '222222222222222222';
 const logId = '333333333333333333';
 const now = 1800000000000;
 const month = 30 * 24 * 60 * 60 * 1000;
+
+function approvalComponents(customId, emoji = true) {
+  const button = new ButtonBuilder()
+    .setCustomId(customId)
+    .setLabel('Approve Renewal')
+    .setStyle(ButtonStyle.Success)
+    .setDisabled(false);
+  if (emoji) button.setEmoji('✅');
+  return [new ActionRowBuilder().addComponents(button).toJSON()];
+}
+
+function assertApprovalButton(components, customId, disabled) {
+  assert.equal(components.length, 1);
+  const row = components[0].toJSON?.() ?? components[0];
+  assert.equal(row.type, 1);
+  assert.equal(row.components.length, 1);
+  const button = row.components[0];
+  assert.equal(button.type, 2);
+  assert.equal(button.custom_id, customId);
+  assert.equal(button.label, 'Approve Renewal');
+  assert.equal(button.emoji.name, '✅');
+  assert.equal(button.style, ButtonStyle.Success);
+  assert.equal(Boolean(button.disabled), disabled);
+}
 
 function fixture(t, scenario = 'success', duration = '1', expiry = now + month) {
   const originalLog = process.env.BUY_LOG_CHANNEL;
@@ -103,7 +127,11 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month) 
   const approval = {
     ...interaction, channelId: logId,
     customId: `renew_approve_${buyerId}_${tierId}_${duration}`,
-    message: { id: '444444444444444444', embeds: [{ title: 'Renewal', fields: [{ name: 'Status', value: 'Pending' }] }] },
+    message: { id: '444444444444444444', embeds: [{ title: 'Renewal', fields: [{ name: 'Status', value: 'Pending' }] }], components: approvalComponents(`renew_approve_${buyerId}_${tierId}_${duration}`) },
+    async editReply(reply) {
+      await interaction.editReply(reply);
+      if (reply.components) this.message.components = reply.components.map(row => row.toJSON());
+    },
     deferUpdate: async () => { events.push('defer'); },
     followUp: async reply => { events.push('failure'); replies.push(reply); },
   };
@@ -133,6 +161,7 @@ for (const duration of ['1', '6', '12']) {
       });
       assert.deepEqual(f.events, ['defer', 'get', 'fetch', 'role', 'add', 'save', 'dm', 'staff']);
       assert.ok(f.replies.at(-1).embeds);
+      assertApprovalButton(f.replies.at(-1).components, f.approval.customId, true);
     });
   }
 }
@@ -144,6 +173,8 @@ for (const scenario of ['unauthorized', 'missing subscription', 'missing member'
     const success = ['blocked DM', 'already has role'].includes(scenario);
     assert.equal(Boolean(f.replies.at(-1).embeds), success);
     assert.equal(f.events.includes('dm'), success);
+    assertApprovalButton(f.approval.message.components, f.approval.customId, success);
+    if (!success) assert.ok(!f.events.includes('staff'));
     if (scenario === 'missing subscription') assert.match(f.replies.at(-1).content, /\/buy/);
     if (scenario === 'save failure') assert.match(f.replies.at(-1).content, /role was restored.*could not be saved/);
     if (scenario === 'blocked DM') assert.equal(f.logged.mock.callCount(), 1);
@@ -159,6 +190,7 @@ for (const [duration, expiry] of [['2', now], ['1junk', now], ['1', NaN], ['1', 
     assert.ok(!f.events.includes('fetch'));
     assert.ok(!f.events.includes('save'));
     assert.ok(!f.replies.at(-1).embeds);
+    assertApprovalButton(f.approval.message.components, f.approval.customId, false);
   });
 }
 
@@ -167,6 +199,10 @@ test('simultaneous duplicate approvals apply once', async (t) => {
   await Promise.all([RenewApproveHandler.prototype.run(f.approval), RenewApproveHandler.prototype.run(f.approval)]);
   assert.equal(f.current().expiresAt, now + 2 * month);
   assert.equal(f.events.filter(event => event === 'save').length, 1);
+  assert.equal(f.events.filter(event => event === 'dm').length, 1);
+  const updates = f.replies.filter(reply => reply.components);
+  assert.equal(updates.length, 2);
+  for (const update of updates) assertApprovalButton(update.components, f.approval.customId, true);
 });
 
 test('expiry snapshot racing with renewal re-reads and preserves renewed subscription', async (t) => {
@@ -230,17 +266,8 @@ for (const scenario of ['success', 'missing configuration', 'send failure', 'mis
       assert.equal(f.requests.length, 1);
       const embed = f.requests[0].embeds[0].toJSON();
       assert.equal(embed.fields.find(field => field.name === 'Status').value, '⏳ Pending approval');
-      assert.equal(f.requests[0].components[0].components[0].data.custom_id, f.approval.customId);
-      const reply = f.replies.at(-1);
-      assert.ok(!Object.hasOwn(reply, 'content'));
-      assert.equal(reply.embeds.length, 1);
-      const confirmation = reply.embeds[0].toJSON();
-      assert.equal(confirmation.title, '✅ Renewal Logged');
-      assert.equal(confirmation.color, EMBED_COLORS.CONFIRMED);
-      assert.equal(confirmation.footer.text, 'SoTeen Studio • Purchases');
-      assert.ok(confirmation.timestamp);
-      assert.match(confirmation.description, /\*\*Buyer\*\*/);
-      assert.match(confirmation.description, /awaiting staff approval in the log channel/);
+      assertApprovalButton(f.requests[0].components, f.approval.customId, false);
+      assert.match(f.replies.at(-1).content, /awaiting approval/);
     } else assert.equal(f.requests.length, 0);
   });
 }
@@ -258,7 +285,7 @@ for (const staff of ['administrator', 'founder', 'deputy']) {
     }
     await RenewApproveHandler.prototype.run(f.approval);
     assert.ok(f.events.includes('save'));
-    assert.deepEqual(f.replies.at(-1).components, []);
+    assertApprovalButton(f.replies.at(-1).components, f.approval.customId, true);
     assert.match(f.replies.at(-1).embeds[0].data.fields.find(field => field.name === 'Status').value, /Approved by Admin/);
   });
 }
@@ -274,6 +301,8 @@ for (const scenario of ['changed tier', 'invalid payload', 'wrong channel', 'ove
     assert.ok(!f.events.includes('save'));
     assert.ok(!f.events.includes('add'));
     assert.match(f.replies.at(-1).content, /❌/);
+    assert.ok(!f.events.includes('staff'));
+    assertApprovalButton(f.approval.message.components, `renew_approve_${buyerId}_${tierId}_1`, false);
   });
 }
 
@@ -289,7 +318,7 @@ test('approval uses latest state and approval time', async t => {
 
 test('separate simultaneous requests are additive', async t => {
   const f = fixture(t);
-  const second = { ...f.approval, customId: `renew_approve_${buyerId}_${tierId}_6`, message: { ...f.approval.message, id: '555555555555555555' } };
+  const second = { ...f.approval, customId: `renew_approve_${buyerId}_${tierId}_6`, message: { ...f.approval.message, id: '555555555555555555', components: approvalComponents(`renew_approve_${buyerId}_${tierId}_6`) } };
   f.member.send = async () => {};
   await Promise.all([RenewApproveHandler.prototype.run(f.approval), RenewApproveHandler.prototype.run(second)]);
   assert.equal(f.current().expiresAt, now + 8 * month);
@@ -297,15 +326,43 @@ test('separate simultaneous requests are additive', async t => {
 
 test('retry after log failure repairs without duplicate extension or DM', async t => {
   const f = fixture(t);
-  f.approval.editReply = async () => { throw new Error('log failure'); };
+  const editReply = f.approval.editReply;
+  f.approval.editReply = async (reply) => {
+    assertApprovalButton(reply.components, f.approval.customId, true);
+    assert.equal(f.events.filter(event => event === 'save').length, 1);
+    throw new Error('log failure');
+  };
   await RenewApproveHandler.prototype.run(f.approval);
   assert.match(f.replies.at(-1).content, /renewal was saved.*log/);
-  f.approval.editReply = f.interaction.editReply;
+  assertApprovalButton(f.approval.message.components, f.approval.customId, false);
+  f.approval.editReply = editReply;
   await RenewApproveHandler.prototype.run(f.approval);
   assert.equal(f.current().expiresAt, now + 2 * month);
   assert.equal(f.events.filter(event => event === 'save').length, 1);
   assert.equal(f.events.filter(event => event === 'dm').length, 1);
+  assertApprovalButton(f.replies.at(-1).components, f.approval.customId, true);
 });
+
+for (const retry of [false, true]) {
+  test(`older request without emoji is repaired on ${retry ? 'saved-receipt retry' : 'approval'}`, async t => {
+    const f = fixture(t);
+    f.approval.message.components = approvalComponents(f.approval.customId, false);
+    assert.equal(f.approval.message.components[0].components[0].emoji, undefined);
+    const editReply = f.approval.editReply;
+    if (retry) {
+      f.approval.editReply = async () => { throw new Error('log failure'); };
+      await RenewApproveHandler.prototype.run(f.approval);
+      assert.equal(f.approval.message.components[0].components[0].disabled, false);
+      assert.equal(f.approval.message.components[0].components[0].emoji, undefined);
+      f.approval.editReply = editReply;
+    }
+    await RenewApproveHandler.prototype.run(f.approval);
+    assertApprovalButton(f.approval.message.components, f.approval.customId, true);
+    assert.equal(f.current().expiresAt, now + 2 * month);
+    assert.equal(f.events.filter(event => event === 'save').length, 1);
+    assert.equal(f.events.filter(event => event === 'dm').length, 1);
+  });
+}
 
 test('save failure without restoration explicitly reports unchanged expiration', async t => {
   const f = fixture(t, 'save failure');
@@ -313,6 +370,8 @@ test('save failure without restoration explicitly reports unchanged expiration',
   await RenewApproveHandler.prototype.run(f.approval);
   assert.match(f.replies.at(-1).content, /expiration was not extended/);
   assert.ok(!f.events.includes('dm'));
+  assert.ok(!f.events.includes('staff'));
+  assertApprovalButton(f.approval.message.components, f.approval.customId, false);
 });
 
 for (const [duration, expiry] of [['2', now], ['1junk', now], ['1', NaN], ['1', Infinity], ['1', -1]]) {

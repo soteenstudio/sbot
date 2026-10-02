@@ -12,7 +12,14 @@ import {
   InteractionHandler,
   InteractionHandlerTypes,
 } from '@sapphire/framework';
-import { ButtonInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonInteraction,
+  ButtonStyle,
+  EmbedBuilder,
+  MessageFlags,
+} from 'discord.js';
 import { Roles } from '../config.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
@@ -199,8 +206,16 @@ export class RenewApproveHandler extends InteractionHandler {
             inline: true,
           },
         );
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(interaction.customId)
+            .setEmoji('✅')
+            .setLabel('Approve Renewal')
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(true),
+        );
         try {
-          await interaction.editReply({ embeds: [embed], components: [] });
+          await interaction.editReply({ embeds: [embed], components: [row] });
         } catch (error) {
           console.error('Failed to update approved renewal log:', error);
           await fail(
