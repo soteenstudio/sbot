@@ -71,7 +71,7 @@ export class RefundCommand extends Subcommand {
     // Do not infer historical payments or cancellation policy from subscriptions.
     await interaction.editReply({
       content:
-        '❌ Refunds are unavailable until the owner supplies the currency, subscription prices, refund basis, and subscription cancellation policy. No refund was recorded or subscription changed.',
+        '❌ Refund processing is not implemented yet. The owner must confirm the refund basis and whether a refund cancels the subscription and removes its role. No refund was recorded or subscription changed.',
     });
   }
 }
