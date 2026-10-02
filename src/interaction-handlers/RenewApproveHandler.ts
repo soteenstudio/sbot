@@ -20,7 +20,10 @@ import {
   EmbedBuilder,
   MessageFlags,
 } from 'discord.js';
-import { snapshotPaidPeriod } from '../lib/subscriptionPrices.js';
+import {
+  formatSubscriptionMoney,
+  snapshotPaidPeriod,
+} from '../lib/subscriptionPrices.js';
 import { validatePaidPeriods } from '../lib/proportionalRefund.js';
 import { Roles } from '../config.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
@@ -223,7 +226,13 @@ export class RenewApproveHandler extends InteractionHandler {
             );
             return;
           }
-          await notifyBuyerOfRenewal(member, renewed);
+          let amountText: string | undefined;
+          try {
+            amountText = formatSubscriptionMoney(period.price, period.currency);
+          } catch (error) {
+            console.error('Failed to format renewal DM amount:', error);
+          }
+          await notifyBuyerOfRenewal(member, { ...renewed, amountText });
         }
 
         const embed = EmbedBuilder.from(

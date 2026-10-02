@@ -24,7 +24,10 @@ import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js'
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { notifyBuyerOfPurchase } from '../lib/purchaseNotification.js';
 import { randomUUID } from 'node:crypto';
-import { snapshotPaidPeriod } from '../lib/subscriptionPrices.js';
+import {
+  formatSubscriptionMoney,
+  snapshotPaidPeriod,
+} from '../lib/subscriptionPrices.js';
 import { Roles } from '../config.js';
 
 export class BuyVerifyHandler extends InteractionHandler {
@@ -188,7 +191,15 @@ export class BuyVerifyHandler extends InteractionHandler {
           return;
         }
 
+        let amountText: string | undefined;
+        try {
+          amountText = formatSubscriptionMoney(period.price, period.currency);
+        } catch (error) {
+          console.error('Failed to format purchase DM amount:', error);
+        }
+
         await notifyBuyerOfPurchase(member, {
+          amountText,
           roleId,
           durationMonths,
           expiresAt,

@@ -51,9 +51,11 @@ function assertApprovalButton(components, customId, disabled) {
   assert.equal(Boolean(button.disabled), disabled);
 }
 
-function fixture(t, scenario = 'success', duration = '1', expiry = now + month) {
-  const originalTier = Roles.DONATUR.id; Roles.DONATUR.id = tierId;
-  t.after(() => { Roles.DONATUR.id = originalTier; });
+function fixture(t, scenario = 'success', duration = '1', expiry = now + month, tier = 'DONATUR') {
+  const originalTiers = Object.fromEntries(['DONATUR', 'BILLION', 'RICHMAN'].map(key => [key, Roles[key].id]));
+  for (const key of Object.keys(originalTiers)) Roles[key].id = undefined;
+  Roles[tier].id = tierId;
+  t.after(() => { for (const [key, id] of Object.entries(originalTiers)) Roles[key].id = id; });
   const originalLog = process.env.BUY_LOG_CHANNEL;
   process.env.BUY_LOG_CHANNEL = logId;
   t.after(() => { if (originalLog === undefined) delete process.env.BUY_LOG_CHANNEL; else process.env.BUY_LOG_CHANNEL = originalLog; });
@@ -67,6 +69,7 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month) 
     events.push('save');
     if (scenario === 'save failure') throw new Error('save');
     record = saved;
+    if (scenario === 'format failure') receipt.paidPeriod.currency = { code: 'bad', minorUnitDigits: 0 };
     receipts.set(receipt.requestId, receipt);
   });
   const logged = t.mock.method(console, 'error', () => {});
@@ -84,7 +87,7 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month) 
   const guild = {
     id: 'guild', name: 'Test Server', available: true,
     channels: { cache: new Map([[logId, { type: 0, send: async request => { events.push('send'); if (scenario === 'send failure') throw new Error('send'); requests.push(request); } }]]) },
-    roles: { cache: new Map([[tierId, { name: 'Donatur' }]]), fetch: async () => {
+    roles: { cache: new Map([[tierId, { name: tier }]]), fetch: async () => {
       events.push('role');
       return scenario === 'missing role' ? null : { id: tierId };
     } },
@@ -109,11 +112,14 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month) 
       assert.equal(events.at(-2), 'save');
       const embed = embeds[0].toJSON();
       assert.equal(embed.title, '✅ Your Subscription Has Been Renewed');
+      assert.ok(embed.description.includes('Recorded for manual payment; the bot does not take payment.'));
+      if (scenario !== 'format failure') assert.equal(embed.fields[3].name, 'Amount to Pay');
       assert.equal(embed.color, EMBED_COLORS.CONFIRMED);
       assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`);
       assert.deepEqual(Object.fromEntries(embed.fields.map(({ name, value }) => [name, value])), {
-        Server: 'Test Server', 'Subscription Tier': 'Donatur',
+        Server: 'Test Server', 'Subscription Tier': tier,
         'Added Duration': `${duration} Month${duration === '1' ? '' : 's'}`,
+        ...(scenario === 'format failure' ? {} : { 'Amount to Pay': `IDR ${record.paidPeriods.at(-1).price}` }),
         Expires: `<t:${Math.floor(record.expiresAt / 1000)}:F>`,
       });
       if (scenario === 'blocked DM') throw new Error('dm');
@@ -457,3 +463,35 @@ for (const invalid of ['missing price', 'missing currency', 'invalid currency', 
     assert.ok(!f.events.includes('save'));
   });
 }
+
+for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], BILLION: [25000, 150000, 300000], RICHMAN: [50000, 300000, 600000] })) {
+  for (const [index, duration] of [1, 6, 12].entries()) {
+    test(`renewal DM saved amount ${tier} ${duration}`, async t => {
+      const f = fixture(t, 'success', String(duration), now + month, tier);
+      const originalPrice = subscriptionPrices.prices[tier][duration];
+      t.after(() => { subscriptionPrices.prices[tier][duration] = originalPrice; });
+      const save = subscriptionStore.saveRenewalApproval;
+      t.mock.method(subscriptionStore, 'saveRenewalApproval', async (...args) => {
+        await save(...args);
+        subscriptionPrices.prices[tier][duration] = 999999;
+      });
+      await RenewApproveHandler.prototype.run(f.approval);
+      assert.equal(f.current().paidPeriods.at(-1).price, prices[index]);
+      assert.equal(f.logged.mock.callCount(), 0);
+      assert.deepEqual(f.events, ['defer', 'get', 'fetch', 'role', 'add', 'save', 'dm', 'staff']);
+      await RenewApproveHandler.prototype.run(f.approval);
+      assert.equal(f.events.filter(event => event === 'dm').length, 1);
+    });
+  }
+}
+
+test('renewal DM formatting failure omits amount and logs once without blocking approval', async t => {
+  const f = fixture(t, 'format failure');
+  await RenewApproveHandler.prototype.run(f.approval);
+  assert.deepEqual(f.events, ['defer', 'get', 'fetch', 'role', 'add', 'save', 'dm', 'staff']);
+  assert.equal(f.logged.mock.callCount(), 1);
+  assert.match(f.logged.mock.calls[0].arguments[0], /Failed to format renewal DM amount/);
+  await RenewApproveHandler.prototype.run(f.approval);
+  assert.equal(f.events.filter(event => event === 'dm').length, 1);
+  assert.equal(f.logged.mock.callCount(), 1);
+});

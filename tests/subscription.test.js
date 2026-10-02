@@ -60,6 +60,8 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
           guild: { name: 'Server', roles: { cache: new Map([['role', { name: 'Donatur' }]]) } },
           send: async ({ embeds }) => {
             events.push('dm');
+            assert.deepEqual(embeds[0].data.fields[3], { name: 'Amount to Pay', value: 'IDR 10000', inline: true });
+            assert.ok(embeds[0].data.description.includes('Recorded for manual payment; the bot does not take payment.'));
             assert.equal(embeds[0].data.fields.find((field) => field.name === 'Expires').value,
               `<t:${Math.floor((now + month) / 1000)}:F>`);
           },

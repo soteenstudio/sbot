@@ -15,21 +15,36 @@ import type { SubscriptionRecord } from './subscriptionStore.js';
 
 export async function notifyBuyerOfPurchase(
   member: GuildMember,
-  purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>,
+  purchase: Pick<
+    SubscriptionRecord,
+    'roleId' | 'durationMonths' | 'expiresAt'
+  > & {
+    amountText?: string;
+  },
 ): Promise<void> {
   await notifyBuyer(member, purchase, false);
 }
 
 export async function notifyBuyerOfRenewal(
   member: GuildMember,
-  purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>,
+  purchase: Pick<
+    SubscriptionRecord,
+    'roleId' | 'durationMonths' | 'expiresAt'
+  > & {
+    amountText?: string;
+  },
 ): Promise<void> {
   await notifyBuyer(member, purchase, true);
 }
 
 async function notifyBuyer(
   member: GuildMember,
-  purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>,
+  purchase: Pick<
+    SubscriptionRecord,
+    'roleId' | 'durationMonths' | 'expiresAt'
+  > & {
+    amountText?: string;
+  },
   renewal: boolean,
 ): Promise<void> {
   try {
@@ -47,9 +62,10 @@ async function notifyBuyer(
       )
       .setColor(EMBED_COLORS.CONFIRMED)
       .setDescription(
-        renewal
+        (renewal
           ? 'Your subscription renewal has been saved and your access extended.'
-          : 'Your subscription purchase has been verified and granted.',
+          : 'Your subscription purchase has been verified and granted.') +
+          '\n\nRecorded for manual payment; the bot does not take payment.',
       )
       .addFields(
         { name: 'Server', value: member.guild.name, inline: true },
@@ -59,6 +75,15 @@ async function notifyBuyer(
           value: `${purchase.durationMonths} Month${purchase.durationMonths > 1 ? 's' : ''}`,
           inline: true,
         },
+        ...(purchase.amountText
+          ? [
+              {
+                name: 'Amount to Pay',
+                value: purchase.amountText,
+                inline: true,
+              },
+            ]
+          : []),
         {
           name: 'Expires',
           value: `<t:${Math.floor(purchase.expiresAt / 1000)}:F>`,
