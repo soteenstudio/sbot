@@ -22,6 +22,7 @@ import {
 import 'dotenv/config';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { Roles } from '../config.js';
+import { getPaymentAmount } from '../lib/subscriptionPrices.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 
 export class BuyCommand extends Subcommand {
@@ -141,17 +142,28 @@ export class BuyCommand extends Subcommand {
       return;
     }
 
+    let payment;
+    try {
+      payment = getPaymentAmount(selectedRole.id, durationMonths);
+    } catch (error) {
+      await interaction.editReply({
+        content: `❌ Unable to determine amount to pay: ${error instanceof Error ? error.message : 'Invalid subscription price configuration'}. No log was posted.`,
+      });
+      return;
+    }
+
     const durationText = `${durationMonths} Month${durationMonths > 1 ? 's' : ''}`;
 
     const embed = new EmbedBuilder()
       .setTitle('🛒 New Subscription Purchase')
       .setDescription(
-        'A new subscription purchase is waiting for admin verification.',
+        'A new subscription purchase is waiting for admin verification. Amount to Pay is an estimate using dummy test prices; approval uses the price at approval time. Recorded for manual payment; the bot does not take payment.',
       )
       .addFields(
         { name: 'Buyer', value: `${buyer.tag} (${buyer.id})`, inline: true },
         { name: 'Tier Role', value: `<@&${selectedRole.id}>`, inline: true },
         { name: 'Duration', value: durationText, inline: true },
+        { name: 'Amount to Pay', value: payment.text, inline: true },
         {
           name: 'Processed By',
           value: `${interaction.user.tag}`,
@@ -187,7 +199,7 @@ export class BuyCommand extends Subcommand {
     const confirmation = new EmbedBuilder()
       .setTitle('✅ Purchase Logged')
       .setDescription(
-        `Successfully logged purchase for **${buyer.tag}**. Staff can verify it in the log channel.`,
+        `Successfully logged purchase for **${buyer.tag}**. Staff can verify it in the log channel.\n\n**Amount to Pay (estimate): ${payment.text}**. Dummy test prices; approval uses the price at approval time. Recorded for manual payment; the bot does not take payment.`,
       )
       .setColor(EMBED_COLORS.CONFIRMED)
       .setFooter({ text: 'SoTeen Studio • Purchases' })

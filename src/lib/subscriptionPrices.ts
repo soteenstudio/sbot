@@ -8,6 +8,8 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
+import { Roles } from '../config.js';
+
 export const SUBSCRIPTION_TIERS = ['DONATUR', 'BILLION', 'RICHMAN'] as const;
 export const SUBSCRIPTION_DURATIONS = [1, 6, 12] as const;
 export type SubscriptionTier = (typeof SUBSCRIPTION_TIERS)[number];
@@ -57,6 +59,21 @@ export function getSubscriptionPrice(tier: string, duration: number): number {
     throw new Error('Subscription price is unconfigured');
   validateMoney(amount);
   return amount;
+}
+
+export function getPaymentAmount(
+  roleId: string,
+  durationMonths: number,
+): { amount: number; text: string } {
+  const tier = SUBSCRIPTION_TIERS.find(
+    (key) => roleId && Roles[key].id === roleId,
+  );
+  if (!tier)
+    throw new Error('Subscription tier is unconfigured or unsupported');
+  const amount = getSubscriptionPrice(tier, durationMonths);
+  const currency = subscriptionPrices.currency;
+  if (!currency) throw new Error('Subscription currency is unconfigured');
+  return { amount, text: formatSubscriptionMoney(amount, currency) };
 }
 
 export interface RefundBreakdown {

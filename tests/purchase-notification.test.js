@@ -88,12 +88,15 @@ for (const [name, grant] of [
         member: { permissions: { has: () => true } },
         customId: 'buy_verify_buyer_role_1',
         user: { tag: 'Verifier' }, guild,
-        message: { embeds: [{ title: 'Purchase' }], components: [] },
+        message: { embeds: [{ title: 'Purchase', fields: [{ name: 'Amount to Pay', value: 'IDR 10000', inline: true }] }], components: [] },
         deferUpdate: async () => {},
         reply: async () => { events.push('failure reply'); },
         followUp: async (reply) => { assert.equal(reply.ephemeral, true); followUp = reply.content; events.push('failure reply'); },
         update: async () => { events.push('staff'); },
-        editReply: async () => { events.push('staff'); },
+        editReply: async ({ embeds }) => {
+          assert.deepEqual(embeds[0].toJSON().fields.find(field => field.name === 'Amount to Pay'), { name: 'Amount to Pay', value: 'IDR 10000', inline: true });
+          events.push('staff');
+        },
       };
       await grant(interaction);
       if (scenario === 'success' || scenario === 'blocked DM') {

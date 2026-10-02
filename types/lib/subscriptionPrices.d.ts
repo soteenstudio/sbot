@@ -21,6 +21,10 @@ export declare const subscriptionPrices: {
 };
 export declare function validateMoney(amount: number): void;
 export declare function getSubscriptionPrice(tier: string, duration: number): number;
+export declare function getPaymentAmount(roleId: string, durationMonths: number): {
+    amount: number;
+    text: string;
+};
 export interface RefundBreakdown {
     gross: number;
     tax: number;
