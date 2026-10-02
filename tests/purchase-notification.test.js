@@ -14,6 +14,8 @@ import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 
+import { Roles } from '../dist/config.js';
+
 const now = 1800000000123;
 const month = 30 * 24 * 60 * 60 * 1000;
 
@@ -22,6 +24,8 @@ for (const [name, grant] of [
 ]) {
   for (const scenario of ['success', 'blocked DM', 'fetch failure', 'role failure', 'save failure', 'save failure with existing role', 'save failure with rollback failure', 'read failure']) {
     test(`${name}: purchase notification on ${scenario}`, async (t) => {
+      const originalRole = Roles.DONATUR.id; Roles.DONATUR.id = 'role';
+      t.after(() => { Roles.DONATUR.id = originalRole; });
       const events = [];
       let saved;
       let followUp;

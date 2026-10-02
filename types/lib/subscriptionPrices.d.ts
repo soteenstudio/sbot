@@ -28,3 +28,13 @@ export interface RefundBreakdown {
 }
 export declare function calculateRefundDeduction(gross: number): RefundBreakdown;
 export declare function formatSubscriptionMoney(amount: number, currency: SubscriptionCurrency): string;
+export declare function snapshotPaidPeriod(tier: string, duration: number, startAt: number, endAt: number): {
+    startAt: number;
+    endAt: number;
+    price: number;
+    currency: {
+        code: string;
+        minorUnitDigits: number;
+    };
+    source: "testing";
+};

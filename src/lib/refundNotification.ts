@@ -12,7 +12,6 @@ import { EmbedBuilder, type GuildMember } from 'discord.js';
 import { Roles } from '../config.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import {
-  calculateRefundDeduction,
   formatSubscriptionMoney,
   type SubscriptionCurrency,
 } from './subscriptionPrices.js';
@@ -20,27 +19,33 @@ import {
 // Call only after a staff-confirmed refund is persisted and required access changes succeed.
 export async function notifyBuyerOfRefund(
   member: GuildMember,
-  refund: { roleId: string; gross: number; currency: SubscriptionCurrency },
+  refund: {
+    roleId: string;
+    gross: number;
+    tax: number;
+    net: number;
+    currency: SubscriptionCurrency;
+  },
 ): Promise<void> {
-  const amounts = calculateRefundDeduction(refund.gross);
-  const fields = [
-    {
-      name: 'Gross Refund',
-      value: formatSubscriptionMoney(amounts.gross, refund.currency),
-      inline: true,
-    },
-    {
-      name: '5% Deduction',
-      value: formatSubscriptionMoney(amounts.tax, refund.currency),
-      inline: true,
-    },
-    {
-      name: 'Net Refund',
-      value: formatSubscriptionMoney(amounts.net, refund.currency),
-      inline: true,
-    },
-  ];
   try {
+    const amounts = refund;
+    const fields = [
+      {
+        name: 'Gross Refund',
+        value: formatSubscriptionMoney(amounts.gross, refund.currency),
+        inline: true,
+      },
+      {
+        name: '5% Deduction',
+        value: formatSubscriptionMoney(amounts.tax, refund.currency),
+        inline: true,
+      },
+      {
+        name: 'Net Refund',
+        value: formatSubscriptionMoney(amounts.net, refund.currency),
+        inline: true,
+      },
+    ];
     const tierName =
       member.guild.roles.cache.get(refund.roleId)?.name ??
       Object.entries(Roles).find(
@@ -50,7 +55,7 @@ export async function notifyBuyerOfRefund(
     const embed = new EmbedBuilder()
       .setTitle('✅ Your Refund Has Been Recorded')
       .setDescription(
-        'Staff have confirmed your refund. The 5% deduction does not include inter-bank transfer fees.',
+        'Your unused subscription time refund was recorded for manual payment. Your subscription is cancelled and subscription access removed. The 5% tax does not include inter-bank transfer fees.',
       )
       .setColor(EMBED_COLORS.CONFIRMED)
       .addFields(

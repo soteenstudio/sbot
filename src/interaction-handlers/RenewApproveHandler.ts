@@ -20,6 +20,8 @@ import {
   EmbedBuilder,
   MessageFlags,
 } from 'discord.js';
+import { snapshotPaidPeriod } from '../lib/subscriptionPrices.js';
+import { validatePaidPeriods } from '../lib/proportionalRefund.js';
 import { Roles } from '../config.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
@@ -61,7 +63,7 @@ export class RenewApproveHandler extends InteractionHandler {
       return;
     }
     const payload =
-      /^renew_approve_([0-9]{17,20})_([0-9]{17,20})_(1|6|12)$/.exec(
+      /^renew_approve_([0-9]{17,20})_([0-9]{17,20})_(1|6|12)(?:_([a-f0-9-]{36}))?$/.exec(
         interaction.customId,
       );
     if (
@@ -77,7 +79,7 @@ export class RenewApproveHandler extends InteractionHandler {
       });
       return;
     }
-    const [, userId, roleId, duration] = payload;
+    const [, userId, roleId, duration, subscriptionId] = payload;
     const durationMonths = Number(duration);
     const requestId = `${interaction.guild.id}:${interaction.channelId}:${interaction.message.id}`;
     await interaction.deferUpdate();
@@ -108,6 +110,16 @@ export class RenewApproveHandler extends InteractionHandler {
           if (!existing) {
             await fail(
               '❌ No subscription record exists for this buyer. Use /buy first, then submit a new /renew request.',
+            );
+            return;
+          }
+          if (existing.pendingRefundId) {
+            await fail('❌ Cancellation is pending. Retry /refund first.');
+            return;
+          }
+          if (existing.subscriptionId !== subscriptionId) {
+            await fail(
+              '❌ Subscription changed since this request. Submit a new /renew request.',
             );
             return;
           }
@@ -147,6 +159,24 @@ export class RenewApproveHandler extends InteractionHandler {
             );
             return;
           }
+          let period;
+          try {
+            const tier =
+              Object.entries(Roles).find(([, r]) => r.id === roleId)?.[0] ?? '';
+            period = snapshotPaidPeriod(
+              tier,
+              durationMonths,
+              Math.max(existing.expiresAt, approvedAt),
+              expiresAt,
+            );
+            if (existing.paidPeriods?.length)
+              validatePaidPeriods([...existing.paidPeriods, period]);
+          } catch (error) {
+            await fail(
+              '❌ Invalid subscription price or payment metadata. No role was changed.',
+            );
+            return;
+          }
           const needsRestoration = !member.roles.cache.has(roleId);
           if (needsRestoration) {
             try {
@@ -162,8 +192,17 @@ export class RenewApproveHandler extends InteractionHandler {
               return;
             }
           }
-          const renewed = { ...existing, durationMonths, expiresAt };
+          const renewed = {
+            ...existing,
+            subscriptionId: existing.subscriptionId,
+            paidPeriods: [...(existing.paidPeriods ?? []), period],
+            paymentHistoryComplete: existing.paymentHistoryComplete === true,
+            durationMonths,
+            expiresAt,
+          };
           receipt = {
+            subscriptionId: existing.subscriptionId,
+            paidPeriod: period,
             requestId,
             userId,
             guildId: interaction.guild.id,

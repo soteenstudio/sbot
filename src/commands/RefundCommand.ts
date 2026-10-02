@@ -11,9 +11,21 @@
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import {
   ChatInputCommandInteraction,
+  EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js';
+
+import { randomUUID } from 'node:crypto';
+import {
+  subscriptionStore,
+  type RefundReceipt,
+} from '../lib/subscriptionStore.js';
+import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
+import { calculateProportionalRefund } from '../lib/proportionalRefund.js';
+import { notifyBuyerOfRefund } from '../lib/refundNotification.js';
+import { formatSubscriptionMoney } from '../lib/subscriptionPrices.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 
 export class RefundCommand extends Subcommand {
   public static commandName = 'refund';
@@ -68,10 +80,154 @@ export class RefundCommand extends Subcommand {
       return;
     }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    // Do not infer historical payments or cancellation policy from subscriptions.
-    await interaction.editReply({
-      content:
-        '❌ Refund processing is not implemented yet. The owner must confirm the refund basis and whether a refund cancels the subscription and removes its role. No refund was recorded or subscription changed.',
-    });
+    const buyer = interaction.options.getUser('buyer', true);
+    await coordinateSubscriptionChange(
+      interaction.guild.id,
+      buyer.id,
+      async () => {
+        const fail = async (content: string) => {
+          await interaction.editReply({ content: '❌ ' + content });
+        };
+        let receipt: RefundReceipt | undefined;
+        let record;
+        try {
+          record = await subscriptionStore.get(interaction.guild.id, buyer.id);
+          receipt = interaction.id
+            ? await subscriptionStore.getRefund(
+                interaction.guild.id + ':' + interaction.id,
+              )
+            : undefined;
+          receipt ??= record?.pendingRefundId
+            ? await subscriptionStore.getRefund(record.pendingRefundId)
+            : !record
+              ? await subscriptionStore.findRefund(
+                  interaction.guild.id,
+                  buyer.id,
+                )
+              : undefined;
+          if (record?.pendingRefundId && !receipt)
+            throw new Error(
+              'Pending refund receipt missing; metadata repair required',
+            );
+          if (
+            receipt?.status === 'pending' &&
+            record &&
+            receipt.subscriptionId !== record.subscriptionId
+          )
+            throw new Error('Subscription changed; metadata repair required');
+        } catch (error) {
+          console.error('Failed to load refund:', error);
+          await fail(
+            'Failed to load refund recovery state. Repair storage before retrying.',
+          );
+          return;
+        }
+        if (receipt?.status === 'completed') {
+          await interaction.editReply({
+            embeds: [refundConfirmation(receipt)],
+          });
+          return;
+        }
+        if (!record) {
+          await fail('No subscription exists for this buyer.');
+          return;
+        }
+        let member;
+        try {
+          member = await interaction.guild.members.fetch(buyer.id);
+        } catch (error) {
+          console.error('Failed to fetch refund buyer:', error);
+          await fail(
+            'Buyer is unavailable or no longer in this server. No access changes were made; any pending refund remains recoverable.',
+          );
+          return;
+        }
+        if (!member) {
+          await fail('Buyer is unavailable or no longer in this server.');
+          return;
+        }
+        if (!receipt) {
+          try {
+            const refundAt = Date.now();
+            const amounts = calculateProportionalRefund(record, refundAt);
+            receipt = await subscriptionStore.beginRefund({
+              ...amounts,
+              refundId: interaction.id
+                ? interaction.guild.id + ':' + interaction.id
+                : randomUUID(),
+              subscriptionId: record.subscriptionId!,
+              guildId: record.guildId,
+              userId: record.userId,
+              roleId: record.roleId,
+              refundAt,
+              staffId: interaction.user.id,
+              staffTag: interaction.user.tag,
+              status: 'pending',
+            });
+          } catch (error) {
+            console.error('Failed to prepare refund:', error);
+            await fail(
+              error instanceof Error
+                ? error.message + '. No role was removed.'
+                : 'Failed to persist refund. No role was removed.',
+            );
+            return;
+          }
+        }
+        try {
+          if (member.roles.cache.has(receipt.roleId))
+            await member.roles.remove(
+              receipt.roleId,
+              'Subscription cancelled for unused-time refund',
+            );
+        } catch (error) {
+          console.error('Failed to remove refunded subscription role:', error);
+          await fail(
+            'Refund calculation saved, but role removal failed. Subscription cancellation is pending; retry /refund to resume the same refund.',
+          );
+          return;
+        }
+        try {
+          receipt = await subscriptionStore.completeRefund(receipt.refundId);
+        } catch (error) {
+          console.error('Failed to complete refund cancellation:', error);
+          await fail(
+            'Subscription role is absent, but cancellation could not be saved. The saved refund remains pending; repair storage and retry /refund.',
+          );
+          return;
+        }
+        await notifyBuyerOfRefund(member, receipt);
+        await interaction.editReply({ embeds: [refundConfirmation(receipt)] });
+      },
+    );
   }
+}
+
+function refundConfirmation(receipt: RefundReceipt) {
+  return new EmbedBuilder()
+    .setTitle('✅ Refund Recorded')
+    .setDescription(
+      'Unused subscription time refunded. Subscription cancelled and buyer access removed. Recorded for manual payment; the bot has not transferred funds. The 5% tax does not include inter-bank transfer fees.',
+    )
+    .setColor(EMBED_COLORS.CONFIRMED)
+    .addFields(
+      {
+        name: 'Gross Refund',
+        value: formatSubscriptionMoney(receipt.gross, receipt.currency),
+        inline: true,
+      },
+      {
+        name: '5% Deduction',
+        value: formatSubscriptionMoney(receipt.tax, receipt.currency),
+        inline: true,
+      },
+      {
+        name: 'Net Refund',
+        value: formatSubscriptionMoney(receipt.net, receipt.currency),
+        inline: true,
+      },
+      { name: 'Refund Reference', value: receipt.refundId },
+    )
+    .setFooter({ text: EMBED_FOOTER + ' • Purchases' })
+    .setTimestamp(receipt.refundAt);
 }

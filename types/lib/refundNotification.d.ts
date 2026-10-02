@@ -12,5 +12,7 @@ import { type SubscriptionCurrency } from './subscriptionPrices.js';
 export declare function notifyBuyerOfRefund(member: GuildMember, refund: {
     roleId: string;
     gross: number;
+    tax: number;
+    net: number;
     currency: SubscriptionCurrency;
 }): Promise<void>;
