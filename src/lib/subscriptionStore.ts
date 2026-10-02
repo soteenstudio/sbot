@@ -56,12 +56,13 @@ async function ensureDataFile(): Promise<void> {
 
 async function readStorage(): Promise<Records> {
   await ensureDataFile();
+  let rawData: string;
   try {
-    const rawData = await fs.readFile(DATA_FILE, 'utf-8');
-    return JSON.parse(rawData);
+    rawData = await fs.readFile(DATA_FILE, 'utf-8');
   } catch {
     return {};
   }
+  return JSON.parse(rawData);
 }
 
 async function writeStorage(data: Records): Promise<void> {

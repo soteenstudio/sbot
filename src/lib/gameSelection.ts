@@ -21,7 +21,9 @@ export function isGameSelectionMessage(channelId: string, messageId: string) {
   return selectionMessages.get(channelId) === messageId;
 }
 
-export async function loadGameSelectionMessage(channelId: string) {
+export async function loadGameSelectionMessage(
+  channelId: string,
+): Promise<string | undefined> {
   try {
     const saved = JSON.parse(await readFile(storagePath(), 'utf8'));
     return saved.channelId === channelId && typeof saved.messageId === 'string'

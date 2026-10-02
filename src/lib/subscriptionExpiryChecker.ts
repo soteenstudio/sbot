@@ -21,18 +21,24 @@ export function setupSubscriptionExpiryChecker(client: Client) {
         for (const record of allRecords) {
           if (now >= record.expiresAt) {
             const guild = client.guilds.cache.get(record.guildId);
-            if (!guild) {
-              await subscriptionStore.delete(record.guildId, record.userId);
-              continue;
-            }
+            if (!guild?.available) continue;
 
-            const member = await guild.members
-              .fetch(record.userId)
-              .catch(() => null);
-            if (member) {
-              await member.roles
-                .remove(record.roleId, 'Subscription expired')
-                .catch(() => {});
+            try {
+              const member = await guild.members.fetch(record.userId);
+              await member.roles.remove(record.roleId, 'Subscription expired');
+            } catch (error) {
+              if (
+                typeof error !== 'object' ||
+                error === null ||
+                !('code' in error) ||
+                error.code !== 10007
+              ) {
+                console.error(
+                  `[Subscription Error] Failed to remove expired role for user ${record.userId} in guild ${record.guildId}:`,
+                  error,
+                );
+                continue;
+              }
             }
 
             await subscriptionStore.delete(record.guildId, record.userId);

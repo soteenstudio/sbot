@@ -8,6 +8,6 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 export declare function isGameSelectionMessage(channelId: string, messageId: string): boolean;
-export declare function loadGameSelectionMessage(channelId: string): Promise<any>;
+export declare function loadGameSelectionMessage(channelId: string): Promise<string | undefined>;
 export declare function saveGameSelectionMessage(channelId: string, messageId: string): Promise<void>;
 export declare function enqueueGameRoleChange(key: string, change: () => Promise<void>): Promise<void>;

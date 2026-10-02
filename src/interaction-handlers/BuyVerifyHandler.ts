@@ -65,11 +65,13 @@ export class BuyVerifyHandler extends InteractionHandler {
     const roleId = parts[3];
     const durationMonths = parseInt(parts[4], 10);
 
+    await interaction.deferUpdate();
+
     const member = await interaction.guild.members
       .fetch(userId)
       .catch(() => null);
     if (!member) {
-      await interaction.reply({
+      await interaction.followUp({
         content: '❌ Buyer is no longer in this server.',
         ephemeral: true,
       });
@@ -82,7 +84,7 @@ export class BuyVerifyHandler extends InteractionHandler {
         `Subscription verified by ${interaction.user.tag}`,
       );
     } catch (error) {
-      await interaction.reply({
+      await interaction.followUp({
         content:
           '❌ Failed to add role to user. Check bot permissions/role hierarchy.',
         ephemeral: true,
@@ -90,7 +92,11 @@ export class BuyVerifyHandler extends InteractionHandler {
       return;
     }
 
-    const expiresAt = Date.now() + durationMonths * 30 * 24 * 60 * 60 * 1000;
+    const existing = await subscriptionStore.get(interaction.guild.id, userId);
+    const now = Date.now();
+    const startsAt =
+      existing?.roleId === roleId ? Math.max(existing.expiresAt, now) : now;
+    const expiresAt = startsAt + durationMonths * 30 * 24 * 60 * 60 * 1000;
 
     await subscriptionStore.set({
       userId,
@@ -122,7 +128,7 @@ export class BuyVerifyHandler extends InteractionHandler {
       });
     }
 
-    await interaction.update({
+    await interaction.editReply({
       embeds: [updatedEmbed],
       components: [newActionRow],
     });
