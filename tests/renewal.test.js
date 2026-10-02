@@ -53,6 +53,10 @@ function assertApprovalButton(components, customId, disabled) {
 }
 
 function fixture(t, scenario = 'success', duration = '1', expiry = now + month, tier = 'DONATUR') {
+  const origins = new Map(), announcements = [];
+  t.mock.method(subscriptionStore, 'saveApprovalOrigin', async (key, commandChannelId) => { origins.set(key, { commandChannelId, announced: false }); });
+  t.mock.method(subscriptionStore, 'getApprovalOrigin', async key => origins.get(key));
+  t.mock.method(subscriptionStore, 'markAnnounced', async key => { const origin = origins.get(key); if (!origin || origin.announced) return false; origin.announced = true; return true; });
   const originalTiers = Object.fromEntries(['DONATUR', 'BILLION', 'RICHMAN'].map(key => [key, Roles[key].id]));
   for (const key of Object.keys(originalTiers)) Roles[key].id = undefined;
   Roles[tier].id = tierId;
@@ -87,7 +91,7 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month, 
   });
   const guild = {
     id: 'guild', name: 'Test Server', available: true,
-    channels: { cache: new Map([[logId, { type: 0, send: async request => { events.push('send'); if (scenario === 'send failure') throw new Error('send'); requests.push(request); } }]]) },
+    channels: { cache: new Map([[logId, { type: 0, send: async request => { events.push('send'); if (scenario === 'send failure') throw new Error('send'); requests.push(request); return { id: '444444444444444444' }; } }]]) },
     roles: { cache: new Map([[tierId, { name: tier }]]), fetch: async () => {
       events.push('role');
       return scenario === 'missing role' ? null : { id: tierId };
@@ -129,7 +133,7 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month, 
   const interaction = {
     guild, inCachedGuild: () => scenario !== 'DM',
     member: { permissions: { has: () => scenario !== 'unauthorized' }, roles: { cache: new Map() } },
-    user: { tag: 'Admin' },
+    channelId: 'command-channel', user: { id: 'staff', tag: 'Admin' },
     options: { getUser: () => ({ id: buyerId, tag: 'Buyer' }), getString: () => duration },
     reply: async (reply) => { events.push('reply'); replies.push(reply); },
     deferReply: async ({ flags }) => { assert.equal(flags, MessageFlags.Ephemeral); events.push('defer'); },
@@ -146,7 +150,8 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month, 
     deferUpdate: async () => { events.push('defer'); },
     followUp: async reply => { events.push('failure'); replies.push(reply); },
   };
-  return { approval, requests, member, setRecord: value => { record = value; }, events, replies, logged, guild, interaction, current: () => record };
+  guild.channels.fetch = async () => ({ guild, isTextBased: () => true, send: async payload => announcements.push(payload) });
+  return { announcements, approval, requests, member, setRecord: value => { record = value; }, events, replies, logged, guild, interaction, current: () => record };
 }
 
 test('renew registration is guild-only, admin-only, and requires buyer and supported duration', () => {
@@ -495,4 +500,21 @@ test('renewal DM formatting failure omits amount and logs once without blocking 
   await RenewApproveHandler.prototype.run(f.approval);
   assert.equal(f.events.filter(event => event === 'dm').length, 1);
   assert.equal(f.logged.mock.callCount(), 1);
+});
+
+for (const scenario of ['success', 'save failure']) test('renew announcement: ' + scenario, async t => {
+  const f = fixture(t, scenario);
+  await RenewCommand.prototype.chatInputRun(f.interaction);
+  assert.ok(!f.requests[0].components[0].toJSON().components[0].custom_id.includes('command-channel'));
+  await RenewApproveHandler.prototype.run(f.approval);
+  await RenewApproveHandler.prototype.run(f.approval);
+  assert.deepEqual(f.announcements, scenario === 'success' ? [{ content: '<@staff> has approved this process (Renew)', allowedMentions: { parse: [] } }] : []);
+});
+
+test('origin write failure keeps the posted renewal valid', async t => {
+  const f = fixture(t);
+  t.mock.method(subscriptionStore, 'saveApprovalOrigin', async () => { throw new Error('offline'); });
+  await RenewCommand.prototype.chatInputRun(f.interaction);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.replies.at(-1).embeds[0].data.title, '✅ Renewal Logged');
 });

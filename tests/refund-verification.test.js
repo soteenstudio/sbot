@@ -23,6 +23,8 @@ function fixture(t, scenario = '') {
     expiresAt: 100, paymentHistoryComplete: true,
     paidPeriods: [{ startAt: 0, endAt: 100, price: 10000, currency: { code: 'IDR', minorUnitDigits: 0 }, source: 'testing' }] };
   let request, receipt, failing = true;
+  const announcements = [];
+  t.mock.method(subscriptionStore, 'markAnnounced', async () => { if (!request?.commandChannelId || request.announced) return false; request.announced = true; return true; });
   const events = [], responses = [], edits = [], sent = [];
   const old = process.env.BUY_LOG_CHANNEL; process.env.BUY_LOG_CHANNEL = 'log';
   t.after(() => { if (old === undefined) delete process.env.BUY_LOG_CHANNEL; else process.env.BUY_LOG_CHANNEL = old; });
@@ -56,7 +58,8 @@ function fixture(t, scenario = '') {
     roles: { cache: new Map() }, members: { fetch: async () => { fault('fetch failure'); return member; } } };
   const member = { id: 'buyer', guild, roles: { cache, remove: async () => { fault('remove failure'); events.push('remove'); cache.delete('tier'); } },
     send: async payload => { events.push('dm'); assert.equal(record, undefined); assert.match(payload.embeds[0].data.description, /The 5% tax does not include inter-bank transfer fees\./); fault('blocked DM'); } };
-  const base = { guild, inCachedGuild: () => true, user: { id: 'staff', tag: 'Admin' },
+  guild.channels.fetch = async channelId => { assert.equal(channelId, 'command-channel'); return { guild, isTextBased: () => true, send: async payload => announcements.push(payload) }; };
+  const base = { channelId: 'command-channel', guild, inCachedGuild: () => true, user: { id: 'staff', tag: 'Admin' },
     member: { permissions: { has: () => true }, roles: { cache: new Map() } },
     reply: async payload => responses.push(payload), editReply: async payload => { fault('log update failure'); edits.push(payload); },
     followUp: async payload => responses.push(payload) };
@@ -64,7 +67,7 @@ function fixture(t, scenario = '') {
     deferReply: async payload => assert.equal(payload.flags, MessageFlags.Ephemeral), editReply: async payload => responses.push(payload) };
   const button = { ...base, channelId: 'log', customId: `refund_verify_${id}`, message,
     deferUpdate: async () => events.push('defer') };
-  return { submit, button, events, responses, edits, sent,
+  return { announcements, submit, button, events, responses, edits, sent,
     get record() { return record; }, get request() { return request; }, get receipt() { return receipt; },
     advance: value => { now = value; }, recover: () => { failing = false; },
     replace: () => { record = { ...record, subscriptionId: 'replacement' }; },
@@ -274,4 +277,14 @@ test('confirmation construction failure keeps the posted log bound and confirms 
   assert.equal(f.events.length, 0);
   assert.equal(f.receipt, undefined);
   assert.equal(console.error.mock.calls.at(-1).arguments[0], 'Failed to build refund confirmation:');
+});
+
+for (const scenario of ['', 'complete failure']) test('refund announcement: ' + (scenario || 'success'), async t => {
+  const f = fixture(t, scenario);
+  await RefundCommand.prototype.chatInputRun(f.submit);
+  assert.equal(f.request.commandChannelId, 'command-channel');
+  assert.equal(f.button.customId, `refund_verify_${id}`);
+  await RefundVerifyHandler.prototype.run(f.button);
+  await RefundVerifyHandler.prototype.run(f.button);
+  assert.deepEqual(f.announcements, scenario ? [] : [{ content: '<@staff> has verified this process (Refund)', allowedMentions: { parse: [] } }]);
 });

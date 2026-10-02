@@ -187,7 +187,18 @@ export class BuyCommand extends Subcommand {
     );
 
     try {
-      await logChannel.send({ embeds: [embed], components: [row] });
+      const message = await logChannel.send({
+        embeds: [embed],
+        components: [row],
+      });
+      try {
+        await subscriptionStore.saveApprovalOrigin(
+          `${interaction.guildId ?? interaction.guild!.id}:${logChannelId}:${message.id}`,
+          interaction.channelId,
+        );
+      } catch (error) {
+        console.error('Failed to save buy approval origin:', error);
+      }
     } catch (error) {
       console.error('Failed to send purchase log:', error);
       await interaction.editReply({

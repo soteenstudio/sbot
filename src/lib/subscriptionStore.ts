@@ -48,6 +48,8 @@ export interface RefundRequest {
   requestedAt: number;
   logChannelId: string;
   logMessageId?: string;
+  commandChannelId?: string;
+  announced?: boolean;
   status: 'logging' | 'logged' | 'verified' | 'completed';
   refundId?: string;
   verifiedBy?: string;
@@ -77,10 +79,17 @@ export interface RenewalApproval {
   expiresAt: number;
   approvedAt: number;
   approvedBy: string;
+  approvedById?: string;
+}
+
+export interface ApprovalOrigin {
+  commandChannelId: string;
+  announced: boolean;
 }
 
 interface Storage {
   version: 2;
+  approvalOrigins: Record<string, ApprovalOrigin>;
   subscriptions: Records;
   renewalApprovals: Record<string, RenewalApproval>;
   refunds: Record<string, RefundReceipt>;
@@ -126,6 +135,7 @@ async function ensureDataFile(): Promise<void> {
       throw error;
     await replaceStorage({
       version: 2,
+      approvalOrigins: {},
       subscriptions: {},
       renewalApprovals: {},
       refunds: {},
@@ -139,11 +149,16 @@ async function readStorage(): Promise<Storage> {
   const rawData = await fs.readFile(DATA_FILE, 'utf-8');
   const parsed = JSON.parse(rawData);
   if (parsed.version === 2)
-    return { ...parsed, refundRequests: parsed.refundRequests ?? {} };
+    return {
+      ...parsed,
+      approvalOrigins: parsed.approvalOrigins ?? {},
+      refundRequests: parsed.refundRequests ?? {},
+    };
   if (parsed.version === 1)
     return {
       ...parsed,
       version: 2,
+      approvalOrigins: parsed.approvalOrigins ?? {},
       refunds: parsed.refunds ?? {},
       refundRequests: parsed.refundRequests ?? {},
     };
@@ -151,6 +166,7 @@ async function readStorage(): Promise<Storage> {
     throw new Error('Unsupported subscription storage version');
   return {
     version: 2,
+    approvalOrigins: {},
     subscriptions: parsed,
     renewalApprovals: {},
     refunds: {},
@@ -169,6 +185,29 @@ function assertNotCancelling(record: SubscriptionRecord | undefined) {
 }
 
 export const subscriptionStore = {
+  async saveApprovalOrigin(
+    key: string,
+    commandChannelId: string,
+  ): Promise<void> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      data.approvalOrigins[key] ??= { commandChannelId, announced: false };
+      await writeStorage(data);
+    });
+  },
+  async getApprovalOrigin(key: string): Promise<ApprovalOrigin | undefined> {
+    return enqueue(async () => (await readStorage()).approvalOrigins[key]);
+  },
+  async markAnnounced(key: string): Promise<boolean> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const origin = data.approvalOrigins[key] ?? data.refundRequests[key];
+      if (!origin?.commandChannelId || origin.announced) return false;
+      origin.announced = true;
+      await writeStorage(data);
+      return true;
+    });
+  },
   async getRefundRequest(
     requestId: string,
   ): Promise<RefundRequest | undefined> {

@@ -122,6 +122,7 @@ export class RefundCommand extends Subcommand {
             requesterTag: interaction.user.tag,
             requestedAt: Date.now(),
             logChannelId: channel.id,
+            commandChannelId: interaction.channelId,
             status: 'logging',
           });
           if (request.logMessageId) {

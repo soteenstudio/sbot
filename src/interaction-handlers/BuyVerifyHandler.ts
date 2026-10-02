@@ -28,6 +28,7 @@ import {
   formatSubscriptionMoney,
   snapshotPaidPeriod,
 } from '../lib/subscriptionPrices.js';
+import { announceSavedApproval } from '../lib/approvalAnnouncement.js';
 import { Roles } from '../config.js';
 
 export class BuyVerifyHandler extends InteractionHandler {
@@ -204,6 +205,13 @@ export class BuyVerifyHandler extends InteractionHandler {
           durationMonths,
           expiresAt,
         });
+
+        await announceSavedApproval(
+          interaction.guild,
+          `${interaction.guild.id}:${interaction.channelId}:${interaction.message.id}`,
+          interaction.user.id,
+          'Buy',
+        );
 
         const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
           .setColor(EMBED_COLORS.CONFIRMED)

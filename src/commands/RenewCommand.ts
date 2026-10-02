@@ -221,7 +221,18 @@ export class RenewCommand extends Subcommand {
             .setStyle(ButtonStyle.Success),
         );
         try {
-          await logChannel.send({ embeds: [embed], components: [row] });
+          const message = await logChannel.send({
+            embeds: [embed],
+            components: [row],
+          });
+          try {
+            await subscriptionStore.saveApprovalOrigin(
+              `${interaction.guildId ?? interaction.guild!.id}:${logChannelId}:${message.id}`,
+              interaction.channelId,
+            );
+          } catch (error) {
+            console.error('Failed to save renew approval origin:', error);
+          }
         } catch (error) {
           console.error('Failed to send renewal request:', error);
           await interaction.editReply({
