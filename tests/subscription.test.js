@@ -48,7 +48,15 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
       deferUpdate: async () => { events.push('defer'); },
       guild: { id: 'guild', members: { fetch: async () => {
         events.push('fetch');
-        return { roles: { add: async () => { events.push('add'); } } };
+        return {
+          guild: { name: 'Server', roles: { cache: new Map([['role', { name: 'Donatur' }]]) } },
+          send: async ({ embeds }) => {
+            events.push('dm');
+            assert.equal(embeds[0].data.fields.find((field) => field.name === 'Expires').value,
+              `<t:${Math.floor((now + (scenario === 'active' ? 3 : 2) * month) / 1000)}:F>`);
+          },
+          roles: { add: async () => { events.push('add'); } },
+        };
       } } },
       editReply: async ({ embeds }) => {
         events.push('edit');
@@ -58,6 +66,8 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
     await BuyVerifyHandler.prototype.run(interaction);
     assert.equal(events[0], 'defer');
     assert.ok(events.indexOf('get') < events.indexOf('set'));
+    assert.ok(events.indexOf('set') < events.indexOf('dm'));
+    assert.equal(events.filter((event) => event === 'dm').length, 1);
     assert.equal(events.at(-1), 'edit');
   });
 }

@@ -25,6 +25,7 @@ import 'dotenv/config';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { Roles } from '../config.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
+import { notifyBuyerOfPurchase } from '../lib/purchaseNotification.js';
 
 export class BuyCommand extends Subcommand {
   public static commandName: string = 'buy';
@@ -219,6 +220,8 @@ export class BuyCommand extends Subcommand {
       durationMonths,
       expiresAt,
     });
+
+    await notifyBuyerOfPurchase(member, { roleId, durationMonths, expiresAt });
 
     const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
       .setColor(EMBED_COLORS.CONFIRMED)
