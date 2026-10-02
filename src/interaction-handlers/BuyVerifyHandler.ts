@@ -12,9 +12,16 @@ import {
   InteractionHandler,
   InteractionHandlerTypes,
 } from '@sapphire/framework';
-import { ButtonInteraction, EmbedBuilder } from 'discord.js';
+import {
+  ButtonInteraction,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from 'discord.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
+import { Roles } from '../config.js';
 
 export class BuyVerifyHandler extends InteractionHandler {
   public constructor(
@@ -35,8 +42,25 @@ export class BuyVerifyHandler extends InteractionHandler {
   public async run(interaction: ButtonInteraction) {
     if (!interaction.inCachedGuild()) return;
 
-    const parts = interaction.customId.split('_');
+    const allowedRoleIds = [Roles.FOUNDER.id, Roles.DEPUTY.id].filter(
+      Boolean,
+    ) as string[];
 
+    const hasPermission =
+      interaction.member.permissions.has('Administrator') ||
+      allowedRoleIds.some((roleId) =>
+        interaction.member.roles.cache.has(roleId),
+      );
+
+    if (!hasPermission) {
+      await interaction.reply({
+        content: '❌ You do not have permission to verify this purchase.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const parts = interaction.customId.split('_');
     const userId = parts[2];
     const roleId = parts[3];
     const durationMonths = parseInt(parts[4], 10);
@@ -84,9 +108,23 @@ export class BuyVerifyHandler extends InteractionHandler {
         inline: false,
       });
 
+    const oldActionRow = interaction.message.components[0];
+    const newActionRow = new ActionRowBuilder<ButtonBuilder>();
+
+    if (oldActionRow) {
+      oldActionRow.components.forEach((component) => {
+        if (component.type === 2) {
+          const button = ButtonBuilder.from(component)
+            .setDisabled(true)
+            .setStyle(ButtonStyle.Success);
+          newActionRow.addComponents(button);
+        }
+      });
+    }
+
     await interaction.update({
       embeds: [updatedEmbed],
-      components: [],
+      components: [newActionRow],
     });
   }
 }

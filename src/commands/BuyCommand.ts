@@ -134,7 +134,7 @@ export class BuyCommand extends Subcommand {
           inline: true,
         },
       )
-      .setColor(EMBED_COLORS.SUCCESS)
+      .setColor(EMBED_COLORS.WARNING)
       .setFooter({
         text: 'Click verify to grant role and schedule expiration.',
       })
