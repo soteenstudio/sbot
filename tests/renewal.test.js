@@ -11,7 +11,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { BuyCommand } from '../dist/commands/BuyCommand.js';
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
 import { RenewApproveHandler } from '../dist/interaction-handlers/RenewApproveHandler.js';
 import { Roles } from '../dist/config.js';
@@ -196,7 +195,6 @@ test('expiry snapshot racing with renewal re-reads and preserves renewed subscri
 });
 
 for (const [name, grant] of [
-  ['command', BuyCommand.handleButtonVerify],
   ['handler', (interaction) => BuyVerifyHandler.prototype.run(interaction)],
 ]) {
   test(`renewal racing with purchase ${name} retains both durations`, async (t) => {

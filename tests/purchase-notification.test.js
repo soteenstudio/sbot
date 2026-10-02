@@ -10,7 +10,6 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BuyCommand } from '../dist/commands/BuyCommand.js';
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
@@ -19,7 +18,6 @@ const now = 1800000000123;
 const month = 30 * 24 * 60 * 60 * 1000;
 
 for (const [name, grant] of [
-  ['command', BuyCommand.handleButtonVerify],
   ['handler', (interaction) => BuyVerifyHandler.prototype.run(interaction)],
 ]) {
   for (const scenario of ['success', 'blocked DM', 'fetch failure', 'role failure', 'save failure']) {

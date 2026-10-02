@@ -8,7 +8,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import { Subcommand } from '@sapphire/plugin-subcommands';
-import { ChatInputCommandInteraction, ButtonInteraction } from 'discord.js';
+import { ChatInputCommandInteraction } from 'discord.js';
 import 'dotenv/config';
 export declare class BuyCommand extends Subcommand {
     static commandName: string;
@@ -16,5 +16,4 @@ export declare class BuyCommand extends Subcommand {
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
     chatInputRun(interaction: ChatInputCommandInteraction): Promise<void>;
-    static handleButtonVerify(interaction: ButtonInteraction): Promise<void>;
 }
