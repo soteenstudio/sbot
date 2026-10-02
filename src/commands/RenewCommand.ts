@@ -212,9 +212,16 @@ export class RenewCommand extends Subcommand {
           });
           return;
         }
-        await interaction.editReply({
-          content: `✅ Renewal for **${buyer.tag}** is awaiting approval in the purchase-log channel.`,
-        });
+        const confirmation = new EmbedBuilder()
+          .setTitle('✅ Renewal Logged')
+          .setDescription(
+            `Successfully logged renewal for **${buyer.tag}**. The renewal is awaiting staff approval in the log channel.`,
+          )
+          .setColor(EMBED_COLORS.CONFIRMED)
+          .setFooter({ text: 'SoTeen Studio • Purchases' })
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [confirmation] });
       },
     );
   }
