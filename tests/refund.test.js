@@ -92,7 +92,7 @@ test('refund registration requires administrator permission and a guild', () => 
   assert.equal(data.options[0].required, true);
 });
 
-for (const scenario of ['DM', 'unauthorized', 'unconfigured']) {
+for (const scenario of ['DM', 'unauthorized', 'policy pending']) {
   test(`refund rejects ${scenario} with ephemeral acknowledgement`, async () => {
     const events = [];
     const interaction = {
@@ -100,11 +100,11 @@ for (const scenario of ['DM', 'unauthorized', 'unconfigured']) {
       member: { permissions: { has(permission) { assert.equal(permission, PermissionFlagsBits.Administrator); return scenario !== 'unauthorized'; } } },
       reply: async reply => { assert.equal(reply.flags, MessageFlags.Ephemeral); events.push('reply'); },
       deferReply: async reply => { assert.equal(reply.flags, MessageFlags.Ephemeral); events.push('defer'); },
-      editReply: async reply => { assert.match(reply.content, /No refund was recorded or subscription changed/); events.push('edit'); },
+      editReply: async reply => { assert.equal(reply.content, '❌ Refund processing is not implemented yet. The owner must confirm the refund basis and whether a refund cancels the subscription and removes its role. No refund was recorded or subscription changed.'); events.push('edit'); },
     };
     await RefundCommand.prototype.chatInputRun(interaction);
-    assert.deepEqual(events, scenario === 'unconfigured' ? ['defer', 'edit'] : ['reply']);
-    if (scenario === 'unconfigured') {
+    assert.deepEqual(events, scenario === 'policy pending' ? ['defer', 'edit'] : ['reply']);
+    if (scenario === 'policy pending') {
       await Promise.all([RefundCommand.prototype.chatInputRun(interaction), RefundCommand.prototype.chatInputRun(interaction)]);
       assert.equal(events.filter(event => event === 'edit').length, 3);
     }
@@ -120,9 +120,9 @@ for (const blocked of [false, true]) {
       send: async ({ embeds }) => {
         sent++;
         const embed = embeds[0].toJSON();
-        assert.match(embed.description, /The 5% deduction does not include inter-bank transfer fees\./);
+        assert.match(embed.description, /The 5% tax does not include inter-bank transfer fees\./);
         assert.deepEqual(Object.fromEntries(embed.fields.map(field => [field.name, field.value])), {
-          Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1.00', '5% Deduction': 'USD 0.05', 'Net Refund': 'USD 0.95',
+          Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1.00', '5% Tax': 'USD 0.05', 'Net Refund': 'USD 0.95',
         });
         if (blocked) throw new Error('DM blocked');
       },
