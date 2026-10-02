@@ -10,6 +10,10 @@
 
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
   ChatInputCommandInteraction,
   EmbedBuilder,
   MessageFlags,
@@ -18,7 +22,6 @@ import {
 import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
-import { notifyBuyerOfRenewal } from '../lib/purchaseNotification.js';
 
 export class RenewCommand extends Subcommand {
   public static commandName = 'renew';
@@ -152,55 +155,65 @@ export class RenewCommand extends Subcommand {
           });
           return;
         }
-        const needsRestoration = !member.roles.cache.has(existing.roleId);
-        if (needsRestoration) {
-          try {
-            await member.roles.add(
-              existing.roleId,
-              `Subscription renewed by ${interaction.user.tag}`,
-            );
-          } catch (error) {
-            console.error('Failed to restore subscription role:', error);
-            await interaction.editReply({
-              content:
-                '❌ Failed to restore the subscription role. Check bot permissions/role hierarchy.',
-            });
-            return;
-          }
-        }
-        const renewed = { ...existing, durationMonths, expiresAt };
-        try {
-          await subscriptionStore.set(renewed);
-        } catch (error) {
-          console.error('Failed to save subscription renewal:', error);
+        const logChannelId = process.env.BUY_LOG_CHANNEL;
+        const logChannel = logChannelId
+          ? interaction.guild.channels.cache.get(logChannelId)
+          : undefined;
+        if (!logChannel || logChannel.type !== ChannelType.GuildText) {
           await interaction.editReply({
-            content: needsRestoration
-              ? '❌ The subscription role was restored, but the renewal could not be saved. The expiration was not extended; repair storage and retry.'
-              : '❌ The renewal could not be saved. The expiration was not extended; repair storage and retry.',
+            content:
+              '❌ Purchase log is unavailable because the staff log channel is not configured.',
           });
           return;
         }
-        await notifyBuyerOfRenewal(member, renewed);
         const embed = new EmbedBuilder()
-          .setTitle('✅ Subscription Renewed')
-          .setDescription(`Renewed the subscription for **${buyer.tag}**.`)
-          .setColor(EMBED_COLORS.CONFIRMED)
+          .setTitle('🔄 Subscription Renewal Request')
+          .setDescription(
+            'A subscription renewal is waiting for staff approval.',
+          )
+          .setColor(EMBED_COLORS.WARNING)
           .addFields(
-            { name: 'Tier Role', value: `<@&${renewed.roleId}>`, inline: true },
+            {
+              name: 'Buyer',
+              value: `${buyer.tag} (${buyer.id})`,
+              inline: true,
+            },
+            {
+              name: 'Tier Role',
+              value: `<@&${existing.roleId}>`,
+              inline: true,
+            },
             {
               name: 'Added Duration',
               value: `${durationMonths} Month${durationMonths > 1 ? 's' : ''}`,
               inline: true,
             },
-            {
-              name: 'Expires',
-              value: `<t:${Math.floor(expiresAt / 1000)}:F>`,
-              inline: true,
-            },
+            { name: 'Requested By', value: interaction.user.tag, inline: true },
+            { name: 'Status', value: '⏳ Pending approval' },
           )
           .setFooter({ text: `${EMBED_FOOTER} • Purchases` })
           .setTimestamp();
-        await interaction.editReply({ embeds: [embed] });
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(
+              `renew_approve_${buyer.id}_${existing.roleId}_${durationMonths}`,
+            )
+            .setLabel('Approve Renewal')
+            .setStyle(ButtonStyle.Success),
+        );
+        try {
+          await logChannel.send({ embeds: [embed], components: [row] });
+        } catch (error) {
+          console.error('Failed to send renewal request:', error);
+          await interaction.editReply({
+            content:
+              '❌ Failed to send renewal request to staff channel. The subscription was not changed.',
+          });
+          return;
+        }
+        await interaction.editReply({
+          content: `✅ Renewal for **${buyer.tag}** is awaiting approval in the purchase-log channel.`,
+        });
       },
     );
   }

@@ -14,7 +14,19 @@ export interface SubscriptionRecord {
     durationMonths: number;
     expiresAt: number;
 }
+export interface RenewalApproval {
+    requestId: string;
+    userId: string;
+    guildId: string;
+    roleId: string;
+    durationMonths: number;
+    expiresAt: number;
+    approvedAt: number;
+    approvedBy: string;
+}
 export declare const subscriptionStore: {
+    getRenewalApproval(requestId: string): Promise<RenewalApproval | undefined>;
+    saveRenewalApproval(record: SubscriptionRecord, approval: RenewalApproval): Promise<void>;
     get(guildId: string, userId: string): Promise<SubscriptionRecord | undefined>;
     set(record: SubscriptionRecord): Promise<void>;
     delete(guildId: string, userId: string): Promise<void>;
