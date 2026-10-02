@@ -20,6 +20,7 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
+import { getPaymentAmount } from '../lib/subscriptionPrices.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
 
@@ -172,10 +173,20 @@ export class RenewCommand extends Subcommand {
           });
           return;
         }
+        let payment;
+        try {
+          payment = getPaymentAmount(existing.roleId, durationMonths);
+        } catch (error) {
+          await interaction.editReply({
+            content: `❌ Unable to determine amount to pay: ${error instanceof Error ? error.message : 'Invalid subscription price configuration'}. No log was posted.`,
+          });
+          return;
+        }
+
         const embed = new EmbedBuilder()
           .setTitle('🔄 Subscription Renewal Request')
           .setDescription(
-            'A subscription renewal is waiting for staff approval.',
+            'A subscription renewal is waiting for staff approval. Amount to Pay is an estimate using dummy test prices; approval uses the price at approval time. Recorded for manual payment; the bot does not take payment.',
           )
           .setColor(EMBED_COLORS.WARNING)
           .addFields(
@@ -194,6 +205,7 @@ export class RenewCommand extends Subcommand {
               value: `${durationMonths} Month${durationMonths > 1 ? 's' : ''}`,
               inline: true,
             },
+            { name: 'Amount to Pay', value: payment.text, inline: true },
             { name: 'Requested By', value: interaction.user.tag, inline: true },
             { name: 'Status', value: '⏳ Pending approval' },
           )
@@ -221,7 +233,7 @@ export class RenewCommand extends Subcommand {
         const confirmation = new EmbedBuilder()
           .setTitle('✅ Renewal Logged')
           .setDescription(
-            `Successfully logged renewal for **${buyer.tag}**. The renewal is awaiting staff approval in the log channel.`,
+            `Successfully logged renewal for **${buyer.tag}**. The renewal is awaiting staff approval in the log channel.\n\n**Amount to Pay (estimate): ${payment.text}**. Dummy test prices; approval uses the price at approval time. Recorded for manual payment; the bot does not take payment.`,
           )
           .setColor(EMBED_COLORS.CONFIRMED)
           .setFooter({ text: 'SoTeen Studio • Purchases' })

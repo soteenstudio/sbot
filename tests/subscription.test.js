@@ -19,6 +19,7 @@ import { MessageFlags, ButtonStyle, ActionRowBuilder, ButtonBuilder } from 'disc
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
 import { setupSubscriptionExpiryChecker } from '../dist/lib/subscriptionExpiryChecker.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
+import { getPaymentAmount, subscriptionPrices } from '../dist/lib/subscriptionPrices.js';
 
 const month = 30 * 24 * 60 * 60 * 1000;
 const now = 1800000000000;
@@ -275,3 +276,58 @@ test('corrupt storage rejects reads and mutations without changing bytes, then r
   await store.delete('guild', 'buyer');
   assert.deepEqual(await store.getAll(), []);
 });
+
+for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], BILLION: [25000, 150000, 300000], RICHMAN: [50000, 300000, 600000] })) {
+  for (const [index, duration] of [1, 6, 12].entries()) {
+    test('BuyCommand payment estimate ' + tier + ' ' + duration, async t => {
+      const f = purchaseFixture(t, undefined);
+      const originalRole = Roles[tier].id;
+      Roles[tier].id = `role-${tier}`;
+      t.after(() => { Roles[tier].id = originalRole; });
+      f.interaction.options.getString = name => name === 'role' ? tier : String(duration);
+      const text = `IDR ${prices[index]}`;
+      assert.deepEqual(getPaymentAmount(Roles[tier].id, duration), { amount: prices[index], text });
+      await BuyCommand.prototype.chatInputRun(f.interaction);
+      assert.equal(f.requests.length, 1);
+      const log = f.requests[0].embeds[0].toJSON();
+      assert.deepEqual(log.fields.find(field => field.name === 'Amount to Pay'), { name: 'Amount to Pay', value: text, inline: true });
+      const confirmation = f.replies.at(-1).embeds[0].toJSON();
+      for (const embed of [log, confirmation]) {
+        assert.match(embed.description, /estimate/);
+        assert.match(embed.description, /manual payment/);
+        assert.match(embed.description, /bot does not take payment/);
+        assert.match(embed.description, /dummy test prices/i);
+      }
+      assert.ok(confirmation.description.includes(text));
+      const button = f.requests[0].components[0].toJSON().components[0];
+      assert.equal(button.custom_id, `buy_verify_buyer_${Roles[tier].id}_${duration}`);
+      assert.ok(!button.custom_id.includes(String(prices[index])));
+      assert.equal(button.emoji.name, '✅');
+      assert.equal(button.style, ButtonStyle.Success);
+    });
+  }
+}
+
+for (const invalid of ['missing price', 'missing currency', 'invalid currency', 'invalid price', 'unsupported tier']) {
+  test('BuyCommand rejects ' + invalid + ' without posting a log', async t => {
+    const f = purchaseFixture(t, undefined);
+    const originalPrice = subscriptionPrices.prices.DONATUR[1];
+    const originalCurrency = subscriptionPrices.currency;
+    t.after(() => { subscriptionPrices.prices.DONATUR[1] = originalPrice; subscriptionPrices.currency = originalCurrency; });
+    if (invalid === 'missing price') subscriptionPrices.prices.DONATUR[1] = undefined;
+    if (invalid === 'invalid price') subscriptionPrices.prices.DONATUR[1] = -1;
+    if (invalid === 'missing currency') subscriptionPrices.currency = undefined;
+    if (invalid === 'invalid currency') subscriptionPrices.currency = { code: 'bad', minorUnitDigits: 0 };
+    if (invalid === 'unsupported tier') {
+      const originalFounder = Roles.FOUNDER.id;
+      Roles.FOUNDER.id = 'staff-role';
+      t.after(() => { Roles.FOUNDER.id = originalFounder; });
+      f.interaction.options.getString = name => name === 'role' ? 'FOUNDER' : '1';
+    }
+    await BuyCommand.prototype.chatInputRun(f.interaction);
+    assert.equal(f.requests.length, 0);
+    assert.match(f.replies.at(-1).content, /Unable to determine amount to pay/);
+    assert.match(f.replies.at(-1).content, /No log was posted/);
+    assert.ok(!f.events.includes('save'));
+  });
+}
