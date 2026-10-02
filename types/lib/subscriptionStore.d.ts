@@ -41,6 +41,8 @@ export interface RefundRequest {
     requestedAt: number;
     logChannelId: string;
     logMessageId?: string;
+    commandChannelId?: string;
+    announced?: boolean;
     status: 'logging' | 'logged' | 'verified' | 'completed';
     refundId?: string;
     verifiedBy?: string;
@@ -68,8 +70,16 @@ export interface RenewalApproval {
     expiresAt: number;
     approvedAt: number;
     approvedBy: string;
+    approvedById?: string;
+}
+export interface ApprovalOrigin {
+    commandChannelId: string;
+    announced: boolean;
 }
 export declare const subscriptionStore: {
+    saveApprovalOrigin(key: string, commandChannelId: string): Promise<void>;
+    getApprovalOrigin(key: string): Promise<ApprovalOrigin | undefined>;
+    markAnnounced(key: string): Promise<boolean>;
     getRefundRequest(requestId: string): Promise<RefundRequest | undefined>;
     createRefundRequest(request: RefundRequest): Promise<RefundRequest>;
     bindRefundLog(requestId: string, channelId: string, messageId: string): Promise<RefundRequest>;

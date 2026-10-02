@@ -53,7 +53,7 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
       member: { permissions: { has: () => true } },
       customId: 'buy_verify_buyer_role_1',
       user: { tag: 'Verifier' },
-      message: { embeds: [{ title: 'Purchase' }], components: [] },
+      channelId: 'log', message: { id: 'message', embeds: [{ title: 'Purchase' }], components: [] },
       deferUpdate: async () => { events.push('defer'); },
       guild: { id: 'guild', members: { fetch: async () => {
         events.push('fetch');
@@ -114,6 +114,10 @@ for (const failure of ['fetch', 'add']) {
 }
 
 function purchaseFixture(t, existing, readFailure = false) {
+  const origins = new Map(), announcements = [];
+  t.mock.method(subscriptionStore, 'saveApprovalOrigin', async (key, commandChannelId) => { origins.set(key, { commandChannelId, announced: false }); });
+  t.mock.method(subscriptionStore, 'getApprovalOrigin', async key => origins.get(key));
+  t.mock.method(subscriptionStore, 'markAnnounced', async key => { const origin = origins.get(key); if (!origin || origin.announced) return false; origin.announced = true; return true; });
   const events = [];
   const requests = [];
   const replies = [];
@@ -140,7 +144,7 @@ function purchaseFixture(t, existing, readFailure = false) {
   t.mock.method(subscriptionStore, 'saveRenewalApproval', () => assert.fail('must not renew'));
   const guild = {
     id: 'guild', name: 'Server',
-    channels: { cache: new Map([['log', { type: 0, send: async request => { events.push('log'); requests.push(request); } }]]) },
+    channels: { cache: new Map([['log', { type: 0, send: async request => { events.push('log'); requests.push(request); return { id: 'message' }; } }]]) },
     roles: { cache: new Map([['role', { name: 'Donatur' }]]) },
     members: { fetch: async () => { events.push('fetch'); return member; } },
   };
@@ -150,7 +154,7 @@ function purchaseFixture(t, existing, readFailure = false) {
     send: async () => { events.push('dm'); },
   };
   const interaction = {
-    guild, guildId: guild.id, user: { tag: 'Staff' },
+    channelId: 'command-channel', guild, guildId: guild.id, user: { id: 'staff', tag: 'Staff' },
     options: { getUser: () => ({ id: 'buyer', tag: 'Buyer' }), getString: name => name === 'role' ? 'DONATUR' : '1' },
     reply: async () => assert.fail('must not acknowledge twice'),
     deferReply: async ({ flags }) => { assert.equal(flags, MessageFlags.Ephemeral); events.push('defer'); },
@@ -160,11 +164,12 @@ function purchaseFixture(t, existing, readFailure = false) {
   const approval = {
     ...interaction, inCachedGuild: () => true,
     member: { permissions: { has: () => true } }, customId,
-    message: { embeds: [{ title: 'Purchase' }], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(customId).setLabel('Verify & Grant').setEmoji('✅').setStyle(ButtonStyle.Success)).toJSON()] },
+    channelId: 'log', message: { id: 'message', embeds: [{ title: 'Purchase' }], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(customId).setLabel('Verify & Grant').setEmoji('✅').setStyle(ButtonStyle.Success)).toJSON()] },
     deferUpdate: async () => { events.push('defer'); },
     followUp: async reply => { assert.equal(reply.ephemeral, true); events.push('rejected'); replies.push(reply); },
   };
-  return { interaction, approval, events, requests, replies, logged, current: () => current };
+  guild.channels.fetch = async () => ({ guild, isTextBased: () => true, send: async payload => announcements.push(payload) });
+  return { announcements, interaction, approval, events, requests, replies, logged, current: () => current };
 }
 
 for (const state of ['active', 'expired', 'new', 'other tier', 'read failure']) {
@@ -334,3 +339,28 @@ for (const invalid of ['missing price', 'missing currency', 'invalid currency', 
     assert.ok(!f.events.includes('save'));
   });
 }
+
+test('purchase announces once in the submission channel after saving and DM', async t => {
+  const f = purchaseFixture(t, undefined);
+  await BuyCommand.prototype.chatInputRun(f.interaction);
+  assert.equal(f.requests[0].components[0].toJSON().components[0].custom_id, 'buy_verify_buyer_role_1');
+  await BuyVerifyHandler.prototype.run(f.approval);
+  await BuyVerifyHandler.prototype.run(f.approval);
+  assert.deepEqual(f.announcements, [{ content: '<@staff> has verified this process (Buy)', allowedMentions: { parse: [] } }]);
+});
+
+test('failed purchase save never announces', async t => {
+  const f = purchaseFixture(t, undefined);
+  await BuyCommand.prototype.chatInputRun(f.interaction);
+  t.mock.method(subscriptionStore, 'set', async () => { throw new Error('offline'); });
+  await BuyVerifyHandler.prototype.run(f.approval);
+  assert.deepEqual(f.announcements, []);
+});
+
+test('origin write failure keeps the posted purchase valid', async t => {
+  const f = purchaseFixture(t, undefined);
+  t.mock.method(subscriptionStore, 'saveApprovalOrigin', async () => { throw new Error('offline'); });
+  await BuyCommand.prototype.chatInputRun(f.interaction);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.replies.at(-1).embeds[0].data.title, '✅ Purchase Logged');
+});

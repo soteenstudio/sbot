@@ -13,6 +13,7 @@ import {
   InteractionHandlerTypes,
 } from '@sapphire/framework';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
+import { announceSavedApproval } from '../lib/approvalAnnouncement.js';
 import { Roles } from '../config.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
@@ -216,6 +217,12 @@ export class RefundVerifyHandler extends InteractionHandler {
               );
             }
             await notifyBuyerOfRefund(member, receipt);
+            await announceSavedApproval(
+              interaction.guild,
+              request.requestId,
+              request.verifiedBy ?? interaction.user.id,
+              'Refund',
+            );
           }
           try {
             await interaction.editReply({

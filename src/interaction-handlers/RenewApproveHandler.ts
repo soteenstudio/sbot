@@ -25,6 +25,7 @@ import {
   snapshotPaidPeriod,
 } from '../lib/subscriptionPrices.js';
 import { validatePaidPeriods } from '../lib/proportionalRefund.js';
+import { announceSavedApproval } from '../lib/approvalAnnouncement.js';
 import { Roles } from '../config.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
@@ -214,6 +215,7 @@ export class RenewApproveHandler extends InteractionHandler {
             expiresAt,
             approvedAt,
             approvedBy: interaction.user.tag,
+            approvedById: interaction.user.id,
           };
           try {
             await subscriptionStore.saveRenewalApproval(renewed, receipt);
@@ -234,6 +236,13 @@ export class RenewApproveHandler extends InteractionHandler {
           }
           await notifyBuyerOfRenewal(member, { ...renewed, amountText });
         }
+
+        await announceSavedApproval(
+          interaction.guild,
+          requestId,
+          receipt.approvedById ?? interaction.user.id,
+          'Renew',
+        );
 
         const embed = EmbedBuilder.from(
           interaction.message.embeds[0] ?? {
