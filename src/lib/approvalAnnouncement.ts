@@ -9,7 +9,9 @@
  */
 
 import type { Guild } from 'discord.js';
+import { EmbedBuilder } from 'discord.js';
 import { subscriptionStore } from './subscriptionStore.js';
+import { EMBED_COLORS } from '../engine/SEmbed.js';
 
 export type ApprovalKind = 'Buy' | 'Renew' | 'Refund';
 
@@ -29,8 +31,18 @@ export async function announceApproval(
     const channel = await guild.channels.fetch(channelId);
     if (!channel || !channel.isTextBased() || channel.guild.id !== guild.id)
       throw new Error('Command channel is not a text-based guild channel');
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📣 ${kind} Info`)
+      .setDescription(
+        `<@${approverId}> has ${kind === 'Renew' ? 'approved' : 'verified'} this process (${kind})`,
+      )
+      .setColor(EMBED_COLORS.INFO)
+      .setFooter({ text: 'SoTeen Studio • Purchases' })
+      .setTimestamp();
+
     await channel.send({
-      content: `<@${approverId}> has ${kind === 'Renew' ? 'approved' : 'verified'} this process (${kind})`,
+      embeds: [embed],
       allowedMentions: { parse: [] },
     });
   } catch (error) {
