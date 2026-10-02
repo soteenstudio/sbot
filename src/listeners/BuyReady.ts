@@ -12,6 +12,8 @@ import { Listener } from '@sapphire/framework';
 import { Events, type Client } from 'discord.js';
 import { setupSubscriptionExpiryChecker } from '../lib/subscriptionExpiryChecker.js';
 
+import { removeLegacySubscriptionCommands } from '../lib/subscriptionCommandCleanup.js';
+
 export class BuyReadyListener extends Listener {
   public constructor(context: Listener.Context, options: Listener.Options) {
     super(context, {
@@ -25,5 +27,6 @@ export class BuyReadyListener extends Listener {
     console.log(`Logged in as ${client.user?.tag}!`);
 
     setupSubscriptionExpiryChecker(client);
+    void removeLegacySubscriptionCommands(client);
   }
 }

@@ -78,7 +78,7 @@ export class RenewApproveHandler extends InteractionHandler {
     ) {
       await interaction.reply({
         content:
-          '❌ Invalid renewal request or purchase-log channel. Submit a new /renew request.',
+          '❌ Invalid renewal request or purchase-log channel. Submit a new /subscription renew request.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -113,23 +113,25 @@ export class RenewApproveHandler extends InteractionHandler {
         if (!receipt) {
           if (!existing) {
             await fail(
-              '❌ No subscription record exists for this buyer. Use /buy first, then submit a new /renew request.',
+              '❌ No subscription record exists for this buyer. Use /subscription buy first, then submit a new /subscription renew request.',
             );
             return;
           }
           if (existing.pendingRefundId) {
-            await fail('❌ Cancellation is pending. Retry /refund first.');
+            await fail(
+              '❌ Cancellation is pending. Retry /subscription refund first.',
+            );
             return;
           }
           if (existing.subscriptionId !== subscriptionId) {
             await fail(
-              '❌ Subscription changed since this request. Submit a new /renew request.',
+              '❌ Subscription changed since this request. Submit a new /subscription renew request.',
             );
             return;
           }
           if (existing.roleId !== roleId) {
             await fail(
-              '❌ The subscription tier changed since this request. Submit a new /renew request for the current tier.',
+              '❌ The subscription tier changed since this request. Submit a new /subscription renew request for the current tier.',
             );
             return;
           }

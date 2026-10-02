@@ -14,7 +14,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { BuyCommand } from '../dist/commands/BuyCommand.js';
+import { SubscriptionCommand } from '../dist/commands/SubscriptionCommand.js';
 import { Roles } from '../dist/config.js';
 import { MessageFlags, ButtonStyle, ActionRowBuilder, ButtonBuilder } from 'discord.js';
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
@@ -71,7 +71,7 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
       } } },
       followUp: async ({ content, ephemeral }) => {
         assert.equal(ephemeral, true);
-        assert.match(content, /Use \/renew/);
+        assert.match(content, /Use \/subscription renew/);
         events.push('rejected');
       },
       editReply: async ({ embeds }) => {
@@ -176,7 +176,7 @@ for (const state of ['active', 'expired', 'new', 'other tier', 'read failure']) 
   test(`buy submission: ${state}`, async t => {
     const existing = state === 'new' ? undefined : { ...record, roleId: state === 'other tier' ? 'other' : 'role', expiresAt: state === 'expired' ? now - month : now + month };
     const f = purchaseFixture(t, existing, state === 'read failure');
-    await BuyCommand.prototype.chatInputRun(f.interaction);
+    await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
     assert.deepEqual(f.current(), existing);
     const allowed = ['new', 'other tier'].includes(state);
     assert.deepEqual(f.events, allowed ? ['defer', 'get', 'log', 'edit'] : ['defer', 'get', 'edit']);
@@ -191,7 +191,7 @@ for (const state of ['active', 'expired', 'new', 'other tier', 'read failure']) 
       assert.match(f.replies[0].content, /Failed to load/);
       assert.equal(f.logged.mock.callCount(), 1);
     } else {
-      assert.equal(f.replies[0].content, '❌ This buyer already has a subscription for this role. Use /renew to extend it.');
+      assert.equal(f.replies[0].content, '❌ This buyer already has a subscription for this role. Use /subscription renew to extend it.');
     }
   });
 }
@@ -200,8 +200,8 @@ for (const concurrent of [true, false]) {
   test(concurrent ? 'concurrent same-role approvals grant, save and notify once' : 'older pending purchase cannot extend a subscription granted after submission', async t => {
     const f = purchaseFixture(t, undefined);
     // Both requests were submitted before either subscription was granted.
-    await BuyCommand.prototype.chatInputRun(f.interaction);
-    await BuyCommand.prototype.chatInputRun(f.interaction);
+    await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
+    await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
     assert.equal(f.requests.length, 2);
     f.events.length = 0;
     if (concurrent) {
@@ -212,7 +212,7 @@ for (const concurrent of [true, false]) {
     }
     for (const event of ['add', 'save', 'dm', 'edit', 'rejected']) assert.equal(f.events.filter(value => value === event).length, 1);
     assert.equal(f.current().expiresAt, now + month);
-    assert.match(f.replies.at(-1).content, /Use \/renew/);
+    assert.match(f.replies.at(-1).content, /Use \/subscription renew/);
     const button = f.replies.at(-2).components[0].toJSON().components[0];
     assert.equal(button.disabled, true);
     assert.equal(button.style, ButtonStyle.Success);
@@ -287,7 +287,7 @@ test('corrupt storage rejects reads and mutations without changing bytes, then r
 
 for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], BILLION: [25000, 150000, 300000], RICHMAN: [50000, 300000, 600000] })) {
   for (const [index, duration] of [1, 6, 12].entries()) {
-    test('BuyCommand payment estimate ' + tier + ' ' + duration, async t => {
+    test('SubscriptionCommand payment estimate ' + tier + ' ' + duration, async t => {
       const f = purchaseFixture(t, undefined);
       const originalRole = Roles[tier].id;
       Roles[tier].id = `role-${tier}`;
@@ -295,7 +295,7 @@ for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], B
       f.interaction.options.getString = name => name === 'role' ? tier : String(duration);
       const text = expectedMoney(prices[index]);
       assert.deepEqual(getPaymentAmount(Roles[tier].id, duration), { amount: prices[index], text });
-      await BuyCommand.prototype.chatInputRun(f.interaction);
+      await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
       assert.equal(f.requests.length, 1);
       const log = f.requests[0].embeds[0].toJSON();
       assert.deepEqual(log.fields.find(field => field.name === 'Amount to Pay'), { name: 'Amount to Pay', value: text, inline: true });
@@ -317,7 +317,7 @@ for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], B
 }
 
 for (const invalid of ['missing price', 'missing currency', 'invalid currency', 'invalid price', 'unsupported tier']) {
-  test('BuyCommand rejects ' + invalid + ' without posting a log', async t => {
+  test('SubscriptionCommand rejects ' + invalid + ' without posting a log', async t => {
     const f = purchaseFixture(t, undefined);
     const originalPrice = subscriptionPrices.prices.DONATUR[1];
     const originalCurrency = subscriptionPrices.currency;
@@ -332,7 +332,7 @@ for (const invalid of ['missing price', 'missing currency', 'invalid currency', 
       t.after(() => { Roles.FOUNDER.id = originalFounder; });
       f.interaction.options.getString = name => name === 'role' ? 'FOUNDER' : '1';
     }
-    await BuyCommand.prototype.chatInputRun(f.interaction);
+    await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
     assert.equal(f.requests.length, 0);
     assert.match(f.replies.at(-1).content, /Unable to determine amount to pay/);
     assert.match(f.replies.at(-1).content, /No log was posted/);
@@ -342,7 +342,7 @@ for (const invalid of ['missing price', 'missing currency', 'invalid currency', 
 
 test('purchase announces once in the submission channel after saving and DM', async t => {
   const f = purchaseFixture(t, undefined);
-  await BuyCommand.prototype.chatInputRun(f.interaction);
+  await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
   assert.equal(f.requests[0].components[0].toJSON().components[0].custom_id, 'buy_verify_buyer_role_1');
   await BuyVerifyHandler.prototype.run(f.approval);
   await BuyVerifyHandler.prototype.run(f.approval);
@@ -353,7 +353,7 @@ test('purchase announces once in the submission channel after saving and DM', as
 
 test('failed purchase save never announces', async t => {
   const f = purchaseFixture(t, undefined);
-  await BuyCommand.prototype.chatInputRun(f.interaction);
+  await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
   t.mock.method(subscriptionStore, 'set', async () => { throw new Error('offline'); });
   await BuyVerifyHandler.prototype.run(f.approval);
   assert.deepEqual(f.announcements, []);
@@ -362,7 +362,7 @@ test('failed purchase save never announces', async t => {
 test('origin write failure keeps the posted purchase valid', async t => {
   const f = purchaseFixture(t, undefined);
   t.mock.method(subscriptionStore, 'saveApprovalOrigin', async () => { throw new Error('offline'); });
-  await BuyCommand.prototype.chatInputRun(f.interaction);
+  await SubscriptionCommand.prototype.chatInputBuy(f.interaction);
   assert.equal(f.requests.length, 1);
   assert.equal(f.replies.at(-1).embeds[0].data.title, '✅ Purchase Logged');
 });

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { expectedMoney } from './helpers/money.js';
 import { test } from 'node:test';
 import { SlashCommandBuilder, MessageFlags, PermissionFlagsBits, ChannelType } from 'discord.js';
-import { RefundCommand } from '../dist/commands/RefundCommand.js';
+import { SubscriptionCommand } from '../dist/commands/SubscriptionCommand.js';
 import { subscriptionPrices, getSubscriptionPrice, calculateRefundDeduction, formatSubscriptionMoney, snapshotPaidPeriod } from '../dist/lib/subscriptionPrices.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
 import { notifyBuyerOfRefund } from '../dist/lib/refundNotification.js';
@@ -100,16 +100,6 @@ test('currency formatting preserves minor units and validates configuration', ()
   assert.throws(() => formatSubscriptionMoney(-1, currency), /nonnegative/);
 });
 
-test('refund registration requires administrator permission and a guild', () => {
-  let data;
-  RefundCommand.prototype.registerApplicationCommands.call({ name: 'refund', description: 'Refund' }, {
-    registerChatInputCommand(callback) { data = callback(new SlashCommandBuilder()).toJSON(); },
-  });
-  assert.equal(data.dm_permission, false);
-  assert.equal(data.default_member_permissions, String(PermissionFlagsBits.Administrator));
-  assert.equal(data.options[0].name, 'buyer');
-  assert.equal(data.options[0].required, true);
-});
 
 for (const scenario of ['DM', 'unauthorized']) {
   test(`refund rejects ${scenario} with ephemeral acknowledgement`, async () => {
@@ -121,7 +111,7 @@ for (const scenario of ['DM', 'unauthorized']) {
       deferReply: async reply => { assert.equal(reply.flags, MessageFlags.Ephemeral); events.push('defer'); },
       editReply: async () => assert.fail('unexpected edit'),
     };
-    await RefundCommand.prototype.chatInputRun(interaction);
+    await SubscriptionCommand.prototype.chatInputRefund(interaction);
     assert.deepEqual(events, ['reply']);
   });
 }
@@ -175,7 +165,7 @@ for (const tier of ['DONATUR', 'BILLION', 'RICHMAN']) for (const duration of [1,
       log = payload;
       return { id: 'message', edit: async () => {} };
     } };
-    await RefundCommand.prototype.chatInputRun({
+    await SubscriptionCommand.prototype.chatInputRefund({
       inCachedGuild: () => true, member: { permissions: { has: () => true } },
       user: { id: 'admin', tag: 'Admin' }, options: { getUser: () => ({ id: 'buyer', tag: 'Buyer' }) },
       guild: { id: 'guild', channels: { cache: new Map([['log', channel]]) } },

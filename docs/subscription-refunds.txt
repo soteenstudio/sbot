@@ -1,6 +1,6 @@
 Confirmed refund policy
 =======================
-/refund logs a request in BUY_LOG_CHANNEL and returns an ephemeral Refund
+/subscription refund logs a request in BUY_LOG_CHANNEL and returns an ephemeral Refund
 Logged confirmation. It does not cancel access or notify the buyer. Amounts
 are estimates for unused subscription time. Administrators, Founders and
 Deputies verify using the green ✅ Verify & Refund button on that exact log.
@@ -53,16 +53,16 @@ renewals and expiry cleanup block while cancellation is
 pending. Completion atomically retains the receipt and removes the matching
 subscription; renewal receipts survive. Completed replays do not resend DMs.
 Do not replace a subscription or edit pendingRefundId during recovery.
-tests/proportional-refund.test.js and tests/refund-verification.test.js cover
+tests/proportional-refund.test.js and tests/subscription refund-verification.test.js cover
 arithmetic, cancellation, reload, duplicate requests, replacement and recovery.
 
 Requests are stored separately from cancellation receipts. Awaiting staff
 verification does not set pendingRefundId: renewals and expiry continue.
-Repeated /refund returns the existing request link. Logging starts with a
+Repeated /subscription refund returns the existing request link. Logging starts with a
 disabled button; only the saved channel/message binding is executable. If
-sending or binding fails, repeat /refund to log the same request. Any unbound
+sending or binding fails, repeat /subscription refund to log the same request. Any unbound
 message stays disabled and cannot execute. If enabling the button fails,
-repeat /refund to repair the bound message, without posting another request.
+repeat /subscription refund to repair the bound message, without posting another request.
 Verification atomically saves approver/time, receipt and pendingRefundId.
 The final log shows calculation time, final amounts and refund reference.
 After completion the green ✅ button stays visible and disabled. Retrying
@@ -70,4 +70,16 @@ completed verification repairs the log without cancelling or sending a DM
 again. The bot never confirms bank payment or transfers funds.
 Version 2 files migrate refund request storage on write, preserving all
 subscriptions, renewal approvals and cancellation receipts. Existing pending
-receipts can be logged with /refund and verified without recalculation.
+receipts can be logged with /subscription refund and verified without recalculation.
+
+Command migration
+=================
+Staff now use /subscription buy, /subscription renew and /subscription refund.
+The parent command is guild-only and defaults to Administrator permission.
+Existing verification buttons continue to work with their original custom IDs.
+Sapphire's default registration behavior does not remove retired global commands.
+On client ready, subscriptionCommandCleanup removes only the retired global
+chat-input commands named buy, renew and refund. This is an idempotent migration:
+after the first successful cleanup, later startups have nothing to delete.
+Failures are logged and retried on the next startup. No bulk overwrite is used.
+Reference: https://sapphirejs.dev/docs/Documentation/api-framework/enumerations/RegisterBehavior/
