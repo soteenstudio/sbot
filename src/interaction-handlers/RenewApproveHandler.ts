@@ -186,7 +186,7 @@ export class RenewApproveHandler extends InteractionHandler {
           }
           await notifyBuyerOfRenewal(member, renewed);
         }
-        // Replaying a saved receipt repairs the log without extending or notifying again.
+
         const embed = EmbedBuilder.from(
           interaction.message.embeds[0] ?? {
             title: 'Subscription Renewal Request',

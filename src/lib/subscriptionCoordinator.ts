@@ -8,8 +8,6 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-// Keep the complete role/storage transaction separate from the file IO queue.
-// Callers must not recursively acquire the same guild/user key.
 const changes = new Map<string, Promise<void>>();
 
 export async function coordinateSubscriptionChange<T>(

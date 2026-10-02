@@ -105,8 +105,6 @@ export const subscriptionStore = {
     );
   },
 
-  // Persist the receipt and subscription in one atomic file replacement. Receipts
-  // survive purchases and expiry deletion so old approval buttons remain harmless.
   async saveRenewalApproval(
     record: SubscriptionRecord,
     approval: RenewalApproval,
