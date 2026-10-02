@@ -21,6 +21,7 @@ import {
 } from 'discord.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
+import { notifyBuyerOfPurchase } from '../lib/purchaseNotification.js';
 import { Roles } from '../config.js';
 
 export class BuyVerifyHandler extends InteractionHandler {
@@ -106,6 +107,8 @@ export class BuyVerifyHandler extends InteractionHandler {
       expiresAt,
     });
 
+    await notifyBuyerOfPurchase(member, { roleId, durationMonths, expiresAt });
+
     const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
       .setColor(EMBED_COLORS.CONFIRMED)
       .addFields({
@@ -117,7 +120,7 @@ export class BuyVerifyHandler extends InteractionHandler {
     const oldActionRow = interaction.message.components[0];
     const newActionRow = new ActionRowBuilder<ButtonBuilder>();
 
-    if (oldActionRow) {
+    if (oldActionRow && 'components' in oldActionRow) {
       oldActionRow.components.forEach((component) => {
         if (component.type === 2) {
           const button = ButtonBuilder.from(component)
