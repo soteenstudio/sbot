@@ -14,6 +14,7 @@ import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 
+import { subscriptionPrices } from '../dist/lib/subscriptionPrices.js';
 import { Roles } from '../dist/config.js';
 
 const now = 1800000000123;
@@ -22,10 +23,15 @@ const month = 30 * 24 * 60 * 60 * 1000;
 for (const [name, grant] of [
   ['handler', (interaction) => BuyVerifyHandler.prototype.run(interaction)],
 ]) {
-  for (const scenario of ['success', 'blocked DM', 'fetch failure', 'role failure', 'save failure', 'save failure with existing role', 'save failure with rollback failure', 'read failure']) {
-    test(`${name}: purchase notification on ${scenario}`, async (t) => {
-      const originalRole = Roles.DONATUR.id; Roles.DONATUR.id = 'role';
-      t.after(() => { Roles.DONATUR.id = originalRole; });
+  const prices = { DONATUR: [10000, 60000, 120000], BILLION: [25000, 150000, 300000], RICHMAN: [50000, 300000, 600000] };
+  const cases = Object.entries(prices).flatMap(([tier, amounts]) =>
+    [1, 6, 12].map((duration, index) => ['success', tier, duration, amounts[index]]));
+  for (const scenario of ['format failure', 'blocked DM', 'fetch failure', 'role failure', 'save failure', 'save failure with existing role', 'save failure with rollback failure', 'read failure']) cases.push([scenario, 'DONATUR', 1, 10000]);
+  for (const [scenario, tier, duration, amount] of cases) {
+    test(`${name}: ${tier} ${duration} purchase notification on ${scenario}`, async (t) => {
+      const originalRole = Roles[tier].id; Roles[tier].id = 'role';
+      const originalPrice = subscriptionPrices.prices[tier][duration];
+      t.after(() => { Roles[tier].id = originalRole; subscriptionPrices.prices[tier][duration] = originalPrice; });
       const events = [];
       let saved;
       let followUp;
@@ -45,10 +51,12 @@ for (const [name, grant] of [
         events.push('save');
         if (saveFailure) throw error;
         saved = record;
+        subscriptionPrices.prices[tier][duration] = 999999;
+        if (scenario === 'format failure') record.paidPeriods[0].currency = { code: 'bad', minorUnitDigits: 0 };
       });
       const guild = {
         id: 'guild', name: 'Test Server',
-        roles: { cache: new Map([['role', { name: 'Donatur' }]]) },
+        roles: { cache: new Map([['role', { name: tier }]]) },
         members: { fetch: async () => {
           events.push('fetch');
           if (scenario === 'fetch failure') throw error;
@@ -76,9 +84,12 @@ for (const [name, grant] of [
           assert.equal(embed.color, EMBED_COLORS.CONFIRMED);
           assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`);
           assert.ok(embed.timestamp);
+          assert.ok(embed.description.includes('Recorded for manual payment; the bot does not take payment.'));
+          if (scenario !== 'format failure') assert.equal(embed.fields[3].name, 'Amount to Pay');
           assert.deepEqual(Object.fromEntries(embed.fields.map(({ name, value }) => [name, value])), {
-            Server: 'Test Server', 'Subscription Tier': 'Donatur',
-            'Purchased Duration': '1 Month', Expires: `<t:${Math.floor(saved.expiresAt / 1000)}:F>`,
+            Server: 'Test Server', 'Subscription Tier': tier,
+            'Purchased Duration': `${duration} Month${duration > 1 ? 's' : ''}`,
+            ...(scenario === 'format failure' ? {} : { 'Amount to Pay': `IDR ${amount}` }), Expires: `<t:${Math.floor(saved.expiresAt / 1000)}:F>`,
           });
           if (scenario === 'blocked DM') throw error;
         },
@@ -86,7 +97,7 @@ for (const [name, grant] of [
       const interaction = {
         inCachedGuild: () => true,
         member: { permissions: { has: () => true } },
-        customId: 'buy_verify_buyer_role_1',
+        customId: `buy_verify_buyer_role_${duration}`,
         user: { tag: 'Verifier' }, guild,
         message: { embeds: [{ title: 'Purchase', fields: [{ name: 'Amount to Pay', value: 'IDR 10000', inline: true }] }], components: [] },
         deferUpdate: async () => {},
@@ -99,9 +110,9 @@ for (const [name, grant] of [
         },
       };
       await grant(interaction);
-      if (scenario === 'success' || scenario === 'blocked DM') {
+      if (['success', 'blocked DM', 'format failure'].includes(scenario)) {
         assert.deepEqual(events, ['get', 'fetch', 'add', 'save', 'dm', 'staff']);
-        assert.equal(saved.expiresAt, now + month);
+        assert.equal(saved.expiresAt, now + duration * month);
       } else {
         assert.ok(!events.includes('dm'));
         assert.ok(!events.includes('staff'));
@@ -124,7 +135,8 @@ for (const [name, grant] of [
         assert.equal(logged.mock.calls[0].arguments[1], error);
         if (rollbackFailure) assert.equal(logged.mock.calls[1].arguments[1], error);
       }
-      assert.equal(logged.mock.callCount(), rollbackFailure ? 2 : saveFailure || ['blocked DM', 'read failure'].includes(scenario) ? 1 : 0);
+      assert.equal(logged.mock.callCount(), rollbackFailure ? 2 : saveFailure || ['blocked DM', 'read failure', 'format failure'].includes(scenario) ? 1 : 0);
+      if (scenario === 'format failure') assert.match(logged.mock.calls[0].arguments[0], /Failed to format purchase DM amount/);
       if (scenario === 'blocked DM') assert.equal(logged.mock.calls[0].arguments[1], error);
     });
   }
