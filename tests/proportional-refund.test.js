@@ -100,7 +100,7 @@ test('durable cancellation survives reload, guards writes, and preserves renewal
 
 test('pending cancellation blocks purchase, renewal submission/approval and expiry cleanup', async t => {
   const { BuyVerifyHandler } = await import('../dist/interaction-handlers/BuyVerifyHandler.js');
-  const { RenewCommand } = await import('../dist/commands/RenewCommand.js');
+  const { SubscriptionCommand } = await import('../dist/commands/SubscriptionCommand.js');
   const { RenewApproveHandler } = await import('../dist/interaction-handlers/RenewApproveHandler.js');
   const { setupSubscriptionExpiryChecker } = await import('../dist/lib/subscriptionExpiryChecker.js');
   const buyer = '111111111111111111', role = '222222222222222222';
@@ -121,7 +121,7 @@ test('pending cancellation blocks purchase, renewal submission/approval and expi
     customId: `buy_verify_${buyer}_${role}_1`,
   };
   await BuyVerifyHandler.prototype.run(interaction);
-  await RenewCommand.prototype.chatInputRun(interaction);
+  await SubscriptionCommand.prototype.chatInputRenew(interaction);
   await RenewApproveHandler.prototype.run({ ...interaction, customId: `renew_approve_${buyer}_${role}_1`, channelId: 'log', message: { id: 'request' } });
   assert.equal(replies.length, 3);
   for (const reply of replies) assert.match(reply, /Cancellation is pending/);

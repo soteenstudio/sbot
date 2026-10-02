@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ChannelType, ButtonStyle, MessageFlags, EmbedBuilder } from 'discord.js';
-import { RefundCommand } from '../dist/commands/RefundCommand.js';
+import { SubscriptionCommand } from '../dist/commands/SubscriptionCommand.js';
 import { RefundVerifyHandler } from '../dist/interaction-handlers/RefundVerifyHandler.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
@@ -91,7 +91,7 @@ test('refund prefix is separate from purchases and renewals', () => {
 
 for (const scenario of ['', 'missing channel', 'wrong channel', 'send failure', 'request failure', 'binding failure', 'enable failure', 'read failure']) {
   test(`submission preserves access: ${scenario || 'success'}`, async t => {
-    const f = fixture(t, scenario); await RefundCommand.prototype.chatInputRun(f.submit);
+    const f = fixture(t, scenario); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
     assert.equal(f.record.pendingRefundId, undefined); assert.equal(f.events.length, 0); assert.equal(f.receipt, undefined);
     if (!scenario) {
       const embed = f.sent[0].embeds[0].toJSON();
@@ -114,7 +114,7 @@ for (const scenario of ['', 'missing channel', 'wrong channel', 'send failure', 
       assert.match(confirmation.description, /dummy test prices/);
       assert.match(confirmation.description, /The 5% tax does not include inter-bank transfer fees\./);
       assert.equal(f.sent[0].components[0].toJSON().components[0].custom_id, `refund_verify_${id}`);
-      await RefundCommand.prototype.chatInputRun(f.submit); assert.equal(f.sent.length, 1);
+      await SubscriptionCommand.prototype.chatInputRefund(f.submit); assert.equal(f.sent.length, 1);
       assert.match(f.responses.at(-1).content, /existing log message/);
       assert.equal(f.responses.at(-1).embeds, undefined);
     } else {
@@ -125,7 +125,7 @@ for (const scenario of ['', 'missing channel', 'wrong channel', 'send failure', 
         if (scenario === 'binding failure') {
           await RefundVerifyHandler.prototype.run(f.button); assert.equal(f.events.length, 0);
         }
-        f.recover(); await RefundCommand.prototype.chatInputRun(f.submit);
+        f.recover(); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
         assert.equal(f.request.status, 'logged'); assert.equal(f.events.length, 0);
         if (scenario === 'enable failure') assert.equal(f.sent.length, 1);
       }
@@ -135,7 +135,7 @@ for (const scenario of ['', 'missing channel', 'wrong channel', 'send failure', 
 
 for (const scenario of ['', 'absent role', 'blocked DM', 'fetch failure', 'prepare failure', 'remove failure', 'complete failure', 'log update failure']) {
   test(`verified cancellation: ${scenario || 'success'}`, async t => {
-    const f = fixture(t, scenario); await RefundCommand.prototype.chatInputRun(f.submit);
+    const f = fixture(t, scenario); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
     f.advance(60); await RefundVerifyHandler.prototype.run(f.button);
     if (['', 'absent role', 'blocked DM'].includes(scenario)) {
       assert.equal(f.receipt.gross, 4000); assert.equal(f.record, undefined);
@@ -159,7 +159,7 @@ for (const scenario of ['', 'absent role', 'blocked DM', 'fetch failure', 'prepa
 
 for (const scenario of ['wrong guild', 'wrong channel', 'wrong message', 'malformed', 'unauthorized', 'unlogged', 'stale', 'expired', 'legacy']) {
   test(`verification rejects ${scenario}`, async t => {
-    const f = fixture(t); await RefundCommand.prototype.chatInputRun(f.submit);
+    const f = fixture(t); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
     let button = { ...f.button };
     if (scenario === 'wrong guild') button.guild = { ...button.guild, id: 'other' };
     if (scenario === 'wrong channel') button.channelId = 'other';
@@ -177,20 +177,20 @@ for (const scenario of ['wrong guild', 'wrong channel', 'wrong message', 'malfor
 }
 
 test('verification includes renewal periods and concurrent clicks cancel once', async t => {
-  const f = fixture(t); await RefundCommand.prototype.chatInputRun(f.submit); f.renew(); f.advance(60);
+  const f = fixture(t); await SubscriptionCommand.prototype.chatInputRefund(f.submit); f.renew(); f.advance(60);
   await Promise.all([RefundVerifyHandler.prototype.run(f.button), RefundVerifyHandler.prototype.run(f.button)]);
   assert.equal(f.receipt.gross, 14000); assert.equal(f.events.filter(e => e === 'complete').length, 1); assert.equal(f.events.filter(e => e === 'dm').length, 1);
 });
 
 for (const role of ['FOUNDER', 'DEPUTY']) test(`${role} can verify`, async t => {
   const f = fixture(t); const old = Roles[role].id; Roles[role].id = role; t.after(() => { Roles[role].id = old; });
-  await RefundCommand.prototype.chatInputRun(f.submit);
+  await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   f.button.member = { permissions: { has: () => false }, roles: { cache: new Map([[role, {}]]) } };
   await RefundVerifyHandler.prototype.run(f.button); assert.equal(f.receipt.status, 'completed');
 });
 
 test('completed log failure can be repaired without another cancellation or DM', async t => {
-  const f = fixture(t); await RefundCommand.prototype.chatInputRun(f.submit);
+  const f = fixture(t); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   const edit = f.button.editReply; let count = 0;
   f.button.editReply = async payload => { if (++count === 2) throw new Error('log offline'); await edit(payload); };
   await RefundVerifyHandler.prototype.run(f.button);
@@ -201,15 +201,15 @@ test('completed log failure can be repaired without another cancellation or DM',
 });
 
 test('pending cancellation submission directs staff to its bound verification log', async t => {
-  const f = fixture(t, 'remove failure'); await RefundCommand.prototype.chatInputRun(f.submit);
+  const f = fixture(t, 'remove failure'); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   await RefundVerifyHandler.prototype.run(f.button); const gross = f.receipt.gross;
-  await RefundCommand.prototype.chatInputRun(f.submit);
+  await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   assert.match(f.responses.at(-1).content, /existing log message/);
   assert.equal(f.sent.length, 1); assert.equal(f.receipt.gross, gross); assert.ok(f.record.pendingRefundId);
 });
 
 test('a different request cannot compete with a saved pending cancellation', async t => {
-  const f = fixture(t, 'remove failure'); await RefundCommand.prototype.chatInputRun(f.submit);
+  const f = fixture(t, 'remove failure'); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   await RefundVerifyHandler.prototype.run(f.button); f.recover();
   const secondId = '22222222-2222-4222-8222-222222222222';
   const second = { ...f.request, requestId: secondId, refundId: undefined, status: 'logged' };
@@ -220,7 +220,7 @@ test('a different request cannot compete with a saved pending cancellation', asy
 });
 
 test('request storage read failure rejects verification before access changes', async t => {
-  const f = fixture(t); await RefundCommand.prototype.chatInputRun(f.submit);
+  const f = fixture(t); await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   t.mock.method(subscriptionStore, 'getRefundRequest', async () => { throw new Error('offline'); });
   await RefundVerifyHandler.prototype.run(f.button);
   assert.match(f.responses.at(-1).content, /Failed to load/); assert.equal(f.events.length, 0);
@@ -266,7 +266,7 @@ test('confirmation construction failure keeps the posted log bound and confirms 
     if (title === '✅ Refund Logged') throw new Error('confirmation unavailable');
     return setTitle.call(this, title);
   });
-  await RefundCommand.prototype.chatInputRun(f.submit);
+  await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   assert.equal(f.sent.length, 1);
   assert.equal(f.request.status, 'logged');
   assert.equal(f.request.logMessageId, 'message');
@@ -281,7 +281,7 @@ test('confirmation construction failure keeps the posted log bound and confirms 
 
 for (const scenario of ['', 'complete failure']) test('refund announcement: ' + (scenario || 'success'), async t => {
   const f = fixture(t, scenario);
-  await RefundCommand.prototype.chatInputRun(f.submit);
+  await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   assert.equal(f.request.commandChannelId, 'command-channel');
   assert.equal(f.button.customId, `refund_verify_${id}`);
   await RefundVerifyHandler.prototype.run(f.button);
@@ -295,7 +295,7 @@ for (const scenario of ['', 'complete failure']) test('refund announcement: ' + 
 
 for (const pending of [false, true]) test(`missing buyer completes refund: pending=${pending}`, async t => {
   const f = fixture(t, pending ? 'remove failure' : '');
-  await RefundCommand.prototype.chatInputRun(f.submit);
+  await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   if (pending) {
     await RefundVerifyHandler.prototype.run(f.button);
     assert.equal(f.receipt.status, 'pending');
@@ -320,7 +320,7 @@ for (const pending of [false, true]) test(`missing buyer completes refund: pendi
 
 test('other Discord fetch errors preserve the subscription and report the original error', async t => {
   const f = fixture(t);
-  await RefundCommand.prototype.chatInputRun(f.submit);
+  await SubscriptionCommand.prototype.chatInputRefund(f.submit);
   const error = Object.assign(new Error('Missing Permissions'), { code: 50013 });
   t.mock.method(f.button.guild.members, 'fetch', async () => { throw error; });
   await RefundVerifyHandler.prototype.run(f.button);

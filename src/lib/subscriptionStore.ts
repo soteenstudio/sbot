@@ -181,7 +181,9 @@ async function writeStorage(data: Storage): Promise<void> {
 
 function assertNotCancelling(record: SubscriptionRecord | undefined) {
   if (record?.pendingRefundId)
-    throw new Error('Subscription cancellation is pending; retry /refund');
+    throw new Error(
+      'Subscription cancellation is pending; retry /subscription refund',
+    );
 }
 
 export const subscriptionStore = {

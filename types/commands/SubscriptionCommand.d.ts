@@ -10,10 +10,12 @@
 import { Subcommand } from '@sapphire/plugin-subcommands';
 import { ChatInputCommandInteraction } from 'discord.js';
 import 'dotenv/config';
-export declare class BuyCommand extends Subcommand {
+export declare class SubscriptionCommand extends Subcommand {
     static commandName: string;
     static commandDescription: string;
     constructor(context: Subcommand.LoaderContext, options: Subcommand.Options);
     registerApplicationCommands(registry: Subcommand.Registry): void;
-    chatInputRun(interaction: ChatInputCommandInteraction): Promise<void>;
+    chatInputBuy(interaction: ChatInputCommandInteraction): Promise<void>;
+    chatInputRenew(interaction: ChatInputCommandInteraction): Promise<void>;
+    chatInputRefund(interaction: ChatInputCommandInteraction): Promise<void>;
 }

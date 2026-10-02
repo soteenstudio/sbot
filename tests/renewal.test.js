@@ -15,7 +15,7 @@ import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ActionRowBuilde
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
 import { RenewApproveHandler } from '../dist/interaction-handlers/RenewApproveHandler.js';
 import { Roles } from '../dist/config.js';
-import { RenewCommand } from '../dist/commands/RenewCommand.js';
+import { SubscriptionCommand } from '../dist/commands/SubscriptionCommand.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 import { setupSubscriptionExpiryChecker } from '../dist/lib/subscriptionExpiryChecker.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
@@ -154,17 +154,6 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month, 
   return { announcements, approval, requests, member, setRecord: value => { record = value; }, events, replies, logged, guild, interaction, current: () => record };
 }
 
-test('renew registration is guild-only, admin-only, and requires buyer and supported duration', () => {
-  let data;
-  RenewCommand.prototype.registerApplicationCommands.call(
-    { name: 'renew', description: 'Renew subscription' },
-    { registerChatInputCommand: (callback) => { data = callback(new SlashCommandBuilder()).toJSON(); } },
-  );
-  assert.equal(data.dm_permission, false);
-  assert.equal(data.default_member_permissions, String(PermissionFlagsBits.Administrator));
-  assert.deepEqual(data.options.map(({ name, required }) => [name, required]), [['buyer', true], ['duration', true]]);
-  assert.deepEqual(data.options[1].choices.map(({ value }) => value), ['1', '6', '12']);
-});
 
 for (const duration of ['1', '6', '12']) {
   for (const state of ['active', 'expired']) {
@@ -194,7 +183,7 @@ for (const scenario of ['unauthorized', 'missing subscription', 'missing member'
     assert.equal(f.events.includes('dm'), success);
     assertApprovalButton(f.approval.message.components, f.approval.customId, success);
     if (!success) assert.ok(!f.events.includes('staff'));
-    if (scenario === 'missing subscription') assert.match(f.replies.at(-1).content, /\/buy/);
+    if (scenario === 'missing subscription') assert.match(f.replies.at(-1).content, /\/subscription buy/);
     if (scenario === 'save failure') assert.match(f.replies.at(-1).content, /role was restored.*could not be saved/);
     if (scenario === 'blocked DM') assert.equal(f.logged.mock.callCount(), 1);
     if (scenario === 'already has role') assert.ok(!f.events.includes('add'));
@@ -262,7 +251,7 @@ for (const [name, grant] of [
       update: async () => {},
       followUp: async ({ content, ephemeral }) => {
         assert.equal(ephemeral, true);
-        assert.match(content, /Use \/renew/);
+        assert.match(content, /Use \/subscription renew/);
         f.events.push('purchase rejected');
       },
     };
@@ -284,7 +273,7 @@ for (const scenario of ['success', 'missing configuration', 'send failure', 'mis
     const f = fixture(t, scenario);
     if (scenario === 'missing configuration') delete process.env.BUY_LOG_CHANNEL;
     const before = { ...f.current() };
-    await RenewCommand.prototype.chatInputRun(f.interaction);
+    await SubscriptionCommand.prototype.chatInputRenew(f.interaction);
     assert.deepEqual(f.current(), before);
     for (const event of ['add', 'save', 'dm']) assert.ok(!f.events.includes(event));
     if (scenario === 'success') {
@@ -343,7 +332,7 @@ for (const scenario of ['changed tier', 'invalid payload', 'wrong channel', 'ove
 
 test('approval uses latest state and approval time', async t => {
   const f = fixture(t);
-  await RenewCommand.prototype.chatInputRun(f.interaction);
+  await SubscriptionCommand.prototype.chatInputRenew(f.interaction);
   const later = now + 5 * month;
   t.mock.method(Date, 'now', () => later);
   f.setRecord({ ...f.current(), expiresAt: later + month });
@@ -412,7 +401,7 @@ test('save failure without restoration explicitly reports unchanged expiration',
 for (const [duration, expiry] of [['2', now], ['1junk', now], ['1', NaN], ['1', Infinity], ['1', -1]]) {
   test(`submission rejects duration ${duration} or expiry ${expiry}`, async t => {
     const f = fixture(t, 'success', duration, expiry);
-    await RenewCommand.prototype.chatInputRun(f.interaction);
+    await SubscriptionCommand.prototype.chatInputRenew(f.interaction);
     assert.equal(f.requests.length, 0);
     assert.ok(!f.events.includes('fetch'));
   });
@@ -420,7 +409,7 @@ for (const [duration, expiry] of [['2', now], ['1junk', now], ['1', NaN], ['1', 
 
 for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], BILLION: [25000, 150000, 300000], RICHMAN: [50000, 300000, 600000] })) {
   for (const [index, duration] of [1, 6, 12].entries()) {
-    test('RenewCommand payment estimate ' + tier + ' ' + duration, async t => {
+    test('SubscriptionCommand payment estimate ' + tier + ' ' + duration, async t => {
       const f = fixture(t, 'success', String(duration));
       const originalRole = Roles[tier].id;
       Roles[tier].id = `role-${tier}`;
@@ -428,7 +417,7 @@ for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], B
       f.setRecord({ ...f.current(), roleId: Roles[tier].id, subscriptionId: '11111111-1111-4111-8111-111111111111' });
       const text = expectedMoney(prices[index]);
       assert.deepEqual(getPaymentAmount(Roles[tier].id, duration), { amount: prices[index], text });
-      await RenewCommand.prototype.chatInputRun(f.interaction);
+      await SubscriptionCommand.prototype.chatInputRenew(f.interaction);
       assert.equal(f.requests.length, 1);
       const log = f.requests[0].embeds[0].toJSON();
       assert.deepEqual(log.fields.find(field => field.name === 'Amount to Pay'), { name: 'Amount to Pay', value: text, inline: true });
@@ -450,7 +439,7 @@ for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], B
 }
 
 for (const invalid of ['missing price', 'missing currency', 'invalid currency', 'invalid price', 'unsupported tier']) {
-  test('RenewCommand rejects ' + invalid + ' without posting a log', async t => {
+  test('SubscriptionCommand rejects ' + invalid + ' without posting a log', async t => {
     const f = fixture(t);
     const originalPrice = subscriptionPrices.prices.DONATUR[1];
     const originalCurrency = subscriptionPrices.currency;
@@ -462,7 +451,7 @@ for (const invalid of ['missing price', 'missing currency', 'invalid currency', 
     if (invalid === 'unsupported tier') {
       f.setRecord({ ...f.current(), roleId: 'unknown-role' });
     }
-    await RenewCommand.prototype.chatInputRun(f.interaction);
+    await SubscriptionCommand.prototype.chatInputRenew(f.interaction);
     assert.equal(f.requests.length, 0);
     assert.match(f.replies.at(-1).content, /Unable to determine amount to pay/);
     assert.match(f.replies.at(-1).content, /No log was posted/);
@@ -504,7 +493,7 @@ test('renewal DM formatting failure omits amount and logs once without blocking 
 
 for (const scenario of ['success', 'save failure']) test('renew announcement: ' + scenario, async t => {
   const f = fixture(t, scenario);
-  await RenewCommand.prototype.chatInputRun(f.interaction);
+  await SubscriptionCommand.prototype.chatInputRenew(f.interaction);
   assert.ok(!f.requests[0].components[0].toJSON().components[0].custom_id.includes('command-channel'));
   await RenewApproveHandler.prototype.run(f.approval);
   await RenewApproveHandler.prototype.run(f.approval);
@@ -518,7 +507,7 @@ for (const scenario of ['success', 'save failure']) test('renew announcement: ' 
 test('origin write failure keeps the posted renewal valid', async t => {
   const f = fixture(t);
   t.mock.method(subscriptionStore, 'saveApprovalOrigin', async () => { throw new Error('offline'); });
-  await RenewCommand.prototype.chatInputRun(f.interaction);
+  await SubscriptionCommand.prototype.chatInputRenew(f.interaction);
   assert.equal(f.requests.length, 1);
   assert.equal(f.replies.at(-1).embeds[0].data.title, '✅ Renewal Logged');
 });

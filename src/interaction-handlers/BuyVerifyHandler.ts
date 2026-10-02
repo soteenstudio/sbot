@@ -96,7 +96,8 @@ export class BuyVerifyHandler extends InteractionHandler {
         }
         if (existing?.pendingRefundId) {
           await interaction.followUp({
-            content: '❌ Cancellation is pending. Retry /refund first.',
+            content:
+              '❌ Cancellation is pending. Retry /subscription refund first.',
             ephemeral: true,
           });
           return;
@@ -104,7 +105,7 @@ export class BuyVerifyHandler extends InteractionHandler {
         if (existing?.roleId === roleId) {
           await interaction.followUp({
             content:
-              '❌ This buyer already has a subscription for this role. Use /renew to extend it.',
+              '❌ This buyer already has a subscription for this role. Use /subscription renew to extend it.',
             ephemeral: true,
           });
           return;
