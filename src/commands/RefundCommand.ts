@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
 import { calculateProportionalRefund } from '../lib/proportionalRefund.js';
+import { formatSubscriptionMoney } from '../lib/subscriptionPrices.js';
 import { refundButton, refundRequestEmbed } from '../lib/refundPresentation.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
 
@@ -153,18 +154,45 @@ export class RefundCommand extends Subcommand {
           await message.edit({
             components: [refundButton(request.requestId, false)],
           });
-          await interaction.editReply({
-            embeds: [
-              new EmbedBuilder()
-                .setTitle('✅ Refund Logged')
-                .setDescription(
-                  `Successfully logged refund for **${buyer.tag}**. Staff verification is pending in the log channel.`,
-                )
-                .setColor(EMBED_COLORS.CONFIRMED)
-                .setFooter({ text: `${EMBED_FOOTER} • Purchases` })
-                .setTimestamp(),
-            ],
-          });
+          const description = `Successfully logged refund for **${buyer.tag}**. Staff verification is pending in the log channel.
+
+Amounts are estimates; verification recalculates the refund from remaining time at verification. The refund is recorded for manual payment; the bot does not transfer funds. Prices are dummy test prices. The 5% tax does not include inter-bank transfer fees.`;
+          let confirmation;
+          try {
+            confirmation = new EmbedBuilder()
+              .setTitle('✅ Refund Logged')
+              .setDescription(description)
+              .addFields(
+                {
+                  name: 'Estimated Gross Refund',
+                  value: formatSubscriptionMoney(
+                    preview.gross,
+                    preview.currency,
+                  ),
+                  inline: true,
+                },
+                {
+                  name: 'Estimated 5% Deduction',
+                  value: formatSubscriptionMoney(preview.tax, preview.currency),
+                  inline: true,
+                },
+                {
+                  name: 'Estimated Net Refund',
+                  value: formatSubscriptionMoney(preview.net, preview.currency),
+                  inline: true,
+                },
+              )
+              .setColor(EMBED_COLORS.CONFIRMED)
+              .setFooter({ text: `${EMBED_FOOTER} • Purchases` })
+              .setTimestamp();
+          } catch (error) {
+            console.error('Failed to build refund confirmation:', error);
+          }
+          await interaction.editReply(
+            confirmation
+              ? { embeds: [confirmation] }
+              : { content: `✅ Refund Logged\n${description}` },
+          );
         } catch (error) {
           console.error('Failed to log refund request:', error);
           await fail(

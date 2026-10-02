@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ChannelType, ButtonStyle, MessageFlags } from 'discord.js';
+import { ChannelType, ButtonStyle, MessageFlags, EmbedBuilder } from 'discord.js';
 import { RefundCommand } from '../dist/commands/RefundCommand.js';
 import { RefundVerifyHandler } from '../dist/interaction-handlers/RefundVerifyHandler.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
@@ -98,11 +98,26 @@ for (const scenario of ['', 'missing channel', 'wrong channel', 'send failure', 
       assert.equal(embed.fields.find(x => x.name === 'Estimated Net Refund').value, 'IDR 4750');
       assert.match(embed.description, /The 5% tax does not include inter-bank transfer fees\./);
       assertButton(f.sent[0].components[0], true); assertButton(f.edits[0].components[0], false);
-      assert.equal(f.responses.at(-1).embeds[0].data.title, '✅ Refund Logged');
+      const confirmation = f.responses.at(-1).embeds[0].toJSON();
+      assert.equal(confirmation.title, '✅ Refund Logged');
+      assert.deepEqual(confirmation.fields, embed.fields.filter(field => field.name.startsWith('Estimated ')));
+      assert.equal(confirmation.color, EMBED_COLORS.CONFIRMED);
+      assert.equal(confirmation.footer.text, `${EMBED_FOOTER} • Purchases`);
+      assert.ok(confirmation.timestamp);
+      assert.match(confirmation.description, /Amounts are estimates/);
+      assert.match(confirmation.description, /recalculates.*remaining time at verification/);
+      assert.match(confirmation.description, /recorded for manual payment/);
+      assert.match(confirmation.description, /bot does not transfer funds/);
+      assert.match(confirmation.description, /dummy test prices/);
+      assert.match(confirmation.description, /The 5% tax does not include inter-bank transfer fees\./);
+      assert.equal(f.sent[0].components[0].toJSON().components[0].custom_id, `refund_verify_${id}`);
       await RefundCommand.prototype.chatInputRun(f.submit); assert.equal(f.sent.length, 1);
       assert.match(f.responses.at(-1).content, /existing log message/);
+      assert.equal(f.responses.at(-1).embeds, undefined);
     } else {
       assert.match(f.responses.at(-1).content, /❌/);
+      assert.equal(f.responses.at(-1).embeds, undefined);
+      assert.doesNotMatch(f.responses.at(-1).content, /Refund Logged|IDR|Estimated .*Refund/);
       if (['send failure', 'binding failure', 'enable failure'].includes(scenario)) {
         if (scenario === 'binding failure') {
           await RefundVerifyHandler.prototype.run(f.button); assert.equal(f.events.length, 0);
@@ -239,4 +254,24 @@ test('durable requests preserve active access, deduplicate, and atomically freez
   await reload.completeRefund(id);
   assert.equal((await reload.getRefundRequest(id)).status, 'completed');
   assert.equal((await reload.getRefund(id)).net, 4750);
+});
+
+test('confirmation construction failure keeps the posted log bound and confirms without amounts', async t => {
+  const f = fixture(t);
+  const setTitle = EmbedBuilder.prototype.setTitle;
+  t.mock.method(EmbedBuilder.prototype, 'setTitle', function(title) {
+    if (title === '✅ Refund Logged') throw new Error('confirmation unavailable');
+    return setTitle.call(this, title);
+  });
+  await RefundCommand.prototype.chatInputRun(f.submit);
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.request.status, 'logged');
+  assert.equal(f.request.logMessageId, 'message');
+  assertButton(f.edits[0].components[0], false);
+  assert.equal(f.responses.at(-1).embeds, undefined);
+  assert.match(f.responses.at(-1).content, /✅ Refund Logged/);
+  assert.doesNotMatch(f.responses.at(-1).content, /IDR|Estimated .*Refund|logging did not finish/);
+  assert.equal(f.events.length, 0);
+  assert.equal(f.receipt, undefined);
+  assert.equal(console.error.mock.calls.at(-1).arguments[0], 'Failed to build refund confirmation:');
 });
