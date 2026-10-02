@@ -120,9 +120,9 @@ for (const blocked of [false, true]) {
       send: async ({ embeds }) => {
         sent++;
         const embed = embeds[0].toJSON();
-        assert.match(embed.description, /The 5% tax does not include inter-bank transfer fees\./);
+        assert.match(embed.description, /The 5% deduction does not include inter-bank transfer fees\./);
         assert.deepEqual(Object.fromEntries(embed.fields.map(field => [field.name, field.value])), {
-          Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1.00', '5% Tax': 'USD 0.05', 'Net Refund': 'USD 0.95',
+          Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1.00', '5% Deduction': 'USD 0.05', 'Net Refund': 'USD 0.95',
         });
         if (blocked) throw new Error('DM blocked');
       },

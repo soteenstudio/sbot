@@ -108,6 +108,7 @@ export class BuyVerifyHandler extends InteractionHandler {
           return;
         }
 
+        const hadRole = member.roles.cache.has(roleId);
         try {
           await member.roles.add(
             roleId,
@@ -125,13 +126,43 @@ export class BuyVerifyHandler extends InteractionHandler {
         const expiresAt =
           Date.now() + durationMonths * 30 * 24 * 60 * 60 * 1000;
 
-        await subscriptionStore.set({
-          userId,
-          guildId: interaction.guild.id,
-          roleId,
-          durationMonths,
-          expiresAt,
-        });
+        try {
+          await subscriptionStore.set({
+            userId,
+            guildId: interaction.guild.id,
+            roleId,
+            durationMonths,
+            expiresAt,
+          });
+        } catch (error) {
+          console.error(
+            'Failed to save subscription for purchase verification:',
+            error,
+          );
+          let rollbackStatus =
+            'The buyer already had this role, so it was left unchanged.';
+          if (!hadRole) {
+            try {
+              await member.roles.remove(
+                roleId,
+                'Purchase verification rollback: subscription save failed',
+              );
+              rollbackStatus = 'The newly granted role was revoked.';
+            } catch (rollbackError) {
+              console.error(
+                'Failed to roll back purchase role grant:',
+                rollbackError,
+              );
+              rollbackStatus =
+                "Failed to remove the newly granted role. Check the buyer's access and remove it manually.";
+            }
+          }
+          await interaction.followUp({
+            content: `❌ Failed to save the subscription. ${rollbackStatus} Try again after storage is restored.`,
+            ephemeral: true,
+          });
+          return;
+        }
 
         await notifyBuyerOfPurchase(member, {
           roleId,

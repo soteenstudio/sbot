@@ -58,7 +58,7 @@ for (const scenario of ['new', 'active', 'expired', 'other tier']) {
             assert.equal(embeds[0].data.fields.find((field) => field.name === 'Expires').value,
               `<t:${Math.floor((now + 2 * month) / 1000)}:F>`);
           },
-          roles: { add: async () => { events.push('add'); } },
+          roles: { cache: new Map(), add: async () => { events.push('add'); } },
         };
       } } },
       followUp: async ({ content, ephemeral }) => {
@@ -97,7 +97,7 @@ for (const failure of ['fetch', 'add']) {
       deferUpdate: async () => { events.push('defer'); },
       guild: { members: { fetch: async () => {
         if (failure === 'fetch') throw new Error('fetch failed');
-        return { roles: { add: async () => { throw new Error('add failed'); } } };
+        return { roles: { cache: new Map(), add: async () => { throw new Error('add failed'); } } };
       } } },
       followUp: async ({ ephemeral }) => { assert.equal(ephemeral, true); events.push('follow-up'); },
     });
@@ -138,7 +138,7 @@ function purchaseFixture(t, existing, readFailure = false) {
   };
   const member = {
     id: 'buyer', guild,
-    roles: { add: async () => { events.push('add'); } },
+    roles: { cache: new Map(), add: async () => { events.push('add'); } },
     send: async () => { events.push('dm'); },
   };
   const interaction = {

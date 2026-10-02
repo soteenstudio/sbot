@@ -30,7 +30,7 @@ export async function notifyBuyerOfRefund(
       inline: true,
     },
     {
-      name: '5% Tax',
+      name: '5% Deduction',
       value: formatSubscriptionMoney(amounts.tax, refund.currency),
       inline: true,
     },
@@ -50,7 +50,7 @@ export async function notifyBuyerOfRefund(
     const embed = new EmbedBuilder()
       .setTitle('✅ Your Refund Has Been Recorded')
       .setDescription(
-        'Staff have confirmed your refund. The 5% tax does not include inter-bank transfer fees.',
+        'Staff have confirmed your refund. The 5% deduction does not include inter-bank transfer fees.',
       )
       .setColor(EMBED_COLORS.CONFIRMED)
       .addFields(

@@ -20,10 +20,15 @@ const month = 30 * 24 * 60 * 60 * 1000;
 for (const [name, grant] of [
   ['handler', (interaction) => BuyVerifyHandler.prototype.run(interaction)],
 ]) {
-  for (const scenario of ['success', 'blocked DM', 'fetch failure', 'role failure', 'save failure', 'read failure']) {
+  for (const scenario of ['success', 'blocked DM', 'fetch failure', 'role failure', 'save failure', 'save failure with existing role', 'save failure with rollback failure', 'read failure']) {
     test(`${name}: purchase notification on ${scenario}`, async (t) => {
       const events = [];
       let saved;
+      let followUp;
+      const saveFailure = scenario.startsWith('save failure');
+      const hadRole = scenario === 'save failure with existing role';
+      const rollbackFailure = scenario === 'save failure with rollback failure';
+      const roleCache = new Map(hadRole ? [['role', {}]] : []);
       const error = new Error(scenario);
       t.mock.method(Date, 'now', () => now);
       const logged = t.mock.method(console, 'error', () => {});
@@ -34,7 +39,7 @@ for (const [name, grant] of [
       });
       t.mock.method(subscriptionStore, 'set', async (record) => {
         events.push('save');
-        if (scenario === 'save failure') throw error;
+        if (saveFailure) throw error;
         saved = record;
       });
       const guild = {
@@ -48,9 +53,16 @@ for (const [name, grant] of [
       };
       const member = {
         id: 'buyer', guild,
-        roles: { add: async () => {
+        roles: { cache: roleCache, add: async (roleId) => {
+          assert.equal(roleId, 'role');
           events.push('add');
           if (scenario === 'role failure') throw error;
+          roleCache.set(roleId, {});
+        }, remove: async (roleId) => {
+          assert.equal(roleId, 'role');
+          events.push('remove');
+          if (rollbackFailure) throw error;
+          roleCache.delete(roleId);
         } },
         send: async ({ embeds }) => {
           events.push('dm');
@@ -75,12 +87,11 @@ for (const [name, grant] of [
         message: { embeds: [{ title: 'Purchase' }], components: [] },
         deferUpdate: async () => {},
         reply: async () => { events.push('failure reply'); },
-        followUp: async () => { events.push('failure reply'); },
+        followUp: async (reply) => { assert.equal(reply.ephemeral, true); followUp = reply.content; events.push('failure reply'); },
         update: async () => { events.push('staff'); },
         editReply: async () => { events.push('staff'); },
       };
-      if (scenario === 'save failure') await assert.rejects(grant(interaction), error);
-      else await grant(interaction);
+      await grant(interaction);
       if (scenario === 'success' || scenario === 'blocked DM') {
         assert.deepEqual(events, ['get', 'fetch', 'add', 'save', 'dm', 'staff']);
         assert.equal(saved.expiresAt, now + month);
@@ -89,7 +100,24 @@ for (const [name, grant] of [
         assert.ok(!events.includes('staff'));
       }
       if (scenario === 'read failure') assert.deepEqual(events, ['get', 'failure reply']);
-      assert.equal(logged.mock.callCount(), ['blocked DM', 'read failure'].includes(scenario) ? 1 : 0);
+      if (saveFailure) {
+        assert.deepEqual(events, ['get', 'fetch', 'add', 'save', ...(hadRole ? [] : ['remove']), 'failure reply']);
+        assert.equal(saved, undefined);
+        assert.equal(roleCache.has('role'), hadRole || rollbackFailure);
+        assert.match(followUp, /Failed to save the subscription/);
+        if (hadRole) {
+          assert.match(followUp, /already had this role.*left unchanged/);
+          assert.doesNotMatch(followUp, /revoked/);
+        } else if (rollbackFailure) {
+          assert.match(followUp, /Failed to remove.*remove it manually/);
+          assert.doesNotMatch(followUp, /revoked/);
+        } else {
+          assert.match(followUp, /newly granted role was revoked/);
+        }
+        assert.equal(logged.mock.calls[0].arguments[1], error);
+        if (rollbackFailure) assert.equal(logged.mock.calls[1].arguments[1], error);
+      }
+      assert.equal(logged.mock.callCount(), rollbackFailure ? 2 : saveFailure || ['blocked DM', 'read failure'].includes(scenario) ? 1 : 0);
       if (scenario === 'blocked DM') assert.equal(logged.mock.calls[0].arguments[1], error);
     });
   }
