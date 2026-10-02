@@ -13,6 +13,7 @@ import { test } from 'node:test';
 import { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { RefundCommand } from '../dist/commands/RefundCommand.js';
 import { subscriptionPrices, getSubscriptionPrice, calculateRefundDeduction, formatSubscriptionMoney } from '../dist/lib/subscriptionPrices.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
 import { notifyBuyerOfRefund } from '../dist/lib/refundNotification.js';
 
 const currency = { code: 'USD', minorUnitDigits: 2 };
@@ -116,6 +117,11 @@ for (const blocked of [false, true]) {
       send: async ({ embeds }) => {
         sent++;
         const embed = embeds[0].toJSON();
+        assert.equal(embed.color, EMBED_COLORS.CONFIRMED);
+        assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`);
+        assert.ok(embed.timestamp);
+        assert.match(embed.description, /manual payment/);
+        assert.match(embed.description, /cancelled/);
         assert.match(embed.description, /The 5% tax does not include inter-bank transfer fees\./);
         assert.deepEqual(Object.fromEntries(embed.fields.map(field => [field.name, field.value])), {
           Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1.00', '5% Deduction': 'USD 0.05', 'Net Refund': 'USD 0.95',

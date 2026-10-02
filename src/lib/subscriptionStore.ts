@@ -37,6 +37,23 @@ export interface RefundReceipt {
   status: 'pending' | 'completed';
 }
 
+export interface RefundRequest {
+  requestId: string;
+  guildId: string;
+  userId: string;
+  roleId: string;
+  subscriptionId: string;
+  requestedBy: string;
+  requesterTag: string;
+  requestedAt: number;
+  logChannelId: string;
+  logMessageId?: string;
+  status: 'logging' | 'logged' | 'verified' | 'completed';
+  refundId?: string;
+  verifiedBy?: string;
+  verifiedAt?: number;
+}
+
 export interface SubscriptionRecord {
   subscriptionId?: string;
   paidPeriods?: PaidPeriod[];
@@ -67,6 +84,7 @@ interface Storage {
   subscriptions: Records;
   renewalApprovals: Record<string, RenewalApproval>;
   refunds: Record<string, RefundReceipt>;
+  refundRequests: Record<string, RefundRequest>;
 }
 
 type Records = Record<string, Record<string, SubscriptionRecord>>;
@@ -111,6 +129,7 @@ async function ensureDataFile(): Promise<void> {
       subscriptions: {},
       renewalApprovals: {},
       refunds: {},
+      refundRequests: {},
     });
   }
 }
@@ -119,8 +138,15 @@ async function readStorage(): Promise<Storage> {
   await ensureDataFile();
   const rawData = await fs.readFile(DATA_FILE, 'utf-8');
   const parsed = JSON.parse(rawData);
-  if (parsed.version === 2) return parsed;
-  if (parsed.version === 1) return { ...parsed, version: 2, refunds: {} };
+  if (parsed.version === 2)
+    return { ...parsed, refundRequests: parsed.refundRequests ?? {} };
+  if (parsed.version === 1)
+    return {
+      ...parsed,
+      version: 2,
+      refunds: parsed.refunds ?? {},
+      refundRequests: parsed.refundRequests ?? {},
+    };
   if ('version' in parsed)
     throw new Error('Unsupported subscription storage version');
   return {
@@ -128,6 +154,7 @@ async function readStorage(): Promise<Storage> {
     subscriptions: parsed,
     renewalApprovals: {},
     refunds: {},
+    refundRequests: {},
   };
 }
 
@@ -142,6 +169,124 @@ function assertNotCancelling(record: SubscriptionRecord | undefined) {
 }
 
 export const subscriptionStore = {
+  async getRefundRequest(
+    requestId: string,
+  ): Promise<RefundRequest | undefined> {
+    return enqueue(async () => (await readStorage()).refundRequests[requestId]);
+  },
+  async createRefundRequest(request: RefundRequest): Promise<RefundRequest> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const record = data.subscriptions[request.guildId]?.[request.userId];
+      if (
+        !record ||
+        record.subscriptionId !== request.subscriptionId ||
+        record.roleId !== request.roleId
+      )
+        throw new Error('Subscription changed');
+      const existing = Object.values(data.refundRequests).find(
+        (r) =>
+          r.guildId === request.guildId &&
+          r.userId === request.userId &&
+          r.subscriptionId === request.subscriptionId &&
+          r.status !== 'completed',
+      );
+      if (existing) return existing;
+      if (data.refundRequests[request.requestId])
+        throw new Error('Refund request reference already used');
+      if (record.pendingRefundId) {
+        const receipt = data.refunds[record.pendingRefundId];
+        if (
+          !receipt ||
+          receipt.subscriptionId !== record.subscriptionId ||
+          receipt.roleId !== record.roleId ||
+          receipt.guildId !== request.guildId ||
+          receipt.userId !== request.userId ||
+          receipt.status !== 'pending'
+        )
+          throw new Error('Pending refund metadata repair required');
+        request.refundId = receipt.refundId;
+      }
+      data.refundRequests[request.requestId] = request;
+      await writeStorage(data);
+      return request;
+    });
+  },
+  async bindRefundLog(
+    requestId: string,
+    channelId: string,
+    messageId: string,
+  ): Promise<RefundRequest> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const request = data.refundRequests[requestId];
+      if (
+        !request ||
+        request.status !== 'logging' ||
+        request.logChannelId !== channelId ||
+        !messageId
+      )
+        throw new Error('Invalid refund log binding');
+      if (request.logMessageId && request.logMessageId !== messageId)
+        throw new Error('Refund log already bound');
+      request.logMessageId = messageId;
+      request.status = 'logged';
+      await writeStorage(data);
+      return request;
+    });
+  },
+  async verifyRefundRequest(
+    requestId: string,
+    receipt: RefundReceipt,
+    verifiedAt: number,
+  ): Promise<RefundReceipt> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const request = data.refundRequests[requestId];
+      if (
+        !request ||
+        !request.logMessageId ||
+        !['logged', 'verified'].includes(request.status)
+      )
+        throw new Error('Refund request is not logged');
+      if (request.status === 'verified') {
+        const saved = data.refunds[request.refundId!];
+        if (!saved) throw new Error('Refund receipt missing');
+        return saved;
+      }
+      const record = data.subscriptions[request.guildId]?.[request.userId];
+      if (
+        !record ||
+        record.subscriptionId !== request.subscriptionId ||
+        record.roleId !== request.roleId
+      )
+        throw new Error('Subscription changed');
+      if (
+        receipt.subscriptionId !== request.subscriptionId ||
+        receipt.guildId !== request.guildId ||
+        receipt.userId !== request.userId ||
+        receipt.roleId !== request.roleId
+      )
+        throw new Error('Receipt identity mismatch');
+      if (record.pendingRefundId && record.pendingRefundId !== request.refundId)
+        throw new Error('Another cancellation is pending');
+      const saved = request.refundId
+        ? data.refunds[request.refundId]
+        : undefined;
+      if (request.refundId && !saved) throw new Error('Refund receipt missing');
+      const frozen = saved ?? receipt;
+      if (data.refunds[frozen.refundId] && !saved)
+        throw new Error('Refund reference already used');
+      request.refundId = frozen.refundId;
+      request.status = 'verified';
+      request.verifiedBy = receipt.staffId;
+      request.verifiedAt = verifiedAt;
+      record.pendingRefundId = frozen.refundId;
+      data.refunds[frozen.refundId] = frozen;
+      await writeStorage(data);
+      return frozen;
+    });
+  },
   async getRefund(refundId: string): Promise<RefundReceipt | undefined> {
     return enqueue(async () => (await readStorage()).refunds[refundId]);
   },
@@ -186,6 +331,9 @@ export const subscriptionStore = {
           'Subscription changed; recovery requires metadata repair',
         );
       receipt.status = 'completed';
+      for (const request of Object.values(data.refundRequests)) {
+        if (request.refundId === refundId) request.status = 'completed';
+      }
       delete data.subscriptions[receipt.guildId][receipt.userId];
       if (!Object.keys(data.subscriptions[receipt.guildId]).length)
         delete data.subscriptions[receipt.guildId];
