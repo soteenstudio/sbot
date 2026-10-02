@@ -198,6 +198,7 @@ export class RenewCommand extends Subcommand {
             .setCustomId(
               `renew_approve_${buyer.id}_${existing.roleId}_${durationMonths}`,
             )
+            .setEmoji('✅')
             .setLabel('Approve Renewal')
             .setStyle(ButtonStyle.Success),
         );
@@ -211,16 +212,9 @@ export class RenewCommand extends Subcommand {
           });
           return;
         }
-        const confirmation = new EmbedBuilder()
-          .setTitle('✅ Renewal Logged')
-          .setDescription(
-            `Successfully logged renewal for **${buyer.tag}**. The renewal is awaiting staff approval in the log channel.`,
-          )
-          .setColor(EMBED_COLORS.CONFIRMED)
-          .setFooter({ text: 'SoTeen Studio • Purchases' })
-          .setTimestamp();
-
-        await interaction.editReply({ embeds: [confirmation] });
+        await interaction.editReply({
+          content: `✅ Renewal for **${buyer.tag}** is awaiting approval in the purchase-log channel.`,
+        });
       },
     );
   }
