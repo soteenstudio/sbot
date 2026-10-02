@@ -267,7 +267,16 @@ for (const scenario of ['success', 'missing configuration', 'send failure', 'mis
       const embed = f.requests[0].embeds[0].toJSON();
       assert.equal(embed.fields.find(field => field.name === 'Status').value, '⏳ Pending approval');
       assertApprovalButton(f.requests[0].components, f.approval.customId, false);
-      assert.match(f.replies.at(-1).content, /awaiting approval/);
+      const reply = f.replies.at(-1);
+      assert.equal(reply.embeds.length, 1);
+      const confirmation = reply.embeds[0].toJSON();
+      assert.equal(confirmation.title, '✅ Renewal Logged');
+      assert.equal(confirmation.color, EMBED_COLORS.CONFIRMED);
+      assert.equal(confirmation.footer.text, 'SoTeen Studio • Purchases');
+      assert.ok(confirmation.timestamp);
+      assert.match(confirmation.description, /\*\*Buyer\*\*/);
+      assert.match(confirmation.description, /awaiting staff approval in the log channel/);
+      assert.equal(Object.hasOwn(reply, 'content'), false);
     } else assert.equal(f.requests.length, 0);
   });
 }
