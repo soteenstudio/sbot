@@ -10,3 +10,4 @@
 import { type GuildMember } from 'discord.js';
 import type { SubscriptionRecord } from './subscriptionStore.js';
 export declare function notifyBuyerOfPurchase(member: GuildMember, purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>): Promise<void>;
+export declare function notifyBuyerOfRenewal(member: GuildMember, purchase: Pick<SubscriptionRecord, 'roleId' | 'durationMonths' | 'expiresAt'>): Promise<void>;
