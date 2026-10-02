@@ -20,7 +20,6 @@ export interface SubscriptionCurrency {
   minorUnitDigits: number;
 }
 
-// Dummy prices for testing only: not production prices or historical payment amounts.
 export const subscriptionPrices: {
   currency: SubscriptionCurrency | undefined;
   prices: Record<
@@ -82,8 +81,6 @@ export interface RefundBreakdown {
   net: number;
 }
 
-// Round the 5% deduction to the nearest minor unit, with ties rounded up.
-// BigInt keeps the intermediate calculation exact even at MAX_SAFE_INTEGER.
 export function calculateRefundDeduction(gross: number): RefundBreakdown {
   validateMoney(gross);
   const tax = Number((BigInt(gross) * 5n + 50n) / 100n);
@@ -120,7 +117,6 @@ export function formatSubscriptionMoney(
   return `${currency.code} ${value}`;
 }
 
-// The current catalogue is synthetic. Change this only after configuring verified prices.
 export function snapshotPaidPeriod(
   tier: string,
   duration: number,

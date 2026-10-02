@@ -141,7 +141,7 @@ export class RefundCommand extends Subcommand {
             });
             return;
           }
-          // Send disabled: an unbound message can never execute a cancellation.
+
           const message = await channel.send({
             embeds: [refundRequestEmbed(request, preview)],
             components: [refundButton(request.requestId, true)],

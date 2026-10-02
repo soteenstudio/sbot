@@ -193,7 +193,7 @@ export class RefundVerifyHandler extends InteractionHandler {
                 'Verification saved, but final calculation could not be logged. Cancellation is pending; retry verification',
               );
             }
-            // Persisted verification and frozen amounts precede every access change.
+
             if (member.roles.cache.has(receipt.roleId)) {
               try {
                 await member.roles.remove(

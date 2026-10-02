@@ -16,7 +16,6 @@ import {
   type SubscriptionCurrency,
 } from './subscriptionPrices.js';
 
-// Call only after a staff-confirmed refund is persisted and required access changes succeed.
 export async function notifyBuyerOfRefund(
   member: GuildMember,
   refund: {
