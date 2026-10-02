@@ -9,6 +9,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { expectedMoney } from './helpers/money.js';
 import { test } from 'node:test';
 import { SlashCommandBuilder, MessageFlags, PermissionFlagsBits, ChannelType } from 'discord.js';
 import { RefundCommand } from '../dist/commands/RefundCommand.js';
@@ -59,9 +60,9 @@ test('catalogue rejects unsupported and unconfigured prices without defaults', t
 test('whole-rupiah refund deducts 500 from a gross amount of 10_000', () => {
   const amounts = calculateRefundDeduction(10_000);
   assert.deepEqual(amounts, { gross: 10_000, tax: 500, net: 9_500 });
-  assert.equal(formatSubscriptionMoney(amounts.gross, subscriptionPrices.currency), 'IDR 10000');
+  assert.equal(formatSubscriptionMoney(amounts.gross, subscriptionPrices.currency), 'IDR 10.000');
   assert.equal(formatSubscriptionMoney(amounts.tax, subscriptionPrices.currency), 'IDR 500');
-  assert.equal(formatSubscriptionMoney(amounts.net, subscriptionPrices.currency), 'IDR 9500');
+  assert.equal(formatSubscriptionMoney(amounts.net, subscriptionPrices.currency), 'IDR 9.500');
   assert.equal(formatSubscriptionMoney(0, subscriptionPrices.currency), 'IDR 0');
 });
 
@@ -73,11 +74,27 @@ test('5% deduction rounds half up using exact integer arithmetic', () => {
     assert.throws(() => calculateRefundDeduction(invalid), /positive safe integer/);
 });
 
+test('currency formatting groups integer digits with Indonesian separators', () => {
+  const idr = { code: 'IDR', minorUnitDigits: 0 };
+  for (const [amount, text] of [
+    [1_200_000, 'IDR 1.200.000'],
+    [999, 'IDR 999'],
+    [1_000, 'IDR 1.000'],
+    [0, 'IDR 0'],
+    [Number.MAX_SAFE_INTEGER, 'IDR 9.007.199.254.740.991'],
+  ]) {
+    assert.equal(formatSubscriptionMoney(amount, idr), text);
+    assert.equal(expectedMoney(amount, idr), text);
+  }
+  assert.equal(formatSubscriptionMoney(123456, currency), 'USD 1.234,56');
+  assert.equal(formatSubscriptionMoney(1, currency), 'USD 0,01');
+});
+
 test('currency formatting preserves minor units and validates configuration', () => {
-  assert.equal(formatSubscriptionMoney(123, currency), 'USD 1.23');
-  assert.equal(formatSubscriptionMoney(0, currency), 'USD 0.00');
+  assert.equal(formatSubscriptionMoney(123, currency), 'USD 1,23');
+  assert.equal(formatSubscriptionMoney(0, currency), 'USD 0,00');
   assert.equal(formatSubscriptionMoney(123, { code: 'JPY', minorUnitDigits: 0 }), 'JPY 123');
-  assert.equal(formatSubscriptionMoney(Number.MAX_SAFE_INTEGER, currency), 'USD 90071992547409.91');
+  assert.equal(formatSubscriptionMoney(Number.MAX_SAFE_INTEGER, currency), 'USD 90.071.992.547.409,91');
   for (const invalid of [{ code: '', minorUnitDigits: 2 }, { code: 'USD', minorUnitDigits: -1 }, { code: 'USD', minorUnitDigits: 1.5 }])
     assert.throws(() => formatSubscriptionMoney(123, invalid), /Invalid currency/);
   assert.throws(() => formatSubscriptionMoney(-1, currency), /nonnegative/);
@@ -125,7 +142,7 @@ for (const blocked of [false, true]) {
         assert.match(embed.description, /cancelled/);
         assert.match(embed.description, /The 5% tax does not include inter-bank transfer fees\./);
         assert.deepEqual(Object.fromEntries(embed.fields.map(field => [field.name, field.value])), {
-          Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1.00', '5% Deduction': 'USD 0.05', 'Net Refund': 'USD 0.95',
+          Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1,00', '5% Deduction': 'USD 0,05', 'Net Refund': 'USD 0,95',
         });
         if (blocked) throw new Error('DM blocked');
       },
@@ -168,9 +185,9 @@ for (const tier of ['DONATUR', 'BILLION', 'RICHMAN']) for (const duration of [1,
     const confirmation = reply.embeds[0].toJSON();
     assert.equal(confirmation.title, '✅ Refund Logged');
     const expected = [
-      { name: 'Estimated Gross Refund', value: `IDR ${period.price / 2}`, inline: true },
-      { name: 'Estimated 5% Deduction', value: `IDR ${period.price / 40}`, inline: true },
-      { name: 'Estimated Net Refund', value: `IDR ${period.price / 2 - period.price / 40}`, inline: true },
+      { name: 'Estimated Gross Refund', value: expectedMoney(period.price / 2), inline: true },
+      { name: 'Estimated 5% Deduction', value: expectedMoney(period.price / 40), inline: true },
+      { name: 'Estimated Net Refund', value: expectedMoney(period.price / 2 - period.price / 40), inline: true },
     ];
     assert.deepEqual(confirmation.fields, expected);
     assert.deepEqual(confirmation.fields, log.embeds[0].toJSON().fields.filter(field => field.name.startsWith('Estimated ')));

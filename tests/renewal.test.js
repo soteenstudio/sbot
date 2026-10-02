@@ -9,6 +9,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { expectedMoney } from './helpers/money.js';
 import { test } from 'node:test';
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { BuyVerifyHandler } from '../dist/interaction-handlers/BuyVerifyHandler.js';
@@ -119,7 +120,7 @@ function fixture(t, scenario = 'success', duration = '1', expiry = now + month, 
       assert.deepEqual(Object.fromEntries(embed.fields.map(({ name, value }) => [name, value])), {
         Server: 'Test Server', 'Subscription Tier': tier,
         'Added Duration': `${duration} Month${duration === '1' ? '' : 's'}`,
-        ...(scenario === 'format failure' ? {} : { 'Amount to Pay': `IDR ${record.paidPeriods.at(-1).price}` }),
+        ...(scenario === 'format failure' ? {} : { 'Amount to Pay': expectedMoney(record.paidPeriods.at(-1).price) }),
         Expires: `<t:${Math.floor(record.expiresAt / 1000)}:F>`,
       });
       if (scenario === 'blocked DM') throw new Error('dm');
@@ -420,7 +421,7 @@ for (const [tier, prices] of Object.entries({ DONATUR: [10000, 60000, 120000], B
       Roles[tier].id = `role-${tier}`;
       t.after(() => { Roles[tier].id = originalRole; });
       f.setRecord({ ...f.current(), roleId: Roles[tier].id, subscriptionId: '11111111-1111-4111-8111-111111111111' });
-      const text = `IDR ${prices[index]}`;
+      const text = expectedMoney(prices[index]);
       assert.deepEqual(getPaymentAmount(Roles[tier].id, duration), { amount: prices[index], text });
       await RenewCommand.prototype.chatInputRun(f.interaction);
       assert.equal(f.requests.length, 1);

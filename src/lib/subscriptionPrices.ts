@@ -108,10 +108,15 @@ export function formatSubscriptionMoney(
   const digits = BigInt(amount)
     .toString()
     .padStart(currency.minorUnitDigits + 1, '0');
-  const value =
+  const integerDigits =
     currency.minorUnitDigits === 0
       ? digits
-      : `${digits.slice(0, -currency.minorUnitDigits)}.${digits.slice(-currency.minorUnitDigits)}`;
+      : digits.slice(0, -currency.minorUnitDigits);
+  const groupedInteger = integerDigits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const value =
+    currency.minorUnitDigits === 0
+      ? groupedInteger
+      : `${groupedInteger},${digits.slice(-currency.minorUnitDigits)}`;
   return `${currency.code} ${value}`;
 }
 
