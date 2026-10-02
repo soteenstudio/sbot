@@ -1,8 +1,13 @@
 Confirmed refund policy
 =======================
-/refund records a manual payment for unused subscription time and cancels
-the subscription. It removes only the buyer's subscription role, never the
-server's role. Months remain 30 days. Each stored paid period contributes:
+/refund logs a request in BUY_LOG_CHANNEL and returns an ephemeral Refund
+Logged confirmation. It does not cancel access or notify the buyer. Amounts
+are estimates for unused subscription time. Administrators, Founders and
+Deputies verify using the green ✅ Verify & Refund button on that exact log.
+Verification recalculates unused time from current paid snapshots, records a
+refund for manual payment and cancels the subscription. It removes only the
+buyer's subscription role, never the server's role. Months remain 30 days.
+Each stored paid period contributes:
 price * clamp(endAt - refundAt, 0, endAt - startAt) / (endAt - startAt).
 Contributions are summed exactly, then rounded to the nearest minor unit
 (ties up). A rounded 5% deduction is applied to gross. The 5% tax does not
@@ -42,10 +47,27 @@ snapshots automatically. Renewal buttons bind to subscription identity;
 unbound older requests cannot renew replacement purchases.
 
 A pending refund stores frozen amounts and staff identity before role removal.
-Retry /refund for the same buyer after restoring Discord permissions or
-storage. Purchases, renewals and expiry cleanup block while cancellation is
+Retry verification on the existing log after restoring Discord permissions
+or storage. The saved calculation is frozen even across restarts. Purchases,
+renewals and expiry cleanup block while cancellation is
 pending. Completion atomically retains the receipt and removes the matching
 subscription; renewal receipts survive. Completed replays do not resend DMs.
 Do not replace a subscription or edit pendingRefundId during recovery.
-Tests/proportional-refund.test.js provides synthetic arithmetic, cancellation,
-reload, duplicate-request, replacement, and recovery fixtures.
+tests/proportional-refund.test.js and tests/refund-verification.test.js cover
+arithmetic, cancellation, reload, duplicate requests, replacement and recovery.
+
+Requests are stored separately from cancellation receipts. Awaiting staff
+verification does not set pendingRefundId: renewals and expiry continue.
+Repeated /refund returns the existing request link. Logging starts with a
+disabled button; only the saved channel/message binding is executable. If
+sending or binding fails, repeat /refund to log the same request. Any unbound
+message stays disabled and cannot execute. If enabling the button fails,
+repeat /refund to repair the bound message, without posting another request.
+Verification atomically saves approver/time, receipt and pendingRefundId.
+The final log shows calculation time, final amounts and refund reference.
+After completion the green ✅ button stays visible and disabled. Retrying
+completed verification repairs the log without cancelling or sending a DM
+again. The bot never confirms bank payment or transfers funds.
+Version 2 files migrate refund request storage on write, preserving all
+subscriptions, renewal approvals and cancellation receipts. Existing pending
+receipts can be logged with /refund and verified without recalculation.

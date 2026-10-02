@@ -30,6 +30,22 @@ export interface RefundReceipt {
     staffTag: string;
     status: 'pending' | 'completed';
 }
+export interface RefundRequest {
+    requestId: string;
+    guildId: string;
+    userId: string;
+    roleId: string;
+    subscriptionId: string;
+    requestedBy: string;
+    requesterTag: string;
+    requestedAt: number;
+    logChannelId: string;
+    logMessageId?: string;
+    status: 'logging' | 'logged' | 'verified' | 'completed';
+    refundId?: string;
+    verifiedBy?: string;
+    verifiedAt?: number;
+}
 export interface SubscriptionRecord {
     subscriptionId?: string;
     paidPeriods?: PaidPeriod[];
@@ -54,6 +70,10 @@ export interface RenewalApproval {
     approvedBy: string;
 }
 export declare const subscriptionStore: {
+    getRefundRequest(requestId: string): Promise<RefundRequest | undefined>;
+    createRefundRequest(request: RefundRequest): Promise<RefundRequest>;
+    bindRefundLog(requestId: string, channelId: string, messageId: string): Promise<RefundRequest>;
+    verifyRefundRequest(requestId: string, receipt: RefundReceipt, verifiedAt: number): Promise<RefundReceipt>;
     getRefund(refundId: string): Promise<RefundReceipt | undefined>;
     findRefund(guildId: string, userId: string): Promise<RefundReceipt | undefined>;
     beginRefund(receipt: RefundReceipt): Promise<RefundReceipt>;
