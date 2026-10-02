@@ -18,7 +18,7 @@ export interface SubscriptionCurrency {
   minorUnitDigits: number;
 }
 
-// Await the owner's currency and prices. Catalogue prices are not payment history.
+// Dummy prices for testing only: not production prices or historical payment amounts.
 export const subscriptionPrices: {
   currency: SubscriptionCurrency | undefined;
   prices: Record<
@@ -26,11 +26,11 @@ export const subscriptionPrices: {
     Record<SubscriptionDuration, number | undefined>
   >;
 } = {
-  currency: undefined,
+  currency: { code: 'IDR', minorUnitDigits: 0 },
   prices: {
-    DONATUR: { 1: undefined, 6: undefined, 12: undefined },
-    BILLION: { 1: undefined, 6: undefined, 12: undefined },
-    RICHMAN: { 1: undefined, 6: undefined, 12: undefined },
+    DONATUR: { 1: 10_000, 6: 60_000, 12: 120_000 },
+    BILLION: { 1: 25_000, 6: 150_000, 12: 300_000 },
+    RICHMAN: { 1: 50_000, 6: 300_000, 12: 600_000 },
   },
 };
 
