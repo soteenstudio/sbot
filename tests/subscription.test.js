@@ -346,7 +346,9 @@ test('purchase announces once in the submission channel after saving and DM', as
   assert.equal(f.requests[0].components[0].toJSON().components[0].custom_id, 'buy_verify_buyer_role_1');
   await BuyVerifyHandler.prototype.run(f.approval);
   await BuyVerifyHandler.prototype.run(f.approval);
-  assert.deepEqual(f.announcements, [{ content: '<@staff> has verified this process (Buy)', allowedMentions: { parse: [] } }]);
+  assert.equal(f.announcements.length, 1);
+  assert.deepEqual(f.announcements[0].allowedMentions, { parse: [] });
+  assert.equal(f.announcements[0].embeds[0].toJSON().description, '<@staff> has verified this process (Buy)');
 });
 
 test('failed purchase save never announces', async t => {

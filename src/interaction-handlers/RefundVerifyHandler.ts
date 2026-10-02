@@ -140,13 +140,18 @@ export class RefundVerifyHandler extends InteractionHandler {
               record.pendingRefundId !== request.refundId
             )
               throw new Error('Another cancellation is pending');
-            const member = await interaction.guild.members.fetch(
-              request.userId,
-            );
-            if (!member)
-              throw new Error(
-                'Buyer is unavailable; retry verification when restored',
-              );
+            const member = await interaction.guild.members
+              .fetch(request.userId)
+              .catch((error: unknown) => {
+                if (
+                  typeof error !== 'object' ||
+                  error === null ||
+                  !('code' in error) ||
+                  error.code !== 10007
+                )
+                  throw error;
+                return undefined;
+              });
             if (request.status === 'logged') {
               const verifiedAt = Date.now();
               const proposed = receipt ?? {
@@ -195,7 +200,7 @@ export class RefundVerifyHandler extends InteractionHandler {
               );
             }
 
-            if (member.roles.cache.has(receipt.roleId)) {
+            if (member?.roles.cache.has(receipt.roleId)) {
               try {
                 await member.roles.remove(
                   receipt.roleId,
@@ -216,7 +221,7 @@ export class RefundVerifyHandler extends InteractionHandler {
                 'Subscription role is absent, but cancellation could not be saved. Repair storage and retry verification on this message.',
               );
             }
-            await notifyBuyerOfRefund(member, receipt);
+            if (member) await notifyBuyerOfRefund(member, receipt);
             await announceSavedApproval(
               interaction.guild,
               request.requestId,

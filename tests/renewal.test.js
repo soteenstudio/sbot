@@ -508,7 +508,11 @@ for (const scenario of ['success', 'save failure']) test('renew announcement: ' 
   assert.ok(!f.requests[0].components[0].toJSON().components[0].custom_id.includes('command-channel'));
   await RenewApproveHandler.prototype.run(f.approval);
   await RenewApproveHandler.prototype.run(f.approval);
-  assert.deepEqual(f.announcements, scenario === 'success' ? [{ content: '<@staff> has approved this process (Renew)', allowedMentions: { parse: [] } }] : []);
+  assert.equal(f.announcements.length, scenario === 'success' ? 1 : 0);
+  if (scenario === 'success') {
+    assert.deepEqual(f.announcements[0].allowedMentions, { parse: [] });
+    assert.equal(f.announcements[0].embeds[0].toJSON().description, '<@staff> has approved this process (Renew)');
+  }
 });
 
 test('origin write failure keeps the posted renewal valid', async t => {

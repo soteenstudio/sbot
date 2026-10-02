@@ -286,5 +286,49 @@ for (const scenario of ['', 'complete failure']) test('refund announcement: ' + 
   assert.equal(f.button.customId, `refund_verify_${id}`);
   await RefundVerifyHandler.prototype.run(f.button);
   await RefundVerifyHandler.prototype.run(f.button);
-  assert.deepEqual(f.announcements, scenario ? [] : [{ content: '<@staff> has verified this process (Refund)', allowedMentions: { parse: [] } }]);
+  assert.equal(f.announcements.length, scenario ? 0 : 1);
+  if (!scenario) {
+    assert.deepEqual(f.announcements[0].allowedMentions, { parse: [] });
+    assert.equal(f.announcements[0].embeds[0].toJSON().description, '<@staff> has verified this process (Refund)');
+  }
+});
+
+for (const pending of [false, true]) test(`missing buyer completes refund: pending=${pending}`, async t => {
+  const f = fixture(t, pending ? 'remove failure' : '');
+  await RefundCommand.prototype.chatInputRun(f.submit);
+  if (pending) {
+    await RefundVerifyHandler.prototype.run(f.button);
+    assert.equal(f.receipt.status, 'pending');
+    f.advance(90);
+  }
+  t.mock.method(f.button.guild.members, 'fetch', async () => {
+    throw Object.assign(new Error('Unknown Member'), { code: 10007 });
+  });
+  await RefundVerifyHandler.prototype.run(f.button);
+  assert.equal(f.record, undefined);
+  assert.equal(f.receipt.status, 'completed');
+  assert.equal(f.receipt.gross, 5000);
+  assert.equal(f.request.status, 'completed');
+  assertButton(f.edits.at(-1).components[0], true);
+  await RefundVerifyHandler.prototype.run(f.button);
+  assert.equal(f.events.filter(e => e === 'verify').length, 1);
+  assert.equal(f.events.filter(e => e === 'complete').length, 1);
+  assert.equal(f.events.filter(e => e === 'remove').length, 0);
+  assert.equal(f.events.filter(e => e === 'dm').length, 0);
+  assert.equal(f.announcements.length, 1);
+});
+
+test('other Discord fetch errors preserve the subscription and report the original error', async t => {
+  const f = fixture(t);
+  await RefundCommand.prototype.chatInputRun(f.submit);
+  const error = Object.assign(new Error('Missing Permissions'), { code: 50013 });
+  t.mock.method(f.button.guild.members, 'fetch', async () => { throw error; });
+  await RefundVerifyHandler.prototype.run(f.button);
+  assert.equal(f.record.pendingRefundId, undefined);
+  assert.equal(f.receipt, undefined);
+  assert.equal(f.request.status, 'logged');
+  assert.deepEqual(f.events, ['defer']);
+  assert.equal(f.announcements.length, 0);
+  assert.equal(console.error.mock.calls.at(-1).arguments[1], error);
+  assert.match(f.responses.at(-1).content, /Missing Permissions/);
 });
