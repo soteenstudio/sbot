@@ -7,6 +7,6 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
-import { type GuildMember } from 'discord.js';
+import type { GuildMember } from 'discord.js';
 import type { PlanChangeRequest, PlanChangeReceipt } from './subscriptionStore.js';
 export declare function notifyBuyerOfPlanChange(member: GuildMember, request: PlanChangeRequest, receipt: PlanChangeReceipt): Promise<void>;

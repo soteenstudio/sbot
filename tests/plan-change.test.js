@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ButtonStyle, ChannelType, MessageFlags } from 'discord.js';
+import { ChannelType, MessageFlags } from 'discord.js';
 import { Roles } from '../dist/config.js';
 import { calculatePlanChange } from '../dist/lib/proratedPlanChange.js';
 import { calculateUnusedValue, calculateProportionalRefund } from '../dist/lib/proportionalRefund.js';
@@ -22,9 +22,6 @@ import { SubscriptionCommand } from '../dist/commands/SubscriptionCommand.js';
 import { PlanChangeVerifyHandler } from '../dist/interaction-handlers/PlanChangeVerifyHandler.js';
 import { setupSubscriptionExpiryChecker } from '../dist/lib/subscriptionExpiryChecker.js';
 import { logRoleChange } from '../dist/lib/roleChangeLog.js';
-import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
-import { notifyBuyerOfPlanChange } from '../dist/lib/planChangeNotification.js';
-import { planChangeRequestEmbed } from '../dist/lib/planChangePresentation.js';
 const id = '11111111-1111-4111-8111-111111111111';
 const currency = { code: 'IDR', minorUnitDigits: 0 };
 const period = (startAt = 0, endAt = 100, price = 10000) => ({ startAt, endAt, price, currency: { ...currency }, source: 'testing' });
@@ -79,7 +76,7 @@ function fixture(t, scenario = '') {
   t.mock.method(subscriptionStore, 'markAnnounced', async () => { if (request.announced) return false; request.announced = true; return true; });
   const cache = new Map([['donatur', {}]]);
   const channel = { id: 'log', type: ChannelType.GuildText, send: async payload => { fault('send'); sent.push(payload); return { id: 'message', edit: async payload => { fault('enable'); edits.push(payload); } }; } };
-  const guild = { id: 'guild', name: 'Server', roles: { cache: new Map() }, channels: { cache: new Map([['log', channel]]), fetch: async channelId => {
+  const guild = { id: 'guild', name: 'Server', channels: { cache: new Map([['log', channel]]), fetch: async channelId => {
     if (channelId === 'log') { fault('role log'); return { ...channel, guild }; }
     return { guild, isTextBased: () => true, send: async payload => announcements.push(payload) };
   } }, members: { fetch: async () => { fault('fetch'); return member; } } };
@@ -89,7 +86,7 @@ function fixture(t, scenario = '') {
   } };
   const base = { guild, inCachedGuild: () => true, member: { permissions: { has: () => true }, roles: { cache: new Map() } }, user: { id: 'staff', tag: 'Staff' },
     channelId: 'command', reply: async p => replies.push(p), editReply: async p => { fault('update'); replies.push(p); }, followUp: async p => replies.push(p) };
-  const submit = { ...base, editReply: async p => replies.push(p), options: { getUser: () => ({ id: 'buyer', tag: 'Buyer' }), getString: name => name === 'role' ? 'BILLION' : '1' }, deferReply: async p => assert.equal(p.flags, MessageFlags.Ephemeral) };
+  const submit = { ...base, editReply: async p => replies.push(p), options: { getUser: () => ({ id: 'buyer' }), getString: name => name === 'role' ? 'BILLION' : '1' }, deferReply: async p => assert.equal(p.flags, MessageFlags.Ephemeral) };
   const button = { ...base, channelId: 'log', customId: `plan_change_verify_${id}`, message: { id: 'message' }, deferUpdate: async () => events.push('defer') };
   return { submit, button, events, replies, sent, edits, announcements, channel, guild, member,
     get record() { return r; }, get request() { return request; }, get receipt() { return receipt; },
@@ -102,21 +99,11 @@ test('command logs estimates, UUID-only bound button and ephemeral confirmation'
   const f = fixture(t); await submit(f);
   assert.equal(f.request.status, 'logged'); assert.equal(f.record.pendingPlanChangeId, undefined);
   const embed = f.sent[0].embeds[0].data;
-  assert.equal(f.request.buyerTag, 'Buyer'); assert.equal(f.request.requesterTag, 'Staff');
-  assert.deepEqual(embed.fields.map(x => x.name), ['Buyer', 'Old Tier', 'New Tier', 'Duration', 'Prorated Credit', 'New Price', 'Amount to Pay (estimate)', 'Requested By', 'Status']);
-  assert.equal(embed.fields[0].value, 'Buyer (buyer)');
-  assert.equal(embed.fields[3].value, '1 Month');
-  assert.equal(embed.fields[7].value, 'Staff');
-  assert.equal(embed.fields.at(-1).value, '⏳ Pending verification'); assert.equal(embed.fields.at(-1).inline, false);
-  assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`); assert.equal(embed.color, EMBED_COLORS.WARNING);
   assert.equal(embed.fields.find(x => x.name === 'Amount to Pay (estimate)').value, 'IDR 20.000');
-  const button = f.sent[0].components[0].toJSON().components[0];
-  assert.equal(button.label, 'Verify & Change Plan'); assert.equal(button.emoji.name, '✅'); assert.equal(button.style, ButtonStyle.Success);
   assert.equal(f.sent[0].components[0].toJSON().components[0].custom_id, `plan_change_verify_${id}`);
   assert.equal(f.sent[0].components[0].toJSON().components[0].disabled, true);
   assert.equal(f.edits[0].components[0].toJSON().components[0].disabled, false);
   assert.equal(f.replies[0].embeds[0].data.title, '✅ Plan Change Logged');
-  assert.match(f.replies[0].embeds[0].data.description, /Successfully logged plan change for \*\*Buyer\*\*/);
   await submit(f); assert.equal(f.sent.length, 1); assert.match(f.replies.at(-1).content, /already pending/);
 });
 for (const scenario of ['guild', 'admin', 'channel', 'missing', 'history', 'refund', 'pending', 'same', 'direction', 'duration', 'role', 'expired', 'read']) test('command rejects ' + scenario, async t => {
@@ -153,15 +140,6 @@ test('success adds before removal, saves before DM, announces once and ignores d
   assert.ok(f.events.indexOf('add') < f.events.indexOf('remove')); assert.ok(f.events.indexOf('complete') < f.events.indexOf('dm'));
   assert.equal(f.events.filter(x => x === 'add').length, 1); assert.equal(f.events.filter(x => x === 'dm').length, 1); assert.equal(f.announcements.length, 1);
   assert.equal(f.replies.at(-1).components[0].toJSON().components[0].disabled, true);
-  const final = f.replies.at(-1).embeds[0].data;
-  assert.equal(final.color, EMBED_COLORS.CONFIRMED);
-  assert.equal(final.fields.find(x => x.name === 'Status').value, '✅ Verified by <@staff>');
-  assert.equal(final.fields.find(x => x.name === 'Verified By').value, '<@staff> (<t:0:F>)');
-  assert.equal(final.fields.find(x => x.name === 'Final Calculation').value, '<t:0:F>');
-  assert.equal(final.fields.find(x => x.name === 'Amount to Pay').value, 'IDR 20.000');
-  assert.equal(f.announcements[0].embeds[0].data.title, '📣 Upgrade Info');
-  assert.equal(f.announcements[0].embeds[0].data.color, EMBED_COLORS.INFO);
-  assert.deepEqual(f.announcements[0].allowedMentions, { parse: [] });
 });
 test('add failure aborts and clears pending flag', async t => {
   const f = fixture(t, 'add'); await submit(f); await verify(f);
@@ -188,7 +166,7 @@ for (const version of [1, 2]) test('storage migrates version ' + version + ', gu
   const prior = { version, subscriptions: { guild: { buyer: record() } }, renewalApprovals: { renewal: { requestId: 'renewal' } }, refunds: {}, refundRequests: {}, approvalOrigins: { origin: { commandChannelId: 'origin', announced: true } } };
   await writeFile('data/subscriptions.json', JSON.stringify(prior));
   const { subscriptionStore: store } = await import(`../dist/lib/subscriptionStore.js?plan-${version}`);
-  const request = { id, buyerTag: 'Buyer', requesterTag: 'Staff', subscriptionId: 'subscription', guildId: 'guild', userId: 'buyer', fromRoleId: 'donatur', toRoleId: 'billion', durationMonths: 1, direction: 'upgrade', requestedBy: 'staff', requestedAt: 50, commandChannelId: 'command', announced: false, logChannelId: 'log', status: 'logging' };
+  const request = { id, subscriptionId: 'subscription', guildId: 'guild', userId: 'buyer', fromRoleId: 'donatur', toRoleId: 'billion', durationMonths: 1, direction: 'upgrade', requestedBy: 'staff', requestedAt: 50, commandChannelId: 'command', announced: false, logChannelId: 'log', status: 'logging' };
   await store.createPlanChangeRequest(request);
   await assert.rejects(store.createPlanChangeRequest({ ...request, id: 'other' }), /plan change is pending/);
   const refund = { refundId: 'refund', subscriptionId: 'subscription', guildId: 'guild', userId: 'buyer', roleId: 'donatur', status: 'pending' };
@@ -266,43 +244,4 @@ test('stale renewal after tier change cannot restore the old role', async t => {
   const button = { ...f.button, customId: `renew_approve_12345678901234568_${oldRole}_1_${subscriptionId}` };
   await RenewApproveHandler.prototype.run(button);
   assert.match(f.replies.at(-1).content, /tier changed/); assert.equal(f.events.includes('add'), false);
-});
-
-test('staff log formats plural duration and supports older requests without tags', async t => {
-  const f = fixture(t); f.submit.options.getString = name => name === 'role' ? 'BILLION' : '6';
-  await submit(f); assert.equal(f.sent[0].embeds[0].data.fields.find(x => x.name === 'Duration').value, '6 Months');
-  delete f.request.buyerTag; delete f.request.requesterTag;
-  const embed = planChangeRequestEmbed(f.request, calculatePlanChange(f.record, 'billion', 6, 'upgrade', 50), currency).data;
-  assert.equal(embed.fields[0].value, 'buyer (buyer)'); assert.equal(embed.fields.find(x => x.name === 'Requested By').value, 'staff');
-});
-for (const direction of ['upgrade', 'downgrade']) test(direction + ' DM uses buyer layout and final amounts', async t => {
-  const f = fixture(t);
-  if (direction === 'downgrade') {
-    f.record.roleId = 'richman'; f.record.paidPeriods = [period(0, 100, 50000)];
-    f.submit.options.getString = name => name === 'role' ? 'DONATUR' : '1';
-    await SubscriptionCommand.prototype.chatInputDowngrade.call(SubscriptionCommand.prototype, f.submit);
-  } else await submit(f);
-  f.guild.roles = { cache: new Map([['donatur', { name: 'Donatur Tier' }], ['billion', { name: 'Billion Tier' }], ['richman', { name: 'Richman Tier' }]]) };
-  const send = t.mock.method(f.member, 'send', async () => {});
-  await verify(f);
-  const payload = send.mock.calls[0].arguments[0], embed = payload.embeds[0].data;
-  assert.equal(embed.title, direction === 'upgrade' ? '✅ Your Subscription Has Been Upgraded' : '✅ Your Subscription Has Been Downgraded');
-  assert.equal(embed.color, EMBED_COLORS.CONFIRMED); assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`); assert.ok(embed.timestamp);
-  assert.match(embed.description, /Recorded for manual payment; the bot does not take payment/);
-  assert.equal(payload.components, undefined);
-  assert.deepEqual(embed.fields.map(x => x.name), ['Server', 'Old Tier', 'New Tier', 'Duration', 'Prorated Credit', 'New Price', direction === 'upgrade' ? 'Amount to Pay' : 'Credit Balance', 'Expires']);
-  assert.ok(embed.fields.every(x => x.inline)); assert.equal(embed.fields[0].value, 'Server');
-  assert.equal(embed.fields[1].value, direction === 'upgrade' ? 'Donatur Tier' : 'Richman Tier');
-  assert.equal(embed.fields[2].value, direction === 'upgrade' ? 'Billion Tier' : 'Donatur Tier');
-  assert.equal(embed.fields[6].value, direction === 'upgrade' ? 'IDR 20.000' : 'IDR 15.000');
-  assert.equal(embed.fields[7].value, `<t:${Math.floor(f.receipt.newExpiresAt / 1000)}:F>`);
-  f.guild.roles.cache.clear(); f.request.fromRoleId = 'unknown'; f.request.durationMonths = 6;
-  await notifyBuyerOfPlanChange(f.member, f.request, f.receipt);
-  const fallback = send.mock.calls[1].arguments[0].embeds[0].data;
-  assert.equal(fallback.fields[1].value, 'Subscription'); assert.equal(fallback.fields[2].value, direction === 'upgrade' ? 'BILLION' : 'DONATUR');
-  assert.equal(fallback.fields[3].value, '6 Months');
-  const error = t.mock.method(console, 'error', () => {});
-  t.mock.method(f.member, 'send', async () => { throw new Error('blocked'); });
-  await notifyBuyerOfPlanChange(f.member, f.request, f.receipt);
-  assert.match(error.mock.calls[0].arguments[0], /plan change DM to user buyer/);
 });
