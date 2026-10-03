@@ -11,6 +11,11 @@
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import type {
+  PlanChangeDirection,
+  PlanChangeQuote,
+} from './proratedPlanChange.js';
+import type { SubscriptionDuration } from './subscriptionPrices.js';
 import type { SubscriptionCurrency } from './subscriptionPrices.js';
 
 export interface PaidPeriod {
@@ -56,11 +61,41 @@ export interface RefundRequest {
   verifiedAt?: number;
 }
 
+export interface PlanChangeRequest {
+  id: string;
+  subscriptionId: string;
+  userId: string;
+  guildId: string;
+  fromRoleId: string;
+  toRoleId: string;
+  durationMonths: SubscriptionDuration;
+  direction: PlanChangeDirection;
+  requestedBy: string;
+  requestedAt: number;
+  commandChannelId: string;
+  announced: boolean;
+  logChannelId: string;
+  logMessageId?: string;
+  status: 'logging' | 'logged' | 'verified' | 'completed' | 'failed';
+}
+export interface PlanChangeReceipt extends PlanChangeQuote {
+  id: string;
+  subscriptionId: string;
+  guildId: string;
+  userId: string;
+  oldRoleId: string;
+  oldPaidPeriods: PaidPeriod[];
+  newPaidPeriod: PaidPeriod;
+  verifiedAt: number;
+  verifiedBy: string;
+}
+
 export interface SubscriptionRecord {
   subscriptionId?: string;
   paidPeriods?: PaidPeriod[];
   paymentHistoryComplete?: boolean;
   pendingRefundId?: string;
+  pendingPlanChangeId?: string;
   userId: string;
   guildId: string;
   roleId: string;
@@ -88,12 +123,14 @@ export interface ApprovalOrigin {
 }
 
 interface Storage {
-  version: 2;
+  version: 3;
   approvalOrigins: Record<string, ApprovalOrigin>;
   subscriptions: Records;
   renewalApprovals: Record<string, RenewalApproval>;
   refunds: Record<string, RefundReceipt>;
   refundRequests: Record<string, RefundRequest>;
+  planChangeRequests: Record<string, PlanChangeRequest>;
+  planChangeReceipts: Record<string, PlanChangeReceipt>;
 }
 
 type Records = Record<string, Record<string, SubscriptionRecord>>;
@@ -134,12 +171,14 @@ async function ensureDataFile(): Promise<void> {
     )
       throw error;
     await replaceStorage({
-      version: 2,
+      version: 3,
       approvalOrigins: {},
       subscriptions: {},
       renewalApprovals: {},
       refunds: {},
       refundRequests: {},
+      planChangeRequests: {},
+      planChangeReceipts: {},
     });
   }
 }
@@ -148,16 +187,21 @@ async function readStorage(): Promise<Storage> {
   await ensureDataFile();
   const rawData = await fs.readFile(DATA_FILE, 'utf-8');
   const parsed = JSON.parse(rawData);
-  if (parsed.version === 2)
+  if (parsed.version === 3 || parsed.version === 2)
     return {
       ...parsed,
+      version: 3,
+      planChangeRequests: parsed.planChangeRequests ?? {},
+      planChangeReceipts: parsed.planChangeReceipts ?? {},
       approvalOrigins: parsed.approvalOrigins ?? {},
       refundRequests: parsed.refundRequests ?? {},
     };
   if (parsed.version === 1)
     return {
       ...parsed,
-      version: 2,
+      version: 3,
+      planChangeRequests: parsed.planChangeRequests ?? {},
+      planChangeReceipts: parsed.planChangeReceipts ?? {},
       approvalOrigins: parsed.approvalOrigins ?? {},
       refunds: parsed.refunds ?? {},
       refundRequests: parsed.refundRequests ?? {},
@@ -165,12 +209,14 @@ async function readStorage(): Promise<Storage> {
   if ('version' in parsed)
     throw new Error('Unsupported subscription storage version');
   return {
-    version: 2,
+    version: 3,
     approvalOrigins: {},
     subscriptions: parsed,
     renewalApprovals: {},
     refunds: {},
     refundRequests: {},
+    planChangeRequests: {},
+    planChangeReceipts: {},
   };
 }
 
@@ -179,6 +225,23 @@ async function writeStorage(data: Storage): Promise<void> {
   await replaceStorage(data);
 }
 
+export const PLAN_CHANGE_PENDING =
+  'Subscription plan change is pending; retry /subscription upgrade or /subscription downgrade';
+function assertNoPlanChange(
+  data: Storage,
+  record: SubscriptionRecord | undefined,
+) {
+  if (
+    record?.pendingPlanChangeId ||
+    (record?.subscriptionId &&
+      Object.values(data.planChangeRequests).some(
+        (r) =>
+          r.subscriptionId === record.subscriptionId &&
+          !['failed', 'completed'].includes(r.status),
+      ))
+  )
+    throw new Error(PLAN_CHANGE_PENDING);
+}
 function assertNotCancelling(record: SubscriptionRecord | undefined) {
   if (record?.pendingRefundId)
     throw new Error(
@@ -187,6 +250,156 @@ function assertNotCancelling(record: SubscriptionRecord | undefined) {
 }
 
 export const subscriptionStore = {
+  async getPlanChangeRequest(
+    id: string,
+  ): Promise<PlanChangeRequest | undefined> {
+    return enqueue(async () => (await readStorage()).planChangeRequests[id]);
+  },
+  async getPlanChangeReceipt(
+    id: string,
+  ): Promise<PlanChangeReceipt | undefined> {
+    return enqueue(async () => (await readStorage()).planChangeReceipts[id]);
+  },
+  async findActivePlanChange(
+    subscriptionId: string,
+  ): Promise<PlanChangeRequest | undefined> {
+    return enqueue(async () =>
+      Object.values((await readStorage()).planChangeRequests).find(
+        (r) =>
+          r.subscriptionId === subscriptionId &&
+          !['completed', 'failed'].includes(r.status),
+      ),
+    );
+  },
+  async createPlanChangeRequest(
+    request: PlanChangeRequest,
+  ): Promise<PlanChangeRequest> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const record = data.subscriptions[request.guildId]?.[request.userId];
+      if (
+        !record ||
+        record.subscriptionId !== request.subscriptionId ||
+        record.roleId !== request.fromRoleId
+      )
+        throw new Error('Subscription changed');
+      assertNotCancelling(record);
+      assertNoPlanChange(data, record);
+      if (data.planChangeRequests[request.id] || request.status !== 'logging')
+        throw new Error('Plan change reference already used or invalid');
+      data.planChangeRequests[request.id] = request;
+      await writeStorage(data);
+      return request;
+    });
+  },
+  async bindPlanChangeLog(
+    id: string,
+    channelId: string,
+    messageId: string,
+  ): Promise<PlanChangeRequest> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const request = data.planChangeRequests[id];
+      if (
+        !request ||
+        request.status !== 'logging' ||
+        request.logChannelId !== channelId ||
+        !messageId
+      )
+        throw new Error('Invalid plan change log binding');
+      request.logMessageId = messageId;
+      request.status = 'logged';
+      await writeStorage(data);
+      return request;
+    });
+  },
+  async beginPlanChange(
+    id: string,
+    receipt: PlanChangeReceipt,
+  ): Promise<PlanChangeReceipt> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const request = data.planChangeRequests[id];
+      if (
+        !request ||
+        !request.logMessageId ||
+        !['logged', 'verified'].includes(request.status)
+      )
+        throw new Error('Plan change is not logged');
+      const record = data.subscriptions[request.guildId]?.[request.userId];
+      if (
+        !record ||
+        record.subscriptionId !== request.subscriptionId ||
+        record.roleId !== request.fromRoleId
+      )
+        throw new Error('Subscription changed');
+      assertNotCancelling(record);
+      if (request.status === 'verified') {
+        const saved = data.planChangeReceipts[id];
+        if (!saved || record.pendingPlanChangeId !== id)
+          throw new Error('Plan change recovery metadata missing');
+        return saved;
+      }
+      if (record.pendingPlanChangeId) throw new Error(PLAN_CHANGE_PENDING);
+      if (
+        receipt.id !== id ||
+        receipt.subscriptionId !== request.subscriptionId ||
+        receipt.guildId !== request.guildId ||
+        receipt.userId !== request.userId ||
+        receipt.fromRoleId !== request.fromRoleId ||
+        receipt.toRoleId !== request.toRoleId ||
+        receipt.toDurationMonths !== request.durationMonths ||
+        receipt.direction !== request.direction
+      )
+        throw new Error('Plan change receipt identity mismatch');
+      data.planChangeReceipts[id] = receipt;
+      record.pendingPlanChangeId = id;
+      request.status = 'verified';
+      await writeStorage(data);
+      return receipt;
+    });
+  },
+  async abortPlanChange(id: string): Promise<void> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const request = data.planChangeRequests[id];
+      if (!request || request.status === 'completed')
+        throw new Error('Cannot abort completed or missing plan change');
+      const record = data.subscriptions[request.guildId]?.[request.userId];
+      if (record?.pendingPlanChangeId === id) delete record.pendingPlanChangeId;
+      request.status = 'failed';
+      await writeStorage(data);
+    });
+  },
+  async completePlanChange(id: string): Promise<PlanChangeReceipt> {
+    return enqueue(async () => {
+      const data = await readStorage();
+      const request = data.planChangeRequests[id];
+      const receipt = data.planChangeReceipts[id];
+      if (!request || !receipt) throw new Error('Plan change receipt missing');
+      if (request.status === 'completed') return receipt;
+      const record = data.subscriptions[request.guildId]?.[request.userId];
+      if (
+        !record ||
+        record.subscriptionId !== request.subscriptionId ||
+        record.roleId !== request.fromRoleId ||
+        record.pendingPlanChangeId !== id ||
+        request.status !== 'verified'
+      )
+        throw new Error('Plan change recovery metadata mismatch');
+      assertNotCancelling(record);
+      record.roleId = receipt.toRoleId;
+      record.durationMonths = receipt.toDurationMonths;
+      record.expiresAt = receipt.newExpiresAt;
+      record.paidPeriods = [receipt.newPaidPeriod];
+      record.paymentHistoryComplete = true;
+      delete record.pendingPlanChangeId;
+      request.status = 'completed';
+      await writeStorage(data);
+      return receipt;
+    });
+  },
+
   async saveApprovalOrigin(
     key: string,
     commandChannelId: string,
@@ -203,7 +416,10 @@ export const subscriptionStore = {
   async markAnnounced(key: string): Promise<boolean> {
     return enqueue(async () => {
       const data = await readStorage();
-      const origin = data.approvalOrigins[key] ?? data.refundRequests[key];
+      const origin =
+        data.planChangeRequests[key] ??
+        data.approvalOrigins[key] ??
+        data.refundRequests[key];
       if (!origin?.commandChannelId || origin.announced) return false;
       origin.announced = true;
       await writeStorage(data);
@@ -225,6 +441,7 @@ export const subscriptionStore = {
         record.roleId !== request.roleId
       )
         throw new Error('Subscription changed');
+      assertNoPlanChange(data, record);
       const existing = Object.values(data.refundRequests).find(
         (r) =>
           r.guildId === request.guildId &&
@@ -302,6 +519,7 @@ export const subscriptionStore = {
         record.roleId !== request.roleId
       )
         throw new Error('Subscription changed');
+      assertNoPlanChange(data, record);
       if (
         receipt.subscriptionId !== request.subscriptionId ||
         receipt.guildId !== request.guildId ||
@@ -349,6 +567,7 @@ export const subscriptionStore = {
       const record = data.subscriptions[receipt.guildId]?.[receipt.userId];
       if (!record || record.subscriptionId !== receipt.subscriptionId)
         throw new Error('Subscription changed; no cancellation performed');
+      assertNoPlanChange(data, record);
       assertNotCancelling(record);
       record.pendingRefundId = receipt.refundId;
       data.refunds[receipt.refundId] = receipt;
@@ -398,6 +617,10 @@ export const subscriptionStore = {
       const data = await readStorage();
       if (data.renewalApprovals[approval.requestId])
         throw new Error('Renewal already approved');
+      assertNoPlanChange(
+        data,
+        data.subscriptions[record.guildId]?.[record.userId],
+      );
       assertNotCancelling(data.subscriptions[record.guildId]?.[record.userId]);
       data.subscriptions[record.guildId] ??= {};
       data.subscriptions[record.guildId][record.userId] = record;
@@ -421,6 +644,7 @@ export const subscriptionStore = {
     return enqueue(async () => {
       const data = await readStorage();
       const storage = data.subscriptions;
+      assertNoPlanChange(data, storage[record.guildId]?.[record.userId]);
       assertNotCancelling(storage[record.guildId]?.[record.userId]);
       if (!storage[record.guildId]) {
         storage[record.guildId] = {};
@@ -434,6 +658,7 @@ export const subscriptionStore = {
     return enqueue(async () => {
       const data = await readStorage();
       const storage = data.subscriptions;
+      assertNoPlanChange(data, storage[guildId]?.[userId]);
       assertNotCancelling(storage[guildId]?.[userId]);
       if (storage[guildId]?.[userId]) {
         delete storage[guildId][userId];

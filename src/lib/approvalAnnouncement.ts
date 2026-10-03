@@ -13,7 +13,7 @@ import { EmbedBuilder } from 'discord.js';
 import { subscriptionStore } from './subscriptionStore.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 
-export type ApprovalKind = 'Buy' | 'Renew' | 'Refund';
+export type ApprovalKind = 'Buy' | 'Renew' | 'Refund' | 'Upgrade' | 'Downgrade';
 
 export async function announceApproval(
   guild: Guild,
@@ -60,7 +60,9 @@ export async function announceSavedApproval(
     const origin =
       kind === 'Refund'
         ? await subscriptionStore.getRefundRequest(key)
-        : await subscriptionStore.getApprovalOrigin(key);
+        : kind === 'Upgrade' || kind === 'Downgrade'
+          ? await subscriptionStore.getPlanChangeRequest(key)
+          : await subscriptionStore.getApprovalOrigin(key);
     if (!origin?.commandChannelId) {
       await announceApproval(guild, undefined, approverId, kind);
       return;

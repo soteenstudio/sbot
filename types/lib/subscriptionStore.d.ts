@@ -7,6 +7,8 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
+import type { PlanChangeDirection, PlanChangeQuote } from './proratedPlanChange.js';
+import type { SubscriptionDuration } from './subscriptionPrices.js';
 import type { SubscriptionCurrency } from './subscriptionPrices.js';
 export interface PaidPeriod {
     startAt: number;
@@ -48,11 +50,40 @@ export interface RefundRequest {
     verifiedBy?: string;
     verifiedAt?: number;
 }
+export interface PlanChangeRequest {
+    id: string;
+    subscriptionId: string;
+    userId: string;
+    guildId: string;
+    fromRoleId: string;
+    toRoleId: string;
+    durationMonths: SubscriptionDuration;
+    direction: PlanChangeDirection;
+    requestedBy: string;
+    requestedAt: number;
+    commandChannelId: string;
+    announced: boolean;
+    logChannelId: string;
+    logMessageId?: string;
+    status: 'logging' | 'logged' | 'verified' | 'completed' | 'failed';
+}
+export interface PlanChangeReceipt extends PlanChangeQuote {
+    id: string;
+    subscriptionId: string;
+    guildId: string;
+    userId: string;
+    oldRoleId: string;
+    oldPaidPeriods: PaidPeriod[];
+    newPaidPeriod: PaidPeriod;
+    verifiedAt: number;
+    verifiedBy: string;
+}
 export interface SubscriptionRecord {
     subscriptionId?: string;
     paidPeriods?: PaidPeriod[];
     paymentHistoryComplete?: boolean;
     pendingRefundId?: string;
+    pendingPlanChangeId?: string;
     userId: string;
     guildId: string;
     roleId: string;
@@ -76,7 +107,16 @@ export interface ApprovalOrigin {
     commandChannelId: string;
     announced: boolean;
 }
+export declare const PLAN_CHANGE_PENDING = "Subscription plan change is pending; retry /subscription upgrade or /subscription downgrade";
 export declare const subscriptionStore: {
+    getPlanChangeRequest(id: string): Promise<PlanChangeRequest | undefined>;
+    getPlanChangeReceipt(id: string): Promise<PlanChangeReceipt | undefined>;
+    findActivePlanChange(subscriptionId: string): Promise<PlanChangeRequest | undefined>;
+    createPlanChangeRequest(request: PlanChangeRequest): Promise<PlanChangeRequest>;
+    bindPlanChangeLog(id: string, channelId: string, messageId: string): Promise<PlanChangeRequest>;
+    beginPlanChange(id: string, receipt: PlanChangeReceipt): Promise<PlanChangeReceipt>;
+    abortPlanChange(id: string): Promise<void>;
+    completePlanChange(id: string): Promise<PlanChangeReceipt>;
     saveApprovalOrigin(key: string, commandChannelId: string): Promise<void>;
     getApprovalOrigin(key: string): Promise<ApprovalOrigin | undefined>;
     markAnnounced(key: string): Promise<boolean>;

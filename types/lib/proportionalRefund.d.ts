@@ -12,6 +12,13 @@ export declare function validatePaidPeriods(periods: PaidPeriod[]): {
     code: string;
     minorUnitDigits: number;
 };
+export declare function calculateUnusedValue(record: SubscriptionRecord, refundAt: number): {
+    gross: number;
+    currency: {
+        code: string;
+        minorUnitDigits: number;
+    };
+};
 export declare function calculateProportionalRefund(record: SubscriptionRecord, refundAt: number): {
     currency: {
         code: string;

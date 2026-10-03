@@ -8,6 +8,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
+import { logRoleChange } from './roleChangeLog.js';
 import { Client } from 'discord.js';
 import { coordinateSubscriptionChange } from './subscriptionCoordinator.js';
 import { subscriptionStore } from './subscriptionStore.js';
@@ -27,17 +28,31 @@ export function setupSubscriptionExpiryChecker(client: Client) {
                 snapshot.guildId,
                 snapshot.userId,
               );
-              if (!record || record.pendingRefundId) return;
+              if (
+                !record ||
+                record.pendingRefundId ||
+                record.pendingPlanChangeId
+              )
+                return;
+              if (
+                record.subscriptionId &&
+                (await subscriptionStore.findActivePlanChange(
+                  record.subscriptionId,
+                ))
+              )
+                return;
               if (Date.now() >= record.expiresAt) {
                 const guild = client.guilds.cache.get(record.guildId);
                 if (!guild?.available) return;
 
+                let removed = false;
                 try {
                   const member = await guild.members.fetch(record.userId);
                   await member.roles.remove(
                     record.roleId,
                     'Subscription expired',
                   );
+                  removed = true;
                 } catch (error) {
                   if (
                     typeof error !== 'object' ||
@@ -53,6 +68,13 @@ export function setupSubscriptionExpiryChecker(client: Client) {
                   }
                 }
 
+                if (removed)
+                  await logRoleChange(guild, {
+                    buyerId: record.userId,
+                    fromRoleId: record.roleId,
+                    reason: 'Expired',
+                    subscriptionId: record.subscriptionId,
+                  });
                 await subscriptionStore.delete(record.guildId, record.userId);
                 console.log(
                   `[Subscription] Expired and removed role for user ${record.userId} in guild ${record.guildId}`,

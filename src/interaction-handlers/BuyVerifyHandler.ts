@@ -94,6 +94,20 @@ export class BuyVerifyHandler extends InteractionHandler {
           });
           return;
         }
+        if (
+          existing?.pendingPlanChangeId ||
+          (existing?.subscriptionId &&
+            (await subscriptionStore.findActivePlanChange(
+              existing.subscriptionId,
+            )))
+        ) {
+          await interaction.followUp({
+            content:
+              '❌ Subscription plan change is pending; retry /subscription upgrade or /subscription downgrade',
+            ephemeral: true,
+          });
+          return;
+        }
         if (existing?.pendingRefundId) {
           await interaction.followUp({
             content:

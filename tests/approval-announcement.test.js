@@ -16,11 +16,12 @@ import { join } from 'node:path';
 import { announceApproval, announceSavedApproval } from '../dist/lib/approvalAnnouncement.js';
 import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 
-for (const kind of ['Buy', 'Renew', 'Refund']) test(kind + ' exact announcement without pings', async () => {
+for (const kind of ['Buy', 'Renew', 'Refund', 'Upgrade', 'Downgrade']) test(kind + ' exact announcement without pings', async () => {
   const guild = { id: 'guild', channels: { fetch: async id => {
     assert.equal(id, 'origin');
     return { guild, isTextBased: () => true, send: async payload => {
-      assert.deepEqual(payload, { content: `<@staff> has ${kind === 'Renew' ? 'approved' : 'verified'} this process (${kind})`, allowedMentions: { parse: [] } });
+      assert.equal(payload.embeds[0].data.description, `<@staff> has ${kind === 'Renew' ? 'approved' : 'verified'} this process (${kind})`);
+      assert.deepEqual(payload.allowedMentions, { parse: [] });
     } };
   } } };
   await announceApproval(guild, 'origin', 'staff', kind);

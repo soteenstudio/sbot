@@ -48,7 +48,7 @@ export function validatePaidPeriods(periods: PaidPeriod[]) {
   return { ...currency };
 }
 
-export function calculateProportionalRefund(
+export function calculateUnusedValue(
   record: SubscriptionRecord,
   refundAt: number,
 ) {
@@ -96,5 +96,13 @@ export function calculateProportionalRefund(
   if (gross === 0n) throw new Error('No refundable time remains');
   if (gross > total || gross > BigInt(Number.MAX_SAFE_INTEGER))
     throw new Error('Refund amount exceeds safe money range');
-  return { ...calculateRefundDeduction(Number(gross)), currency };
+  return { gross: Number(gross), currency };
+}
+
+export function calculateProportionalRefund(
+  record: SubscriptionRecord,
+  refundAt: number,
+) {
+  const { gross, currency } = calculateUnusedValue(record, refundAt);
+  return { ...calculateRefundDeduction(gross), currency };
 }
