@@ -18,4 +18,7 @@ export declare class SubscriptionCommand extends Subcommand {
     chatInputBuy(interaction: ChatInputCommandInteraction): Promise<void>;
     chatInputRenew(interaction: ChatInputCommandInteraction): Promise<void>;
     chatInputRefund(interaction: ChatInputCommandInteraction): Promise<void>;
+    chatInputUpgrade(interaction: ChatInputCommandInteraction): Promise<void>;
+    chatInputDowngrade(interaction: ChatInputCommandInteraction): Promise<void>;
+    private submitPlanChange;
 }

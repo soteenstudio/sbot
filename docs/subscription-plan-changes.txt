@@ -1,0 +1,43 @@
+Subscription plan changes
+=========================
+Administrators submit /subscription upgrade or /subscription downgrade with
+buyer, role and duration (1, 6 or 12 months). Staff with Administrator,
+Founder or Deputy access verify the bound green ✅ button in BUY_LOG_CHANNEL.
+Tier rank follows the dummy catalogue's one-month price. Same-tier requests
+use /subscription renew. The bot changes member roles, never guild roles.
+
+Credit = sum(price * clamp(endAt - verificationTime, 0, endAt - startAt)
+             / (endAt - startAt)) across the saved paid periods.
+The sum uses exact integer fractions and rounds once, half-up. Credit has
+no 5% deduction; refunds retain their existing 5% deduction. Complete payment
+history is required. Staff must repair missing metadata from payment evidence.
+Expired subscriptions and zero unused value cannot change plans.
+
+Amount to Pay = max(new price - credit, 0).
+Credit Balance = max(credit - new price, 0), settled manually, not extra time.
+The bot never transfers funds. Prices remain dummy IDR test values. New access
+starts at verification and runs for duration * 30 days. The receipt archives
+the old paid periods and frozen credit, price, amounts and staff identity.
+The new paid period records the full new price, including credited payment.
+
+Storage version 3 preserves versions 1 and 2 and legacy subscriptions,
+renewal approvals, refund receipts, requests and announcement origins.
+Awaiting plan changes block purchases, refunds, renewals and expiry. Verification
+atomically saves a receipt and pendingPlanChangeId before touching roles.
+The new role is added before the old role is removed. Completion atomically
+updates the subscription, keeps subscriptionId and clears the pending flag.
+
+Recovery
+========
+If posting or binding the request fails it is marked failed; submit again.
+If adding the new role fails the request is aborted and the pending flag
+cleared. Repair Discord permissions and submit a new request.
+If removing the old role or saving completion fails, do not edit pending flags
+or replace the subscription. Restore permissions/storage and click the same
+button again. The saved receipt is reused even after a restart. Both role
+operations are safe to repeat. Completed clicks only repair the disabled log
+button; they never repeat roles, DMs or announcements.
+Role-log, DM and announcement failures never undo completed changes. The
+announcement is claimed once, as in existing approval flows. An automatic
+role-change embed is posted to BUY_LOG_CHANNEL for upgrades, downgrades and
+expiry; existing buy, renew and refund logs remain unchanged.

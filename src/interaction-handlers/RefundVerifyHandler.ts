@@ -14,7 +14,7 @@ import {
 } from '@sapphire/framework';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { announceSavedApproval } from '../lib/approvalAnnouncement.js';
-import { Roles } from '../config.js';
+import { canVerifySubscription } from '../lib/subscriptionAuthorization.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
 import { calculateProportionalRefund } from '../lib/proportionalRefund.js';
@@ -47,11 +47,7 @@ export class RefundVerifyHandler extends InteractionHandler {
       await reject('Use refund verification in a server.');
       return;
     }
-    const allowed =
-      interaction.member.permissions.has('Administrator') ||
-      [Roles.FOUNDER.id, Roles.DEPUTY.id].some(
-        (id) => id && interaction.member.roles.cache.has(id),
-      );
+    const allowed = canVerifySubscription(interaction.member);
     if (!allowed) {
       await reject('You do not have permission to verify this refund.');
       return;

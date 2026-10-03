@@ -13,7 +13,7 @@ Contributions are summed exactly, then rounded to the nearest minor unit
 (ties up). A rounded 5% deduction is applied to gross. The 5% tax does not
 include inter-bank transfer fees. The bot does not transfer funds.
 
-Storage version 2 preserves legacy subscriptions and renewal receipts.
+Storage version 3 preserves legacy subscriptions and renewal receipts.
 Refunds require subscriptionId, paymentHistoryComplete: true, and a
 paidPeriods array containing startAt/endAt (safe integer milliseconds),
 price (positive safe integer minor units), currency {code, minorUnitDigits},
@@ -68,7 +68,7 @@ The final log shows calculation time, final amounts and refund reference.
 After completion the green ✅ button stays visible and disabled. Retrying
 completed verification repairs the log without cancelling or sending a DM
 again. The bot never confirms bank payment or transfers funds.
-Version 2 files migrate refund request storage on write, preserving all
+Version 1 and 2 files migrate refund request storage on write, preserving all
 subscriptions, renewal approvals and cancellation receipts. Existing pending
 receipts can be logged with /subscription refund and verified without recalculation.
 
@@ -83,3 +83,6 @@ chat-input commands named buy, renew and refund. This is an idempotent migration
 after the first successful cleanup, later startups have nothing to delete.
 Failures are logged and retried on the next startup. No bulk overwrite is used.
 Reference: https://sapphirejs.dev/docs/Documentation/api-framework/enumerations/RegisterBehavior/
+
+Plan changes: see docs/subscription-plan-changes.txt. Awaiting or verified
+plan changes block refunds, renewals and expiry until completed or failed.

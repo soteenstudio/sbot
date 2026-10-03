@@ -8,6 +8,6 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 import type { Guild } from 'discord.js';
-export type ApprovalKind = 'Buy' | 'Renew' | 'Refund';
+export type ApprovalKind = 'Buy' | 'Renew' | 'Refund' | 'Upgrade' | 'Downgrade';
 export declare function announceApproval(guild: Guild, channelId: string | undefined, approverId: string, kind: ApprovalKind): Promise<void>;
 export declare function announceSavedApproval(guild: Guild, key: string, approverId: string, kind: ApprovalKind): Promise<void>;

@@ -27,6 +27,7 @@ import {
 import { validatePaidPeriods } from '../lib/proportionalRefund.js';
 import { announceSavedApproval } from '../lib/approvalAnnouncement.js';
 import { Roles } from '../config.js';
+import { canVerifySubscription } from '../lib/subscriptionAuthorization.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
 import {
@@ -54,11 +55,7 @@ export class RenewApproveHandler extends InteractionHandler {
 
   public async run(interaction: ButtonInteraction): Promise<void> {
     if (!interaction.inCachedGuild()) return;
-    const allowed =
-      interaction.member.permissions.has('Administrator') ||
-      [Roles.FOUNDER.id, Roles.DEPUTY.id].some(
-        (id) => id && interaction.member.roles.cache.has(id),
-      );
+    const allowed = canVerifySubscription(interaction.member);
     if (!allowed) {
       await interaction.reply({
         content: '❌ You do not have permission to approve this renewal.',
@@ -115,6 +112,20 @@ export class RenewApproveHandler extends InteractionHandler {
             await fail(
               '❌ No subscription record exists for this buyer. Use /subscription buy first, then submit a new /subscription renew request.',
             );
+            return;
+          }
+          if (
+            existing?.pendingPlanChangeId ||
+            (existing?.subscriptionId &&
+              (await subscriptionStore.findActivePlanChange(
+                existing.subscriptionId,
+              )))
+          ) {
+            await interaction.followUp({
+              content:
+                '❌ Subscription plan change is pending; retry /subscription upgrade or /subscription downgrade',
+              ephemeral: true,
+            });
             return;
           }
           if (existing.pendingRefundId) {

@@ -18,6 +18,8 @@ import {
   ChannelType,
   MessageFlags,
   PermissionFlagsBits,
+  type SlashCommandStringOption,
+  type SlashCommandUserOption,
 } from 'discord.js';
 import 'dotenv/config';
 import { EMBED_COLORS, EMBED_FOOTER } from '../engine/SEmbed.js';
@@ -28,10 +30,53 @@ import {
 } from '../lib/subscriptionPrices.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 
+import {
+  calculatePlanChange,
+  type PlanChangeDirection,
+} from '../lib/proratedPlanChange.js';
+import {
+  planChangeButton,
+  planChangeRequestEmbed,
+  planChangeConfirmationEmbed,
+} from '../lib/planChangePresentation.js';
+import {
+  subscriptionPrices,
+  type SubscriptionDuration,
+} from '../lib/subscriptionPrices.js';
+import { PLAN_CHANGE_PENDING } from '../lib/subscriptionStore.js';
 import { randomUUID } from 'node:crypto';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
 import { calculateProportionalRefund } from '../lib/proportionalRefund.js';
 import { refundButton, refundRequestEmbed } from '../lib/refundPresentation.js';
+
+function buyerOption(description: string) {
+  return (option: SlashCommandUserOption) =>
+    option.setName('buyer').setDescription(description).setRequired(true);
+}
+function tierOption(option: SlashCommandStringOption) {
+  return option
+    .setName('role')
+    .setDescription('Select subscription tier role')
+    .setRequired(true)
+    .addChoices(
+      { name: 'Donatur', value: 'DONATUR' },
+      { name: 'Billion', value: 'BILLION' },
+      { name: 'Richman', value: 'RICHMAN' },
+    );
+}
+function durationOption(description: string, plural = true) {
+  return (option: SlashCommandStringOption) =>
+    option
+      .setName('duration')
+      .setDescription(description)
+      .setRequired(true)
+      .addChoices(
+        ...[1, 6, 12].map((n) => ({
+          name: `${n} Month${plural && n > 1 ? 's' : ''}`,
+          value: String(n),
+        })),
+      );
+}
 
 export class SubscriptionCommand extends Subcommand {
   public static commandName: string = 'subscription';
@@ -49,6 +94,8 @@ export class SubscriptionCommand extends Subcommand {
         { name: 'buy', chatInputRun: 'chatInputBuy' },
         { name: 'renew', chatInputRun: 'chatInputRenew' },
         { name: 'refund', chatInputRun: 'chatInputRefund' },
+        { name: 'upgrade', chatInputRun: 'chatInputUpgrade' },
+        { name: 'downgrade', chatInputRun: 'chatInputDowngrade' },
       ],
     });
   }
@@ -66,67 +113,48 @@ export class SubscriptionCommand extends Subcommand {
             .setDescription(
               'Record a subscription purchase for a buyer (Admin Only).',
             )
-            .addUserOption((o) =>
-              o
-                .setName('buyer')
-                .setDescription('The user who bought the subscription')
-                .setRequired(true),
-            )
-            .addStringOption((o) =>
-              o
-                .setName('role')
-                .setDescription('Select subscription tier role')
-                .setRequired(true)
-                .addChoices(
-                  { name: 'Donatur', value: 'DONATUR' },
-                  { name: 'Billion', value: 'BILLION' },
-                  { name: 'Richman', value: 'RICHMAN' },
-                ),
-            )
-            .addStringOption((o) =>
-              o
-                .setName('duration')
-                .setDescription('Select subscription duration')
-                .setRequired(true)
-                .addChoices(
-                  { name: '1 Month', value: '1' },
-                  { name: '6 Month', value: '6' },
-                  { name: '12 Month', value: '12' },
-                ),
+            .addUserOption(buyerOption('The user who bought the subscription'))
+            .addStringOption(tierOption)
+            .addStringOption(
+              durationOption('Select subscription duration', false),
             ),
         )
         .addSubcommand((sub) =>
           sub
             .setName('renew')
             .setDescription('Renew a buyer subscription (Admin Only).')
-            .addUserOption((option) =>
-              option
-                .setName('buyer')
-                .setDescription('The buyer whose subscription to renew')
-                .setRequired(true),
-            )
-            .addStringOption((option) =>
-              option
-                .setName('duration')
-                .setDescription('Select added subscription duration')
-                .setRequired(true)
-                .addChoices(
-                  { name: '1 Month', value: '1' },
-                  { name: '6 Months', value: '6' },
-                  { name: '12 Months', value: '12' },
-                ),
+            .addUserOption(buyerOption('The buyer whose subscription to renew'))
+            .addStringOption(
+              durationOption('Select added subscription duration'),
             ),
         )
         .addSubcommand((sub) =>
           sub
             .setName('refund')
             .setDescription('Record a subscription refund (Admin Only).')
-            .addUserOption((option) =>
-              option
-                .setName('buyer')
-                .setDescription('The buyer whose subscription to refund')
-                .setRequired(true),
+            .addUserOption(
+              buyerOption('The buyer whose subscription to refund'),
             ),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('upgrade')
+            .setDescription('Upgrade a buyer subscription (Admin Only).')
+            .addUserOption(
+              buyerOption('The buyer whose subscription to change'),
+            )
+            .addStringOption(tierOption)
+            .addStringOption(durationOption('Select subscription duration')),
+        )
+        .addSubcommand((sub) =>
+          sub
+            .setName('downgrade')
+            .setDescription('Downgrade a buyer subscription (Admin Only).')
+            .addUserOption(
+              buyerOption('The buyer whose subscription to change'),
+            )
+            .addStringOption(tierOption)
+            .addStringOption(durationOption('Select subscription duration')),
         ),
     );
   }
@@ -165,6 +193,14 @@ export class SubscriptionCommand extends Subcommand {
         content:
           '❌ Failed to load the subscription. Try again after storage is restored.',
       });
+      return;
+    }
+    if (
+      existing?.pendingPlanChangeId ||
+      (existing?.subscriptionId &&
+        (await subscriptionStore.findActivePlanChange(existing.subscriptionId)))
+    ) {
+      await interaction.editReply({ content: '❌ ' + PLAN_CHANGE_PENDING });
       return;
     }
     if (existing?.pendingRefundId) {
@@ -327,6 +363,16 @@ export class SubscriptionCommand extends Subcommand {
             content:
               '❌ No subscription record exists for this buyer. Use /subscription buy to grant a subscription first.',
           });
+          return;
+        }
+        if (
+          existing.pendingPlanChangeId ||
+          (existing.subscriptionId &&
+            (await subscriptionStore.findActivePlanChange(
+              existing.subscriptionId,
+            )))
+        ) {
+          await interaction.editReply({ content: '❌ ' + PLAN_CHANGE_PENDING });
           return;
         }
         if (existing.pendingRefundId) {
@@ -500,6 +546,14 @@ export class SubscriptionCommand extends Subcommand {
             await fail('No subscription exists for this buyer.');
             return;
           }
+          if (
+            record.pendingPlanChangeId ||
+            (record.subscriptionId &&
+              (await subscriptionStore.findActivePlanChange(
+                record.subscriptionId,
+              )))
+          )
+            throw new Error(PLAN_CHANGE_PENDING);
           const channelId = process.env.BUY_LOG_CHANNEL;
           const channel = channelId
             ? interaction.guild.channels.cache.get(channelId)
@@ -605,6 +659,162 @@ Amounts are estimates; verification recalculates the refund from remaining time 
             (error instanceof Error ? error.message + '. ' : '') +
               'Refund logging did not finish. Retry /subscription refund to recover the log; no subscription was changed.',
           );
+        }
+      },
+    );
+  }
+  public async chatInputUpgrade(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<void> {
+    await this.submitPlanChange(interaction, 'upgrade');
+  }
+  public async chatInputDowngrade(
+    interaction: ChatInputCommandInteraction,
+  ): Promise<void> {
+    await this.submitPlanChange(interaction, 'downgrade');
+  }
+  private async submitPlanChange(
+    interaction: ChatInputCommandInteraction,
+    direction: PlanChangeDirection,
+  ): Promise<void> {
+    if (!interaction.inCachedGuild()) {
+      await interaction.reply({
+        content: '❌ Use subscription plan changes in a server.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    if (
+      !interaction.member.permissions.has(PermissionFlagsBits.Administrator)
+    ) {
+      await interaction.reply({
+        content:
+          '❌ Administrator permission is required to change subscriptions.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const buyer = interaction.options.getUser('buyer', true);
+    await coordinateSubscriptionChange(
+      interaction.guild.id,
+      buyer.id,
+      async () => {
+        try {
+          const channelId = process.env.BUY_LOG_CHANNEL;
+          const channel = channelId
+            ? interaction.guild.channels.cache.get(channelId)
+            : undefined;
+          if (!channel || channel.type !== ChannelType.GuildText)
+            throw new Error(
+              'Purchase log is unavailable because the staff log channel is not configured',
+            );
+          const record = await subscriptionStore.get(
+            interaction.guild.id,
+            buyer.id,
+          );
+          if (!record || record.expiresAt <= Date.now())
+            throw new Error('No active subscription exists for this buyer');
+          if (record.paymentHistoryComplete !== true || !record.subscriptionId)
+            throw new Error(
+              'Payment metadata repair required: repair historical payments first',
+            );
+          if (record.pendingRefundId)
+            throw new Error(
+              'Cancellation is pending; retry /subscription refund first',
+            );
+          if (record.pendingPlanChangeId) throw new Error(PLAN_CHANGE_PENDING);
+          const roleKey = interaction.options.getString(
+            'role',
+            true,
+          ) as keyof typeof Roles;
+          const roleId = Roles[roleKey]?.id;
+          if (!roleId) throw new Error('Selected role is not configured');
+          const duration = Number(
+            interaction.options.getString('duration', true),
+          );
+          if (![1, 6, 12].includes(duration))
+            throw new Error('Choose a duration of 1, 6, or 12 months');
+          const quote = calculatePlanChange(
+            record,
+            roleId,
+            duration as SubscriptionDuration,
+            direction,
+            Date.now(),
+          );
+          const active = await subscriptionStore.findActivePlanChange(
+            record.subscriptionId,
+          );
+          if (active)
+            throw new Error(
+              `Plan change already pending; retry the existing log${active.logMessageId ? `: https://discord.com/channels/${active.guildId}/${active.logChannelId}/${active.logMessageId}` : ''}`,
+            );
+          let request = await subscriptionStore.createPlanChangeRequest({
+            id: randomUUID(),
+            subscriptionId: record.subscriptionId,
+            userId: buyer.id,
+            guildId: interaction.guild.id,
+            fromRoleId: record.roleId,
+            toRoleId: roleId,
+            durationMonths: duration as SubscriptionDuration,
+            direction,
+            requestedBy: interaction.user.id,
+            requestedAt: quote.at,
+            commandChannelId: interaction.channelId,
+            announced: false,
+            logChannelId: channel.id,
+            status: 'logging',
+          });
+          try {
+            const message = await channel.send({
+              embeds: [
+                planChangeRequestEmbed(
+                  request,
+                  quote,
+                  subscriptionPrices.currency!,
+                ),
+              ],
+              components: [planChangeButton(request.id, true)],
+              allowedMentions: { parse: [] },
+            });
+            request = await subscriptionStore.bindPlanChangeLog(
+              request.id,
+              channel.id,
+              message.id,
+            );
+            await message.edit({ components: [planChangeButton(request.id)] });
+          } catch (error) {
+            await subscriptionStore.abortPlanChange(request.id);
+            throw new Error(
+              'Plan change logging failed; submit a new request. No subscription was changed',
+            );
+          }
+          try {
+            await subscriptionStore.saveApprovalOrigin(
+              request.id,
+              interaction.channelId,
+            );
+          } catch (error) {
+            console.error('Failed to save plan change approval origin:', error);
+          }
+          await interaction.editReply({
+            embeds: [
+              planChangeConfirmationEmbed(
+                request,
+                quote,
+                subscriptionPrices.currency!,
+              ),
+            ],
+          });
+        } catch (error) {
+          console.error('Failed to submit plan change:', error);
+          await interaction.editReply({
+            content:
+              '❌ ' +
+              (error instanceof Error
+                ? error.message
+                : 'Plan change logging failed'),
+          });
         }
       },
     );
