@@ -11,6 +11,6 @@ import { InteractionHandler } from '@sapphire/framework';
 import { ButtonInteraction } from 'discord.js';
 export declare class PollButtonHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
-    parse(interaction: ButtonInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
+    parse(interaction: ButtonInteraction): import("@sapphire/result").Option.None<any> | import("@sapphire/result").Option.Some<never>;
     run(interaction: ButtonInteraction): Promise<import("discord.js").Message<boolean> | undefined>;
 }

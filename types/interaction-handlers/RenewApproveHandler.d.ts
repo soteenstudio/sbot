@@ -9,7 +9,7 @@
  */
 import { InteractionHandler } from '@sapphire/framework';
 import { ButtonInteraction } from 'discord.js';
-export declare class ReportHandler extends InteractionHandler {
+export declare class RenewApproveHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
     parse(interaction: ButtonInteraction): import("@sapphire/result").Option.None<any> | import("@sapphire/result").Option.Some<never>;
     run(interaction: ButtonInteraction): Promise<void>;

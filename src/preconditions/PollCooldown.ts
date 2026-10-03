@@ -32,11 +32,18 @@ export class PollCooldown extends Precondition {
     const now = Date.now();
     const COOLDOWN_TIME = 3600000;
 
-    const isAdminOrAbove = member.roles.cache.some((role) => {
-      const roleConfig = Object.values(Roles).find((r) => r.id === role.id);
+    const isAdminOrAbove =
+      member.permissions.has('Administrator') ||
+      member.roles.cache.some((role) => {
+        const roleEntry = Object.entries(Roles).find(
+          ([_, r]) => r.id === role.id,
+        );
+        if (!roleEntry) return false;
 
-      return roleConfig ? roleConfig.weight >= Roles.DEPUTY.weight : false;
-    });
+        const [roleKey] = roleEntry;
+
+        return roleKey.includes('DEPUTY') || roleKey.includes('FOUNDER');
+      });
 
     if (isAdminOrAbove) return this.ok();
 
