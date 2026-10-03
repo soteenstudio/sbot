@@ -37,7 +37,6 @@ or replace the subscription. Restore permissions/storage and click the same
 button again. The saved receipt is reused even after a restart. Both role
 operations are safe to repeat. Completed clicks only repair the disabled log
 button; they never repeat roles, DMs or announcements.
-Role-log, DM and announcement failures never undo completed changes. The
-announcement is claimed once, as in existing approval flows. An automatic
-role-change embed is posted to BUY_LOG_CHANNEL for upgrades, downgrades and
-expiry; existing buy, renew and refund logs remain unchanged.
+DM and announcement failures never undo completed changes. The announcement
+is claimed once, as in existing approval flows. Existing buy, renew and refund
+logs remain unchanged.

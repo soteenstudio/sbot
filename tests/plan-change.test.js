@@ -21,7 +21,6 @@ import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
 import { SubscriptionCommand } from '../dist/commands/SubscriptionCommand.js';
 import { PlanChangeVerifyHandler } from '../dist/interaction-handlers/PlanChangeVerifyHandler.js';
 import { setupSubscriptionExpiryChecker } from '../dist/lib/subscriptionExpiryChecker.js';
-import { logRoleChange } from '../dist/lib/roleChangeLog.js';
 import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
 import { notifyBuyerOfPlanChange } from '../dist/lib/planChangeNotification.js';
 import { planChangeRequestEmbed } from '../dist/lib/planChangePresentation.js';
@@ -80,7 +79,7 @@ function fixture(t, scenario = '') {
   const cache = new Map([['donatur', {}]]);
   const channel = { id: 'log', type: ChannelType.GuildText, send: async payload => { fault('send'); sent.push(payload); return { id: 'message', edit: async payload => { fault('enable'); edits.push(payload); } }; } };
   const guild = { id: 'guild', name: 'Server', roles: { cache: new Map() }, channels: { cache: new Map([['log', channel]]), fetch: async channelId => {
-    if (channelId === 'log') { fault('role log'); return { ...channel, guild }; }
+    if (channelId === 'log') return { ...channel, guild };
     return { guild, isTextBased: () => true, send: async payload => announcements.push(payload) };
   } }, members: { fetch: async () => { fault('fetch'); return member; } } };
   const member = { id: 'buyer', guild, send: async () => { events.push('dm'); fault('dm'); }, roles: { cache,
@@ -159,6 +158,8 @@ test('success adds before removal, saves before DM, announces once and ignores d
   assert.equal(final.fields.find(x => x.name === 'Verified By').value, '<@staff> (<t:0:F>)');
   assert.equal(final.fields.find(x => x.name === 'Final Calculation').value, '<t:0:F>');
   assert.equal(final.fields.find(x => x.name === 'Amount to Pay').value, 'IDR 20.000');
+  assert.equal(f.sent.some(p => p.embeds?.some(embed => embed.data.title === 'Automatic Subscription Role Change')), false);
+  assert.equal(f.sent.length, 1);
   assert.equal(f.announcements[0].embeds[0].data.title, '📣 Upgrade Info');
   assert.equal(f.announcements[0].embeds[0].data.color, EMBED_COLORS.INFO);
   assert.deepEqual(f.announcements[0].allowedMentions, { parse: [] });
@@ -177,7 +178,7 @@ test('stale request fails without changing roles', async t => {
   const f = fixture(t); await submit(f); f.record.subscriptionId = 'replacement'; await verify(f);
   assert.equal(f.request.status, 'failed'); assert.equal(f.events.includes('add'), false);
 });
-for (const scenario of ['dm', 'role log', 'update']) test(scenario + ' failure preserves completion and replay does not repeat side effects', async t => {
+for (const scenario of ['dm', 'update']) test(scenario + ' failure preserves completion and replay does not repeat side effects', async t => {
   const f = fixture(t, scenario); await submit(f); await verify(f); assert.equal(f.request.status, 'completed');
   f.recover(); await verify(f); assert.equal(f.events.filter(x => x === 'add').length, 1); assert.equal(f.events.filter(x => x === 'dm').length, 1); assert.equal(f.announcements.length, 1);
 });
@@ -208,23 +209,19 @@ for (const version of [1, 2]) test('storage migrates version ' + version + ', gu
   await reload.beginRefund({ ...refund, roleId: 'billion' });
   await assert.rejects(reload.createPlanChangeRequest({ ...request, id: 'another', fromRoleId: 'billion' }), /cancellation is pending/);
 });
-test('expiry skips pending flag and awaiting request and logs automatic removal', async t => {
+test('expiry skips pending flag and awaiting request and removes access without posting a role-change embed', async t => {
   let callback, current = { ...record(), pendingPlanChangeId: id }, active;
-  const events = []; const old = process.env.BUY_LOG_CHANNEL; process.env.BUY_LOG_CHANNEL = 'log'; t.after(() => { if (old === undefined) delete process.env.BUY_LOG_CHANNEL; else process.env.BUY_LOG_CHANNEL = old; });
+  const events = [], sent = []; const old = process.env.BUY_LOG_CHANNEL; process.env.BUY_LOG_CHANNEL = 'log'; t.after(() => { if (old === undefined) delete process.env.BUY_LOG_CHANNEL; else process.env.BUY_LOG_CHANNEL = old; });
   t.mock.method(globalThis, 'setInterval', fn => { callback = fn; return 0; }); t.mock.method(console, 'log', () => {});
   t.mock.method(subscriptionStore, 'getAll', async () => [current]); t.mock.method(subscriptionStore, 'get', async () => current);
   t.mock.method(subscriptionStore, 'findActivePlanChange', async () => active); t.mock.method(subscriptionStore, 'delete', async () => events.push('delete'));
-  const guild = { id: 'guild', available: true, members: { fetch: async () => ({ roles: { remove: async () => events.push('remove') } }) }, channels: { fetch: async () => ({ type: ChannelType.GuildText, guild, send: async p => { events.push('log'); assert.deepEqual(p.allowedMentions, { parse: [] }); assert.equal(p.embeds[0].data.fields.find(f => f.name === 'Reason').value, 'Expired'); } }) } };
+  const guild = { id: 'guild', available: true, members: { fetch: async () => ({ roles: { remove: async () => events.push('remove') } }) }, channels: { fetch: async () => ({ type: ChannelType.GuildText, guild, send: async p => { sent.push(p); } }) } };
   setupSubscriptionExpiryChecker({ guilds: { cache: new Map([['guild', guild]]) } });
   await callback(); assert.deepEqual(events, []); delete current.pendingPlanChangeId; active = { status: 'logged' }; await callback(); assert.deepEqual(events, []);
-  active = undefined; await callback(); assert.deepEqual(events, ['remove', 'log', 'delete']);
+  active = undefined; await callback(); assert.deepEqual(events, ['remove', 'delete']);
+  assert.equal(sent.some(p => p.embeds?.some(embed => embed.data.title === 'Automatic Subscription Role Change')), false);
+  assert.equal(sent.length, 0);
 });
-test('role log catches unavailable channels without propagating', async t => {
-  const error = t.mock.method(console, 'error', () => {});
-  await logRoleChange({ channels: { fetch: async () => { throw new Error('offline'); } } }, { buyerId: 'buyer', fromRoleId: 'old', reason: 'Expired' });
-  assert.equal(error.mock.callCount(), 1);
-});
-
 test('downgrade command displays a Credit Balance estimate', async t => {
   const f = fixture(t); f.record.roleId = 'richman'; f.record.paidPeriods = [period(0, 100, 50000)];
   f.submit.options.getString = name => name === 'role' ? 'DONATUR' : '1';
@@ -285,6 +282,8 @@ for (const direction of ['upgrade', 'downgrade']) test(direction + ' DM uses buy
   f.guild.roles = { cache: new Map([['donatur', { name: 'Donatur Tier' }], ['billion', { name: 'Billion Tier' }], ['richman', { name: 'Richman Tier' }]]) };
   const send = t.mock.method(f.member, 'send', async () => {});
   await verify(f);
+  assert.equal(f.sent.some(p => p.embeds?.some(embed => embed.data.title === 'Automatic Subscription Role Change')), false);
+  assert.equal(f.sent.length, 1);
   const payload = send.mock.calls[0].arguments[0], embed = payload.embeds[0].data;
   assert.equal(embed.title, direction === 'upgrade' ? '✅ Your Subscription Has Been Upgraded' : '✅ Your Subscription Has Been Downgraded');
   assert.equal(embed.color, EMBED_COLORS.CONFIRMED); assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`); assert.ok(embed.timestamp);
