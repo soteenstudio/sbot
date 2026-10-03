@@ -24,7 +24,6 @@ import {
   planChangeRequestEmbed,
 } from '../lib/planChangePresentation.js';
 import { notifyBuyerOfPlanChange } from '../lib/planChangeNotification.js';
-import { logRoleChange } from '../lib/roleChangeLog.js';
 import { announceSavedApproval } from '../lib/approvalAnnouncement.js';
 const pattern = /^plan_change_verify_([0-9a-f-]{36})$/;
 export class PlanChangeVerifyHandler extends InteractionHandler {
@@ -204,14 +203,6 @@ export class PlanChangeVerifyHandler extends InteractionHandler {
             }
             receipt = await subscriptionStore.completePlanChange(id);
             request = (await subscriptionStore.getPlanChangeRequest(id))!;
-            await logRoleChange(interaction.guild, {
-              buyerId: request.userId,
-              fromRoleId: request.fromRoleId,
-              toRoleId: request.toRoleId,
-              reason: request.direction === 'upgrade' ? 'Upgrade' : 'Downgrade',
-              staffId: receipt.verifiedBy,
-              subscriptionId: request.subscriptionId,
-            });
             await notifyBuyerOfPlanChange(member, request, receipt);
             await announceSavedApproval(
               interaction.guild,
