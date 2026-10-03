@@ -13,7 +13,7 @@ import { Roles } from '../config.js';
 export function canVerifySubscription(member: GuildMember): boolean {
   return (
     member.permissions.has('Administrator') ||
-    [Roles.FOUNDER.id, Roles.DEPUTY.id].some((id) =>
+    [Roles.FOUNDER.id, Roles.DEPUTY_SUBSCRIPTION.id].some((id) =>
       Boolean(id && member.roles.cache.has(id)),
     )
   );

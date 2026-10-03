@@ -14,6 +14,12 @@ export const Roles = {
   DONATUR: { id: process.env.ROLE_DONATUR, weight: 1 },
   BILLION: { id: process.env.ROLE_BILLION, weight: 2 },
   RICHMAN: { id: process.env.ROLE_RICHMAN, weight: 3 },
-  DEPUTY: { id: process.env.ROLE_DEPUTY, weight: 4 },
-  FOUNDER: { id: process.env.ROLE_FOUNDER, weight: 5 },
+  DEPUTY_GROWTH_OUTREACH: {
+    id: process.env.ROLE_DEPUTY_GROWTH_OUTREACH,
+    weight: 4,
+  },
+  DEPUTY_SUBSCRIPTION: { id: process.env.ROLE_DEPUTY_SUBSCRIPTION, weight: 5 },
+  DEPUTY_MODERATION: { id: process.env.ROLE_DEPUTY_MODERATION, weight: 6 },
+  HONORARY_DEPUTY: { id: process.env.ROLE_HONORARY_DEPUTY, weight: 7 },
+  FOUNDER: { id: process.env.ROLE_FOUNDER, weight: 8 },
 } as const;

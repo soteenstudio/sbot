@@ -50,9 +50,10 @@ export class BuyVerifyHandler extends InteractionHandler {
   public async run(interaction: ButtonInteraction) {
     if (!interaction.inCachedGuild()) return;
 
-    const allowedRoleIds = [Roles.FOUNDER.id, Roles.DEPUTY.id].filter(
-      Boolean,
-    ) as string[];
+    const allowedRoleIds = [
+      Roles.FOUNDER.id,
+      Roles.DEPUTY_SUBSCRIPTION.id,
+    ].filter(Boolean) as string[];
 
     const hasPermission =
       interaction.member.permissions.has('Administrator') ||
