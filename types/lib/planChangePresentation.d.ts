@@ -10,7 +10,7 @@
 import { ActionRowBuilder, ButtonBuilder, EmbedBuilder } from 'discord.js';
 import { type SubscriptionCurrency } from './subscriptionPrices.js';
 import type { PlanChangeQuote } from './proratedPlanChange.js';
-import type { PlanChangeRequest, PlanChangeReceipt } from './subscriptionStore.js';
+import type { PlanChangeRequest } from './subscriptionStore.js';
 export declare function planChangeButton(requestId: string, disabled?: boolean): ActionRowBuilder<ButtonBuilder>;
-export declare function planChangeRequestEmbed(request: PlanChangeRequest, quote: PlanChangeQuote | PlanChangeReceipt, currency: SubscriptionCurrency, completed?: boolean): EmbedBuilder;
+export declare function planChangeRequestEmbed(request: PlanChangeRequest, quote: PlanChangeQuote, currency: SubscriptionCurrency, completed?: boolean): EmbedBuilder;
 export declare function planChangeConfirmationEmbed(request: PlanChangeRequest, quote: PlanChangeQuote, currency: SubscriptionCurrency): EmbedBuilder;

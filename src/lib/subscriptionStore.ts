@@ -65,14 +65,12 @@ export interface PlanChangeRequest {
   id: string;
   subscriptionId: string;
   userId: string;
-  buyerTag?: string;
   guildId: string;
   fromRoleId: string;
   toRoleId: string;
   durationMonths: SubscriptionDuration;
   direction: PlanChangeDirection;
   requestedBy: string;
-  requesterTag?: string;
   requestedAt: number;
   commandChannelId: string;
   announced: boolean;
