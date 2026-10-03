@@ -17,7 +17,6 @@ import {
   ButtonStyle,
   ChannelType,
   MessageFlags,
-  PermissionFlagsBits,
   type SlashCommandStringOption,
   type SlashCommandUserOption,
 } from 'discord.js';
@@ -106,7 +105,6 @@ export class SubscriptionCommand extends Subcommand {
         .setName(this.name)
         .setDescription(this.description)
         .setDMPermission(false)
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .addSubcommand((sub) =>
           sub
             .setName('buy')
@@ -319,11 +317,12 @@ export class SubscriptionCommand extends Subcommand {
       return;
     }
     if (
-      !interaction.member.permissions.has(PermissionFlagsBits.Administrator)
+      !interaction.member.roles.cache.has(Roles.STAFF.id) ||
+      !interaction.member.roles.cache.has(Roles.DEPUTY_SUBSCRIPTION.id)
     ) {
       await interaction.reply({
         content:
-          '❌ Administrator permission is required to renew subscriptions.',
+          '❌ Deputy Subscription or Staff role is required to renew subscriptions.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -519,11 +518,12 @@ export class SubscriptionCommand extends Subcommand {
       return;
     }
     if (
-      !interaction.member.permissions.has(PermissionFlagsBits.Administrator)
+      !interaction.member.roles.cache.has(Roles.STAFF.id) ||
+      !interaction.member.roles.cache.has(Roles.DEPUTY_SUBSCRIPTION.id)
     ) {
       await interaction.reply({
         content:
-          '❌ Administrator permission is required to refund subscriptions.',
+          '❌ Deputy Subscription or Staff role is required to refund subscriptions.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -685,11 +685,12 @@ Amounts are estimates; verification recalculates the refund from remaining time 
       return;
     }
     if (
-      !interaction.member.permissions.has(PermissionFlagsBits.Administrator)
+      !interaction.member.roles.cache.has(Roles.STAFF.id) ||
+      !interaction.member.roles.cache.has(Roles.DEPUTY_SUBSCRIPTION.id)
     ) {
       await interaction.reply({
         content:
-          '❌ Administrator permission is required to change subscriptions.',
+          '❌ Deputy Subscription or Staff role is required to change subscriptions.',
         flags: MessageFlags.Ephemeral,
       });
       return;
