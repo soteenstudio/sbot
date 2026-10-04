@@ -37,19 +37,19 @@ export class RefundVerifyHandler extends InteractionHandler {
       : this.none();
   }
   public async run(interaction: ButtonInteraction): Promise<void> {
-    const reject = async (content: string) => {
+    if (!interaction.inCachedGuild()) {
       await interaction.reply({
-        content: '❌ ' + content,
+        content: '❌ Use refund verification in a server.',
         flags: MessageFlags.Ephemeral,
       });
-    };
-    if (!interaction.inCachedGuild()) {
-      await reject('Use refund verification in a server.');
       return;
     }
     const allowed = canVerifySubscription(interaction.member);
     if (!allowed) {
-      await reject('You do not have permission to verify this refund.');
+      await interaction.reply({
+        content: '❌ You do not have permission to verify this refund.',
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
     const payload =
@@ -61,14 +61,20 @@ export class RefundVerifyHandler extends InteractionHandler {
       !process.env.BUY_LOG_CHANNEL ||
       interaction.channelId !== process.env.BUY_LOG_CHANNEL
     ) {
-      await reject('Invalid refund request or purchase-log channel.');
+      await interaction.reply({
+        content: '❌ Invalid refund request or purchase-log channel.',
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
     let initial;
     try {
       initial = await subscriptionStore.getRefundRequest(payload[1]);
     } catch (error) {
-      await reject('Failed to load refund request. Restore storage and retry.');
+      await interaction.reply({
+        content: '❌ Failed to load refund request. Restore storage and retry.',
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
     if (
@@ -79,9 +85,11 @@ export class RefundVerifyHandler extends InteractionHandler {
       initial.logMessageId !== interaction.message.id ||
       initial.status === 'logging'
     ) {
-      await reject(
-        'Refund request is unlogged, stale, or bound to another message.',
-      );
+      await interaction.reply({
+        content:
+          'Refund request is unlogged, stale, or bound to another message.',
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
     await interaction.deferUpdate();

@@ -18,11 +18,13 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  MessageFlags,
 } from 'discord.js';
 import { EMBED_COLORS } from '../engine/SEmbed.js';
 import { coordinateSubscriptionChange } from '../lib/subscriptionCoordinator.js';
 import { subscriptionStore } from '../lib/subscriptionStore.js';
 import { notifyBuyerOfPurchase } from '../lib/purchaseNotification.js';
+import { canVerifySubscription } from '../lib/subscriptionAuthorization.js';
 import { randomUUID } from 'node:crypto';
 import {
   formatSubscriptionMoney,
@@ -50,21 +52,11 @@ export class BuyVerifyHandler extends InteractionHandler {
   public async run(interaction: ButtonInteraction) {
     if (!interaction.inCachedGuild()) return;
 
-    const allowedRoleIds = [
-      Roles.FOUNDER.id,
-      Roles.DEPUTY_SUBSCRIPTION.id,
-    ].filter(Boolean) as string[];
-
-    const hasPermission =
-      interaction.member.permissions.has('Administrator') ||
-      allowedRoleIds.some((roleId) =>
-        interaction.member.roles.cache.has(roleId),
-      );
-
-    if (!hasPermission) {
+    const allowed = canVerifySubscription(interaction.member);
+    if (!allowed) {
       await interaction.reply({
         content: '❌ You do not have permission to verify this purchase.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }

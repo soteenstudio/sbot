@@ -160,6 +160,31 @@ export class SubscriptionCommand extends Subcommand {
   public async chatInputBuy(
     interaction: ChatInputCommandInteraction,
   ): Promise<void> {
+    if (!interaction.inCachedGuild()) {
+      await interaction.reply({
+        content: '❌ Use /subscription buy in a server.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const allowedRoleIds = [
+      Roles.STAFF.id,
+      Roles.DEPUTY_SUBSCRIPTION.id,
+      Roles.FOUNDER.id,
+    ];
+    const hasPermission = allowedRoleIds.some((roleId) =>
+      interaction.member.roles.cache.has(roleId),
+    );
+
+    if (!hasPermission) {
+      await interaction.reply({
+        content: '❌ You do not have permission required to buy subscriptions.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     const buyer = interaction.options.getUser('buyer', true);
     const roleKey = interaction.options.getString(
       'role',
@@ -316,13 +341,20 @@ export class SubscriptionCommand extends Subcommand {
       });
       return;
     }
-    if (
-      !interaction.member.roles.cache.has(Roles.STAFF.id) ||
-      !interaction.member.roles.cache.has(Roles.DEPUTY_SUBSCRIPTION.id)
-    ) {
+
+    const allowedRoleIds = [
+      Roles.STAFF.id,
+      Roles.DEPUTY_SUBSCRIPTION.id,
+      Roles.FOUNDER.id,
+    ];
+    const hasPermission = allowedRoleIds.some((roleId) =>
+      interaction.member.roles.cache.has(roleId),
+    );
+
+    if (!hasPermission) {
       await interaction.reply({
         content:
-          '❌ Deputy Subscription or Staff role is required to renew subscriptions.',
+          '❌ You do not have permission required to renew subscriptions.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -517,13 +549,20 @@ export class SubscriptionCommand extends Subcommand {
       });
       return;
     }
-    if (
-      !interaction.member.roles.cache.has(Roles.STAFF.id) ||
-      !interaction.member.roles.cache.has(Roles.DEPUTY_SUBSCRIPTION.id)
-    ) {
+
+    const allowedRoleIds = [
+      Roles.STAFF.id,
+      Roles.DEPUTY_SUBSCRIPTION.id,
+      Roles.FOUNDER.id,
+    ];
+    const hasPermission = allowedRoleIds.some((roleId) =>
+      interaction.member.roles.cache.has(roleId),
+    );
+
+    if (!hasPermission) {
       await interaction.reply({
         content:
-          '❌ Deputy Subscription or Staff role is required to refund subscriptions.',
+          '❌ You do not have permission required to renew subscriptions.',
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -684,13 +723,20 @@ Amounts are estimates; verification recalculates the refund from remaining time 
       });
       return;
     }
-    if (
-      !interaction.member.roles.cache.has(Roles.STAFF.id) ||
-      !interaction.member.roles.cache.has(Roles.DEPUTY_SUBSCRIPTION.id)
-    ) {
+
+    const allowedRoleIds = [
+      Roles.STAFF.id,
+      Roles.DEPUTY_SUBSCRIPTION.id,
+      Roles.FOUNDER.id,
+    ];
+    const hasPermission = allowedRoleIds.some((roleId) =>
+      interaction.member.roles.cache.has(roleId),
+    );
+
+    if (!hasPermission) {
       await interaction.reply({
         content:
-          '❌ Deputy Subscription or Staff role is required to change subscriptions.',
+          '❌ You do not have permission required to renew subscriptions.',
         flags: MessageFlags.Ephemeral,
       });
       return;
