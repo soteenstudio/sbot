@@ -1,0 +1,193 @@
+/**
+ * Copyright 2026 SoTeen Studio
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+
+import assert from 'node:assert/strict';
+import { expectedMoney } from './helpers/money.js';
+import { test } from 'node:test';
+import { SlashCommandBuilder, MessageFlags, PermissionFlagsBits, ChannelType } from 'discord.js';
+import { SubscriptionCommand } from '../dist/commands/SubscriptionCommand.js';
+import { subscriptionPrices, getSubscriptionPrice, calculateRefundDeduction, formatSubscriptionMoney, snapshotPaidPeriod } from '../dist/lib/subscriptionPrices.js';
+import { EMBED_COLORS, EMBED_FOOTER } from '../dist/engine/SEmbed.js';
+import { notifyBuyerOfRefund } from '../dist/lib/refundNotification.js';
+import { subscriptionStore } from '../dist/lib/subscriptionStore.js';
+
+const currency = { code: 'USD', minorUnitDigits: 2 };
+
+test('catalogue configures testing-only IDR prices for every tier and duration', () => {
+  assert.deepEqual(subscriptionPrices.currency, { code: 'IDR', minorUnitDigits: 0 });
+  const prices = {
+    DONATUR: { 1: 10_000, 6: 60_000, 12: 120_000 },
+    BILLION: { 1: 25_000, 6: 150_000, 12: 300_000 },
+    RICHMAN: { 1: 50_000, 6: 300_000, 12: 600_000 },
+  };
+  assert.deepEqual(subscriptionPrices.prices, prices);
+  for (const [tier, durations] of Object.entries(prices)) {
+    for (const [duration, amount] of Object.entries(durations)) {
+      assert.equal(getSubscriptionPrice(tier, Number(duration)), amount);
+    }
+  }
+});
+
+test('catalogue rejects unsupported and unconfigured prices without defaults', t => {
+  const originalCurrency = subscriptionPrices.currency;
+  const originalPrice = subscriptionPrices.prices.DONATUR[1];
+  t.after(() => {
+    subscriptionPrices.currency = originalCurrency;
+    subscriptionPrices.prices.DONATUR[1] = originalPrice;
+  });
+  assert.throws(() => getSubscriptionPrice('OTHER', 1), /Unsupported/);
+  assert.throws(() => getSubscriptionPrice('DONATUR', 2), /Unsupported/);
+  subscriptionPrices.currency = undefined;
+  assert.throws(() => getSubscriptionPrice('DONATUR', 1), /currency is unconfigured/);
+  subscriptionPrices.currency = originalCurrency;
+  subscriptionPrices.prices.DONATUR[1] = undefined;
+  assert.throws(() => getSubscriptionPrice('DONATUR', 1), /price is unconfigured/);
+  for (const invalid of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    subscriptionPrices.prices.DONATUR[1] = invalid;
+    assert.throws(() => getSubscriptionPrice('DONATUR', 1), /positive safe integer/);
+  }
+  subscriptionPrices.prices.DONATUR[1] = 123;
+  assert.equal(getSubscriptionPrice('DONATUR', 1), 123);
+});
+
+test('whole-rupiah refund deducts 500 from a gross amount of 10_000', () => {
+  const amounts = calculateRefundDeduction(10_000);
+  assert.deepEqual(amounts, { gross: 10_000, tax: 500, net: 9_500 });
+  assert.equal(formatSubscriptionMoney(amounts.gross, subscriptionPrices.currency), 'IDR 10.000');
+  assert.equal(formatSubscriptionMoney(amounts.tax, subscriptionPrices.currency), 'IDR 500');
+  assert.equal(formatSubscriptionMoney(amounts.net, subscriptionPrices.currency), 'IDR 9.500');
+  assert.equal(formatSubscriptionMoney(0, subscriptionPrices.currency), 'IDR 0');
+});
+
+test('5% deduction rounds half up using exact integer arithmetic', () => {
+  for (const [gross, tax] of [[1, 0], [9, 0], [10, 1], [11, 1], [29, 1], [30, 2], [100, 5], [Number.MAX_SAFE_INTEGER, 450359962737050]]) {
+    assert.deepEqual(calculateRefundDeduction(gross), { gross, tax, net: gross - tax });
+  }
+  for (const invalid of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+    assert.throws(() => calculateRefundDeduction(invalid), /positive safe integer/);
+});
+
+test('currency formatting groups integer digits with Indonesian separators', () => {
+  const idr = { code: 'IDR', minorUnitDigits: 0 };
+  for (const [amount, text] of [
+    [1_200_000, 'IDR 1.200.000'],
+    [999, 'IDR 999'],
+    [1_000, 'IDR 1.000'],
+    [0, 'IDR 0'],
+    [Number.MAX_SAFE_INTEGER, 'IDR 9.007.199.254.740.991'],
+  ]) {
+    assert.equal(formatSubscriptionMoney(amount, idr), text);
+    assert.equal(expectedMoney(amount, idr), text);
+  }
+  assert.equal(formatSubscriptionMoney(123456, currency), 'USD 1.234,56');
+  assert.equal(formatSubscriptionMoney(1, currency), 'USD 0,01');
+});
+
+test('currency formatting preserves minor units and validates configuration', () => {
+  assert.equal(formatSubscriptionMoney(123, currency), 'USD 1,23');
+  assert.equal(formatSubscriptionMoney(0, currency), 'USD 0,00');
+  assert.equal(formatSubscriptionMoney(123, { code: 'JPY', minorUnitDigits: 0 }), 'JPY 123');
+  assert.equal(formatSubscriptionMoney(Number.MAX_SAFE_INTEGER, currency), 'USD 90.071.992.547.409,91');
+  for (const invalid of [{ code: '', minorUnitDigits: 2 }, { code: 'USD', minorUnitDigits: -1 }, { code: 'USD', minorUnitDigits: 1.5 }])
+    assert.throws(() => formatSubscriptionMoney(123, invalid), /Invalid currency/);
+  assert.throws(() => formatSubscriptionMoney(-1, currency), /nonnegative/);
+});
+
+
+for (const scenario of ['DM', 'unauthorized']) {
+  test(`refund rejects ${scenario} with ephemeral acknowledgement`, async () => {
+    const events = [];
+    const interaction = {
+      inCachedGuild: () => scenario !== 'DM',
+      member: { permissions: { has(permission) { assert.equal(permission, PermissionFlagsBits.Administrator); return scenario !== 'unauthorized'; } } },
+      reply: async reply => { assert.equal(reply.flags, MessageFlags.Ephemeral); events.push('reply'); },
+      deferReply: async reply => { assert.equal(reply.flags, MessageFlags.Ephemeral); events.push('defer'); },
+      editReply: async () => assert.fail('unexpected edit'),
+    };
+    await SubscriptionCommand.prototype.chatInputRefund(interaction);
+    assert.deepEqual(events, ['reply']);
+  });
+}
+
+for (const blocked of [false, true]) {
+  test(`refund notification breakdown${blocked ? ' with blocked DM' : ''}`, async t => {
+    const logged = t.mock.method(console, 'error', () => {});
+    let sent = 0;
+    const member = {
+      id: 'buyer', guild: { name: 'Test Server', roles: { cache: new Map([['tier', { name: 'Donatur' }]]) } },
+      send: async ({ embeds }) => {
+        sent++;
+        const embed = embeds[0].toJSON();
+        assert.equal(embed.color, EMBED_COLORS.CONFIRMED);
+        assert.equal(embed.footer.text, `${EMBED_FOOTER} • Purchases`);
+        assert.ok(embed.timestamp);
+        assert.match(embed.description, /manual payment/);
+        assert.match(embed.description, /cancelled/);
+        assert.match(embed.description, /The 5% tax does not include inter-bank transfer fees\./);
+        assert.deepEqual(Object.fromEntries(embed.fields.map(field => [field.name, field.value])), {
+          Server: 'Test Server', 'Subscription Tier': 'Donatur', 'Gross Refund': 'USD 1,00', '5% Deduction': 'USD 0,05', 'Net Refund': 'USD 0,95',
+        });
+        if (blocked) throw new Error('DM blocked');
+      },
+    };
+    await notifyBuyerOfRefund(member, { roleId: 'tier', gross: 100, tax: 5, net: 95, currency });
+    assert.equal(sent, 1);
+    assert.equal(logged.mock.callCount(), blocked ? 1 : 0);
+
+  });
+}
+
+for (const tier of ['DONATUR', 'BILLION', 'RICHMAN']) for (const duration of [1, 6, 12]) {
+  test(`Refund Logged matches staff preview for ${tier} ${duration} months`, async t => {
+    const now = 1800000000000;
+    t.mock.method(Date, 'now', () => now);
+    const periodLength = duration * 30 * 24 * 60 * 60 * 1000;
+    const period = snapshotPaidPeriod(tier, duration, now - periodLength / 2, now + periodLength / 2);
+    const record = { guildId: 'guild', userId: 'buyer', roleId: tier, subscriptionId: 'subscription',
+      durationMonths: duration, expiresAt: period.endAt, paidPeriods: [period], paymentHistoryComplete: true };
+    const requestId = '11111111-1111-4111-8111-111111111111';
+    t.mock.method(subscriptionStore, 'get', async () => record);
+    t.mock.method(subscriptionStore, 'createRefundRequest', async request => ({ ...request, requestId }));
+    t.mock.method(subscriptionStore, 'bindRefundLog', async () => {});
+    t.mock.method(subscriptionStore, 'beginRefund', async () => assert.fail('submission must not cancel'));
+    const old = process.env.BUY_LOG_CHANNEL;
+    process.env.BUY_LOG_CHANNEL = 'log';
+    t.after(() => { if (old === undefined) delete process.env.BUY_LOG_CHANNEL; else process.env.BUY_LOG_CHANNEL = old; });
+    let log, reply, deferred;
+    const channel = { id: 'log', type: ChannelType.GuildText, send: async payload => {
+      log = payload;
+      return { id: 'message', edit: async () => {} };
+    } };
+    await SubscriptionCommand.prototype.chatInputRefund({
+      inCachedGuild: () => true, member: { permissions: { has: () => true } },
+      user: { id: 'admin', tag: 'Admin' }, options: { getUser: () => ({ id: 'buyer', tag: 'Buyer' }) },
+      guild: { id: 'guild', channels: { cache: new Map([['log', channel]]) } },
+      deferReply: async payload => { deferred = payload; }, editReply: async payload => { reply = payload; },
+    });
+    assert.equal(deferred.flags, MessageFlags.Ephemeral);
+    const confirmation = reply.embeds[0].toJSON();
+    assert.equal(confirmation.title, '✅ Refund Logged');
+    const expected = [
+      { name: 'Estimated Gross Refund', value: expectedMoney(period.price / 2), inline: true },
+      { name: 'Estimated 5% Deduction', value: expectedMoney(period.price / 40), inline: true },
+      { name: 'Estimated Net Refund', value: expectedMoney(period.price / 2 - period.price / 40), inline: true },
+    ];
+    assert.deepEqual(confirmation.fields, expected);
+    assert.deepEqual(confirmation.fields, log.embeds[0].toJSON().fields.filter(field => field.name.startsWith('Estimated ')));
+    assert.equal(confirmation.color, EMBED_COLORS.CONFIRMED);
+    assert.equal(confirmation.footer.text, `${EMBED_FOOTER} • Purchases`);
+    assert.ok(confirmation.timestamp);
+    assert.match(confirmation.description, /Amounts are estimates.*recalculates.*remaining time at verification/s);
+    assert.match(confirmation.description, /recorded for manual payment; the bot does not transfer funds/);
+    assert.match(confirmation.description, /dummy test prices/);
+    assert.match(confirmation.description, /The 5% tax does not include inter-bank transfer fees\./);
+    assert.equal(log.components[0].toJSON().components[0].custom_id, `refund_verify_${requestId}`);
+  });
+}

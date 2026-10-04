@@ -11,6 +11,6 @@ import { InteractionHandler } from '@sapphire/framework';
 import { ModalSubmitInteraction } from 'discord.js';
 export declare class PartnerFeedbackModalHandler extends InteractionHandler {
     constructor(context: InteractionHandler.LoaderContext, options: InteractionHandler.Options);
-    parse(interaction: ModalSubmitInteraction): import("@sapphire/result").Option.Some<never> | import("@sapphire/result").Option.None<any>;
+    parse(interaction: ModalSubmitInteraction): import("@sapphire/result").Option.None<any> | import("@sapphire/result").Option.Some<never>;
     run(interaction: ModalSubmitInteraction): Promise<void>;
 }

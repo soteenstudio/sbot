@@ -1,0 +1,88 @@
+Confirmed refund policy
+=======================
+/subscription refund logs a request in BUY_LOG_CHANNEL and returns an ephemeral Refund
+Logged confirmation. It does not cancel access or notify the buyer. Amounts
+are estimates for unused subscription time. Administrators, Founders and
+Deputies verify using the green ✅ Verify & Refund button on that exact log.
+Verification recalculates unused time from current paid snapshots, records a
+refund for manual payment and cancels the subscription. It removes only the
+buyer's subscription role, never the server's role. Months remain 30 days.
+Each stored paid period contributes:
+price * clamp(endAt - refundAt, 0, endAt - startAt) / (endAt - startAt).
+Contributions are summed exactly, then rounded to the nearest minor unit
+(ties up). A rounded 5% deduction is applied to gross. The 5% tax does not
+include inter-bank transfer fees. The bot does not transfer funds.
+
+Storage version 3 preserves legacy subscriptions and renewal receipts.
+Refunds require subscriptionId, paymentHistoryComplete: true, and a
+paidPeriods array containing startAt/endAt (safe integer milliseconds),
+price (positive safe integer minor units), currency {code, minorUnitDigits},
+and source ('verified' or 'testing'). Periods must not overlap, currencies
+must match, and final endAt must equal expiresAt. Only set complete history
+after checking actual payment evidence. Do not reconstruct historical
+payments from durationMonths or the current price catalogue. Legacy records
+can still renew; new periods do not make incomplete history complete.
+
+The current IDR catalogue is synthetic and snapshots use source: testing.
+Use a test server and synthetic records only for this catalogue. For example:
+{
+  "subscriptionId": "11111111-1111-4111-8111-111111111111",
+  "guildId": "TEST_GUILD_ID",
+  "userId": "TEST_BUYER_ID",
+  "roleId": "TEST_ROLE_ID",
+  "durationMonths": 1,
+  "expiresAt": 1802592000000,
+  "paymentHistoryComplete": true,
+  "paidPeriods": [{
+    "startAt": 1800000000000,
+    "endAt": 1802592000000,
+    "price": 10000,
+    "currency": {"code": "IDR", "minorUnitDigits": 0},
+    "source": "testing"
+  }]
+}
+Set timestamps around the test date. Halfway through this period, gross is
+IDR 5000, deduction IDR 250, net IDR 4750. Purchase and approval flows create
+snapshots automatically. Renewal buttons bind to subscription identity;
+unbound older requests cannot renew replacement purchases.
+
+A pending refund stores frozen amounts and staff identity before role removal.
+Retry verification on the existing log after restoring Discord permissions
+or storage. The saved calculation is frozen even across restarts. Purchases,
+renewals and expiry cleanup block while cancellation is
+pending. Completion atomically retains the receipt and removes the matching
+subscription; renewal receipts survive. Completed replays do not resend DMs.
+Do not replace a subscription or edit pendingRefundId during recovery.
+tests/proportional-refund.test.js and tests/subscription refund-verification.test.js cover
+arithmetic, cancellation, reload, duplicate requests, replacement and recovery.
+
+Requests are stored separately from cancellation receipts. Awaiting staff
+verification does not set pendingRefundId: renewals and expiry continue.
+Repeated /subscription refund returns the existing request link. Logging starts with a
+disabled button; only the saved channel/message binding is executable. If
+sending or binding fails, repeat /subscription refund to log the same request. Any unbound
+message stays disabled and cannot execute. If enabling the button fails,
+repeat /subscription refund to repair the bound message, without posting another request.
+Verification atomically saves approver/time, receipt and pendingRefundId.
+The final log shows calculation time, final amounts and refund reference.
+After completion the green ✅ button stays visible and disabled. Retrying
+completed verification repairs the log without cancelling or sending a DM
+again. The bot never confirms bank payment or transfers funds.
+Version 1 and 2 files migrate refund request storage on write, preserving all
+subscriptions, renewal approvals and cancellation receipts. Existing pending
+receipts can be logged with /subscription refund and verified without recalculation.
+
+Command migration
+=================
+Staff now use /subscription buy, /subscription renew and /subscription refund.
+The parent command is guild-only and defaults to Administrator permission.
+Existing verification buttons continue to work with their original custom IDs.
+Sapphire's default registration behavior does not remove retired global commands.
+On client ready, subscriptionCommandCleanup removes only the retired global
+chat-input commands named buy, renew and refund. This is an idempotent migration:
+after the first successful cleanup, later startups have nothing to delete.
+Failures are logged and retried on the next startup. No bulk overwrite is used.
+Reference: https://sapphirejs.dev/docs/Documentation/api-framework/enumerations/RegisterBehavior/
+
+Plan changes: see docs/subscription-plan-changes.txt. Awaiting or verified
+plan changes block refunds, renewals and expiry until completed or failed.
