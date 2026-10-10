@@ -58,7 +58,7 @@ export class HoneypotAppealButtonHandler extends InteractionHandler {
       interaction.customId.startsWith('report_done_') ||
       interaction.customId.startsWith('report_ban_')
     ) {
-      if (!meetsRoleLevel(interaction.member, 'DEPUTY')) {
+      if (!meetsRoleLevel(interaction.member, ["DEPUTY_GROWTH_OUTREACH", "DEPUTY_SUBSCRIPTION", "DEPUTY_MODERATION", "HONORARY_DEPUTY", "FOUNDER"])) {
         return interaction.reply({
           content:
             '❌ You need the Deputy role or higher to review honeypot appeals.',

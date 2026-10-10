@@ -24,6 +24,7 @@ import {
   loadGameSelectionMessage,
   saveGameSelectionMessage,
 } from '../lib/gameSelection.js';
+import { config } from "../config/sbotc.js";
 
 const EMBED_TITLE = '🎮 Select Your Favorite Games!';
 const EMBED_COLOR = EMBED_COLORS.SUCCESS;
@@ -39,6 +40,7 @@ export class GameEmbedSetupListener extends Listener {
   }
 
   public async run(client: Client) {
+    if (!config.reactionRoles) return;
     const channelId = process.env.INTERESTS_CHANNEL;
     if (!channelId) {
       console.warn('[Game Setup] INTERESTS_CHANNEL is not defined in .env');

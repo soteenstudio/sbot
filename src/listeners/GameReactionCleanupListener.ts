@@ -16,6 +16,7 @@ import type {
   PartialUser,
 } from 'discord.js';
 import { allowedEmojis } from '../config/allowedEmojis.js';
+import { config } from '../config/sbotc.js';
 
 const INTERESTS_CHANNEL = process.env.INTERESTS_CHANNEL;
 const EMBED_TITLE = '🎮 Select Your Favorite Games!';
@@ -35,6 +36,7 @@ export class GameReactionCleanupListener extends Listener {
     reaction: MessageReaction | PartialMessageReaction,
     user: User | PartialUser,
   ) {
+    if (!config.reactionRoles) return;
     if (user.bot) return;
 
     if (reaction.partial) {

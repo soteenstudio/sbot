@@ -10,4 +10,4 @@
 import type { APIInteractionGuildMember, GuildMember } from 'discord.js';
 import { Roles } from '../config.js';
 /** Check whether a guild member meets or exceeds a configured role level. */
-export declare function meetsRoleLevel(member: GuildMember | APIInteractionGuildMember | null | undefined, level: keyof typeof Roles): boolean;
+export declare function meetsRoleLevel(member: GuildMember | APIInteractionGuildMember | null | undefined, level: keyof typeof Roles | Array<keyof typeof Roles>): boolean;

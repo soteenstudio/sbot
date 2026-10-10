@@ -33,8 +33,17 @@ function getHighestRoleWeight(
 /** Check whether a guild member meets or exceeds a configured role level. */
 export function meetsRoleLevel(
   member: GuildMember | APIInteractionGuildMember | null | undefined,
-  level: keyof typeof Roles,
+  level: keyof typeof Roles | Array<keyof typeof Roles>,
 ): boolean {
   if (!member) return false;
-  return getHighestRoleWeight(member) >= Roles[level].weight;
+
+  const memberWeight = getHighestRoleWeight(member);
+
+  // Kalau level-nya berupa array, cek apakah member memenuhi SETIDAKNYA SATU dari level tersebut (atau sesuaikan logika kalau mau wajib semua)
+  if (Array.isArray(level)) {
+    return level.some((l) => memberWeight >= Roles[l].weight);
+  }
+
+  // Kalau cuma string tunggal
+  return memberWeight >= Roles[level].weight;
 }

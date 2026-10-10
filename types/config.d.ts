@@ -10,27 +10,43 @@
 import 'dotenv/config';
 export declare const Roles: {
     readonly MEMBER: {
-        readonly id: string | undefined;
+        readonly id: string;
         readonly weight: 0;
     };
     readonly DONATUR: {
-        readonly id: string | undefined;
+        readonly id: string;
         readonly weight: 1;
     };
     readonly BILLION: {
-        readonly id: string | undefined;
+        readonly id: string;
         readonly weight: 2;
     };
     readonly RICHMAN: {
-        readonly id: string | undefined;
+        readonly id: string;
         readonly weight: 3;
     };
-    readonly DEPUTY: {
-        readonly id: string | undefined;
+    readonly STAFF: {
+        readonly id: string;
         readonly weight: 4;
     };
-    readonly FOUNDER: {
-        readonly id: string | undefined;
+    readonly DEPUTY_GROWTH_OUTREACH: {
+        readonly id: string;
         readonly weight: 5;
+    };
+    readonly DEPUTY_SUBSCRIPTION: {
+        readonly id: string;
+        readonly weight: 6;
+    };
+    readonly DEPUTY_MODERATION: {
+        readonly id: string;
+        readonly weight: 7;
+    };
+    readonly HONORARY_DEPUTY: {
+        readonly id: string;
+        readonly weight: 8;
+    };
+    readonly FOUNDER: {
+        readonly id: string;
+        readonly weight: 9;
     };
 };

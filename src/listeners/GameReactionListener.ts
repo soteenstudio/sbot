@@ -21,6 +21,7 @@ import {
   enqueueGameRoleChange,
   isGameSelectionMessage,
 } from '../lib/gameSelection.js';
+import { config } from '../config/sbotc.js';
 
 const INTERESTS_CHANNEL = process.env.INTERESTS_CHANNEL;
 
@@ -39,6 +40,7 @@ export class GameReactionListener extends Listener {
     reaction: MessageReaction | PartialMessageReaction,
     user: User | PartialUser,
   ) {
+    if (!config.reactionRoles) return;
     if (user.bot || reaction.message.channelId !== INTERESTS_CHANNEL) return;
     if (
       !isGameSelectionMessage(reaction.message.channelId, reaction.message.id)
